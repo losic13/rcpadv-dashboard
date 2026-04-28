@@ -1,8 +1,11 @@
 {#
   통합 대시보드 — 차트 중심 리뉴얼.
   - 카드 단위: VNAND DB / DRAM DB
-  - 카드 안에서 PRODUCT 별로 차트 그룹을 분리(VNAND: LAM/TEL, DRAM: AMAT/LAM/TEL)
-  - 각 PRODUCT 그룹은 REGULAR / COMPLETE 두 개의 막대 차트(상하)로 분리(옵션 c)
+  - 카드 내부 구조: metric(REGULAR/COMPLETE) 별로 묶음
+      · 상단: REGULAR 섹션 — PRODUCT 들이 series 로 들어간 한 개의 막대 차트
+      · 하단: COMPLETE 섹션 — 동일 구조
+  - 각 차트에는 PRODUCT 별 막대(서로 다른 색)와,
+    PRODUCT 별 이동평균선(마지막 데이터 제외) Line series 가 함께 그려짐
   - 데이터 소스: 각 source 의 recent_parsing_results 쿼리 결과
 #}
 {% extends "base.html" %}
@@ -53,35 +56,28 @@
     </header>
 
     <div class="card-body chart-card-body">
-      {# PRODUCT 그룹 - JS 가 dataset 채워줌 #}
-      <div class="product-groups" data-role="product-groups">
-        {% for product in card.products %}
-        <div class="product-group" data-product="{{ product }}">
-          <div class="product-group-title">
-            <span class="product-tag">{{ product }}</span>
+      {# metric(REGULAR / COMPLETE) 섹션. PRODUCT 들은 각 차트의 series 로 들어감 #}
+      <div class="metric-sections" data-role="metric-sections">
+        <div class="metric-section metric-section-regular" data-metric="regular">
+          <div class="metric-section-head">
+            <span class="metric-section-label">REGULAR</span>
+            <span class="metric-section-legend" data-role="legend-regular"></span>
+            <span class="metric-section-stat" data-role="stat-regular"></span>
           </div>
-          <div class="chart-pair">
-            <div class="chart-block chart-block-regular">
-              <div class="chart-block-head">
-                <span class="chart-block-label">REGULAR</span>
-                <span class="chart-block-stat" data-role="stat-regular"></span>
-              </div>
-              <div class="chart-canvas-wrap">
-                <canvas data-role="chart-regular" aria-label="{{ product }} REGULAR 일자별 막대 차트"></canvas>
-              </div>
-            </div>
-            <div class="chart-block chart-block-complete">
-              <div class="chart-block-head">
-                <span class="chart-block-label">COMPLETE</span>
-                <span class="chart-block-stat" data-role="stat-complete"></span>
-              </div>
-              <div class="chart-canvas-wrap">
-                <canvas data-role="chart-complete" aria-label="{{ product }} COMPLETE 일자별 막대 차트"></canvas>
-              </div>
-            </div>
+          <div class="chart-canvas-wrap">
+            <canvas data-role="chart-regular" aria-label="REGULAR 일자별 PRODUCT 막대 차트"></canvas>
           </div>
         </div>
-        {% endfor %}
+        <div class="metric-section metric-section-complete" data-metric="complete">
+          <div class="metric-section-head">
+            <span class="metric-section-label">COMPLETE</span>
+            <span class="metric-section-legend" data-role="legend-complete"></span>
+            <span class="metric-section-stat" data-role="stat-complete"></span>
+          </div>
+          <div class="chart-canvas-wrap">
+            <canvas data-role="chart-complete" aria-label="COMPLETE 일자별 PRODUCT 막대 차트"></canvas>
+          </div>
+        </div>
       </div>
 
       <div class="error-msg" data-role="error" hidden></div>

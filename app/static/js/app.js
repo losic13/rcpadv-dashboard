@@ -538,20 +538,24 @@
   // ============================================================
   // ChartCard — 통합 대시보드 전용 카드
   //   - source(vnand|dram) 의 query_id 결과를 fetch
-  //   - PRODUCT(LAM/TEL/AMAT) 별로 분리된 차트 그룹 렌더링
-  //   - 각 PRODUCT 마다 REGULAR / COMPLETE 두 개 막대 차트(상하 분리, 옵션 c)
+  //   - 카드 내부 구조: metric(REGULAR/COMPLETE) 별로 한 개 차트씩, 상하 분리
+  //   - 각 차트에는 PRODUCT 별 막대(서로 다른 색)와
+  //     PRODUCT 별 이동평균선(마지막 데이터 제외) Line series 가 함께 표시됨
   //   - X축: TKIN_TIME(YYYY-MM-DD)
   //   - QueryRunner 와 동일한 race-UI 패턴(_runToken, AbortController, 토스트, 배지)
   // ============================================================
+  const MOVING_AVG_WINDOW = 7; // 이동평균 윈도(최근 N일)
+
   class ChartCard {
     /**
      * @param {Object} opts
      * @param {HTMLElement} opts.rootEl
      * @param {string} opts.source       - "vnand" | "dram"
      * @param {string} opts.queryId      - 보통 "recent_parsing_results"
-     * @param {string[]} opts.products   - ["LAM", "TEL"] 등
+     * @param {string[]} opts.products   - ["LAM", "TEL"] 등 (series 로 그려짐)
      * @param {number} [opts.autoRefreshIntervalMs=10000]
      * @param {boolean} [opts.showRaceToast=true]
+     * @param {number}  [opts.movingAvgWindow=7] - 이동평균 윈도 크기
      */
     constructor(opts) {
       this.root = opts.rootEl;
@@ -560,6 +564,7 @@
       this.products = Array.isArray(opts.products) ? opts.products : [];
       this.intervalMs = opts.autoRefreshIntervalMs || 10000;
       this.showRaceToast = opts.showRaceToast !== false;
+      this.movingAvgWindow = opts.movingAvgWindow || MOVING_AVG_WINDOW;
 
       this.refreshBtn = this.root.querySelector('[data-role="refresh"]');
       this.autoCheck = this.root.querySelector('[data-role="auto-refresh"]');
@@ -571,11 +576,16 @@
       this.cancelCountNumEl = this.cancelCountEl
         ? this.cancelCountEl.querySelector('.cancel-count-num')
         : null;
-      this.productGroupsEl = this.root.querySelector('[data-role="product-groups"]');
 
-      // PRODUCT -> { regular: Chart, complete: Chart, regularStat, completeStat, groupEl }
-      this._charts = {};
-      this._initProductSlots();
+      // 새 레이아웃: metric-sections 단위
+      this.metricSectionsEl = this.root.querySelector('[data-role="metric-sections"]');
+
+      // metric -> { canvas, statEl, legendEl, chart }
+      this._charts = {
+        regular:  { canvas: null, statEl: null, legendEl: null, chart: null },
+        complete: { canvas: null, statEl: null, legendEl: null, chart: null },
+      };
+      this._initMetricSlots();
 
       this.timer = null;
       this.inFlight = false;
@@ -589,22 +599,15 @@
       this._onAutoChange = () => this._applyAutoRefresh();
     }
 
-    _initProductSlots() {
-      this.products.forEach(p => {
-        const groupEl = this.productGroupsEl
-          ? this.productGroupsEl.querySelector(`.product-group[data-product="${p}"]`)
-          : null;
-        if (!groupEl) return;
-        this._charts[p] = {
-          groupEl,
-          regularCanvas: groupEl.querySelector('[data-role="chart-regular"]'),
-          completeCanvas: groupEl.querySelector('[data-role="chart-complete"]'),
-          regularStatEl: groupEl.querySelector('[data-role="stat-regular"]'),
-          completeStatEl: groupEl.querySelector('[data-role="stat-complete"]'),
-          regularChart: null,
-          completeChart: null,
-        };
-      });
+    _initMetricSlots() {
+      const root = this.metricSectionsEl || this.root;
+      const findIn = (sel) => root ? root.querySelector(sel) : null;
+      this._charts.regular.canvas   = findIn('[data-role="chart-regular"]');
+      this._charts.regular.statEl   = findIn('[data-role="stat-regular"]');
+      this._charts.regular.legendEl = findIn('[data-role="legend-regular"]');
+      this._charts.complete.canvas   = findIn('[data-role="chart-complete"]');
+      this._charts.complete.statEl   = findIn('[data-role="stat-complete"]');
+      this._charts.complete.legendEl = findIn('[data-role="legend-complete"]');
     }
 
     init({ runOnLoad = true } = {}) {
@@ -630,8 +633,10 @@
       if (this.refreshBtn) this.refreshBtn.removeEventListener('click', this._onRefreshClick);
       if (this.autoCheck) this.autoCheck.removeEventListener('change', this._onAutoChange);
       Object.values(this._charts).forEach(slot => {
-        if (slot.regularChart) { try { slot.regularChart.destroy(); } catch (_) {} slot.regularChart = null; }
-        if (slot.completeChart) { try { slot.completeChart.destroy(); } catch (_) {} slot.completeChart = null; }
+        if (slot && slot.chart) {
+          try { slot.chart.destroy(); } catch (_) {}
+          slot.chart = null;
+        }
       });
       if (this.elapsedEl) this.elapsedEl.textContent = '';
       if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
@@ -681,8 +686,8 @@
     }
 
     _setLoadingDim(on) {
-      if (this.productGroupsEl) {
-        this.productGroupsEl.classList.toggle('is-loading', !!on);
+      if (this.metricSectionsEl) {
+        this.metricSectionsEl.classList.toggle('is-loading', !!on);
       }
     }
 
@@ -858,33 +863,92 @@
       }
       const grouped = this._groupByProduct(data);
 
+      // 차트 1개당 X축은 모든 PRODUCT 의 합집합 일자 — 정렬된 union
+      const labelSet = new Set();
       this.products.forEach(p => {
-        const slot = this._charts[p];
-        if (!slot) return;
-        const g = grouped[p] || { dates: [], regular: [], complete: [] };
-        const sumReg = g.regular.reduce((a, b) => a + b, 0);
-        const sumCpl = g.complete.reduce((a, b) => a + b, 0);
-        if (slot.regularStatEl) slot.regularStatEl.textContent = `합계 ${this._fmtNum(sumReg)}`;
-        if (slot.completeStatEl) slot.completeStatEl.textContent = `합계 ${this._fmtNum(sumCpl)}`;
-
-        this._upsertChart(slot, 'regularChart', slot.regularCanvas, {
-          labels: g.dates,
-          values: g.regular,
-          color: this._colorFor(p, 'regular'),
-          label: `${p} REGULAR`,
-        });
-        this._upsertChart(slot, 'completeChart', slot.completeCanvas, {
-          labels: g.dates,
-          values: g.complete,
-          color: this._colorFor(p, 'complete'),
-          label: `${p} COMPLETE`,
-        });
+        const g = grouped[p];
+        if (!g) return;
+        g.dates.forEach(d => labelSet.add(d));
       });
+      const labels = Array.from(labelSet).sort();
+
+      // 각 metric 에 대해 PRODUCT 별 series 만들기
+      ['regular', 'complete'].forEach(metric => {
+        const slot = this._charts[metric];
+        if (!slot) return;
+
+        // PRODUCT -> {dates -> value} lookup 으로 변환 후 union 라벨에 맞춰 채움
+        const series = this.products.map(p => {
+          const g = grouped[p] || { dates: [], regular: [], complete: [] };
+          const lookup = new Map();
+          g.dates.forEach((d, i) => lookup.set(d, g[metric][i]));
+          const values = labels.map(d => lookup.has(d) ? lookup.get(d) : null);
+          return {
+            product: p,
+            values,
+            color: this._colorFor(p, metric),
+            maColor: this._maColorFor(p, metric),
+          };
+        });
+
+        // 합계 통계 (전체 PRODUCT 합산)
+        const total = series.reduce(
+          (acc, s) => acc + s.values.reduce((a, b) => a + (b || 0), 0),
+          0
+        );
+        if (slot.statEl) slot.statEl.textContent = `합계 ${this._fmtNum(total)}`;
+
+        // 범례 — 막대 색 + 이동평균선 표시
+        if (slot.legendEl) {
+          slot.legendEl.innerHTML = series.map(s => (
+            `<span class="legend-item">` +
+              `<span class="legend-bar" style="background:${s.color}"></span>` +
+              `<span class="legend-name">${escapeHtml(s.product)}</span>` +
+              `<span class="legend-ma" title="이동평균선 (${this.movingAvgWindow}일, 마지막 데이터 제외)" style="color:${s.maColor}">~MA${this.movingAvgWindow}</span>` +
+            `</span>`
+          )).join('');
+        }
+
+        this._upsertMetricChart(slot, labels, series, metric);
+      });
+    }
+
+    /**
+     * 마지막 데이터를 제외한 이동평균선 계산.
+     * - 입력: values (number|null)[] (length = labels.length)
+     * - 마지막 인덱스 값은 제외하고 그 앞까지의 시리즈로 이동평균을 계산.
+     * - 마지막 인덱스에는 null 을 채워서 라인이 그려지지 않게 한다.
+     * - window 내에 null 이 있으면 null 값을 무시하고 존재하는 값들의 평균을 사용.
+     *   유효 값이 없으면 null.
+     */
+    _movingAverageExcludingLast(values, windowSize) {
+      const n = values.length;
+      const out = new Array(n).fill(null);
+      if (n <= 1) return out;
+      const last = n - 1;
+      for (let i = 0; i < last; i++) {
+        const start = Math.max(0, i - windowSize + 1);
+        let sum = 0, cnt = 0;
+        for (let j = start; j <= i; j++) {
+          const v = values[j];
+          if (v != null && !isNaN(v)) { sum += Number(v); cnt += 1; }
+        }
+        out[i] = cnt > 0 ? sum / cnt : null;
+      }
+      // out[last] 는 null 로 유지 — 마지막 데이터는 이동평균선에서 제외
+      return out;
     }
 
     _fmtNum(n) {
       if (n == null) return '0';
-      try { return Number(n).toLocaleString('ko-KR'); } catch (_) { return String(n); }
+      try {
+        const num = Number(n);
+        if (!Number.isFinite(num)) return '0';
+        if (Math.abs(num - Math.round(num)) < 1e-9) {
+          return Math.round(num).toLocaleString('ko-KR');
+        }
+        return num.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
+      } catch (_) { return String(n); }
     }
 
     _colorFor(product, kind) {
@@ -898,28 +962,77 @@
       return (palette[product] || fallback)[kind] || fallback.regular;
     }
 
-    _upsertChart(slot, key, canvas, payload) {
+    _maColorFor(product, kind) {
+      // 이동평균선은 막대보다 진한 톤으로 — REGULAR/COMPLETE 모두 동일 PRODUCT 의 진한 색 사용
+      const palette = {
+        LAM:  '#3730a3',
+        TEL:  '#0369a1',
+        AMAT: '#047857',
+      };
+      return palette[product] || '#1f2937';
+    }
+
+    /**
+     * REGULAR 또는 COMPLETE 한 차트를 upsert.
+     * datasets:
+     *   - PRODUCT 마다 type:'bar' 1개
+     *   - PRODUCT 마다 type:'line' 1개 (이동평균, 마지막 데이터 제외)
+     */
+    _upsertMetricChart(slot, labels, series, metric) {
+      const canvas = slot.canvas;
       if (!canvas || !canvas.isConnected) return;
+
+      const datasets = [];
+      // 막대 series 먼저
+      series.forEach(s => {
+        datasets.push({
+          type: 'bar',
+          label: s.product,
+          data: s.values,
+          backgroundColor: s.color,
+          borderColor: s.color,
+          borderWidth: 0,
+          borderRadius: 4,
+          maxBarThickness: 22,
+          order: 2,
+          stack: undefined, // 그룹형(나란히)
+          _kind: 'bar',
+          _product: s.product,
+        });
+      });
+      // 이동평균 line series
+      series.forEach(s => {
+        const ma = this._movingAverageExcludingLast(s.values, this.movingAvgWindow);
+        datasets.push({
+          type: 'line',
+          label: `${s.product} MA${this.movingAvgWindow}`,
+          data: ma,
+          borderColor: s.maColor,
+          backgroundColor: s.maColor,
+          borderWidth: 2,
+          borderDash: [6, 4],
+          tension: 0.3,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          spanGaps: true,
+          fill: false,
+          order: 1, // 막대 위에 그려짐
+          _kind: 'ma',
+          _product: s.product,
+        });
+      });
+
+      const fmt = (v) => this._fmtNum(v);
       const cfg = {
         type: 'bar',
-        data: {
-          labels: payload.labels,
-          datasets: [{
-            label: payload.label,
-            data: payload.values,
-            backgroundColor: payload.color,
-            borderColor: payload.color,
-            borderWidth: 0,
-            borderRadius: 4,
-            maxBarThickness: 28,
-          }],
-        },
+        data: { labels, datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           animation: { duration: 250 },
+          interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { display: false },
+            legend: { display: false }, // 자체 범례 사용
             tooltip: {
               backgroundColor: 'rgba(15,23,42,0.92)',
               titleColor: '#f8fafc',
@@ -927,7 +1040,14 @@
               padding: 8,
               cornerRadius: 6,
               callbacks: {
-                label: (ctx) => `${payload.label}: ${this._fmtNum(ctx.parsed.y)}`,
+                label: (ctx) => {
+                  const ds = ctx.dataset || {};
+                  const v = ctx.parsed != null ? ctx.parsed.y : null;
+                  if (v == null) return null; // 표시 안 함
+                  const tag = ds._kind === 'ma' ? `MA${this.movingAvgWindow}` : '';
+                  const name = ds._product || ds.label || '';
+                  return `${name}${tag ? ' ' + tag : ''}: ${fmt(v)}`;
+                },
               },
             },
           },
@@ -941,32 +1061,53 @@
               grid: { color: 'rgba(148,163,184,0.18)' },
               ticks: {
                 color: '#64748b', font: { size: 11 },
-                callback: (v) => this._fmtNum(v),
+                callback: (v) => fmt(v),
               },
             },
           },
         },
       };
 
-      if (slot[key]) {
+      // upsert: 동일 차트 인스턴스 재사용 (datasets 길이/구조가 같으면 update 만)
+      if (slot.chart) {
         try {
-          slot[key].data.labels = cfg.data.labels;
-          slot[key].data.datasets[0].data = cfg.data.datasets[0].data;
-          slot[key].data.datasets[0].backgroundColor = cfg.data.datasets[0].backgroundColor;
-          slot[key].data.datasets[0].borderColor = cfg.data.datasets[0].borderColor;
-          slot[key].data.datasets[0].label = cfg.data.datasets[0].label;
-          slot[key].update('none');
+          slot.chart.data.labels = labels;
+          // datasets 의 갯수/순서가 같다고 가정 (PRODUCT 가 변하지 않음)
+          if (slot.chart.data.datasets.length === datasets.length) {
+            datasets.forEach((d, i) => {
+              const cur = slot.chart.data.datasets[i];
+              cur.type = d.type;
+              cur.label = d.label;
+              cur.data = d.data;
+              cur.backgroundColor = d.backgroundColor;
+              cur.borderColor = d.borderColor;
+              cur.borderWidth = d.borderWidth;
+              cur.borderDash = d.borderDash;
+              cur.tension = d.tension;
+              cur.pointRadius = d.pointRadius;
+              cur.pointHoverRadius = d.pointHoverRadius;
+              cur.spanGaps = d.spanGaps;
+              cur.fill = d.fill;
+              cur.borderRadius = d.borderRadius;
+              cur.maxBarThickness = d.maxBarThickness;
+              cur.order = d.order;
+              cur._kind = d._kind;
+              cur._product = d._product;
+            });
+          } else {
+            slot.chart.data.datasets = datasets;
+          }
+          slot.chart.update('none');
           return;
         } catch (_) {
-          try { slot[key].destroy(); } catch (_) {}
-          slot[key] = null;
+          try { slot.chart.destroy(); } catch (_) {}
+          slot.chart = null;
         }
       }
       try {
-        slot[key] = new Chart(canvas.getContext('2d'), cfg);
+        slot.chart = new Chart(canvas.getContext('2d'), cfg);
       } catch (e) {
-        // Chart 생성 실패 시 다음 run 에서 재시도
-        slot[key] = null;
+        slot.chart = null;
       }
     }
   }
