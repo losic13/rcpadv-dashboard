@@ -1,48 +1,49 @@
 """통합 대시보드 페이지.
 
-각 서비스에서 show_in_dashboard=True 인 쿼리들을 카드로 노출.
-실제 데이터는 페이지 로드 후 JS 가 fetch 로 채움.
+VNAND DB / DRAM DB 의 `recent_parsing_results` 쿼리 결과를
+PRODUCT 별로 분리해 차트(REGULAR / COMPLETE 상하 분리)로 시각화한다.
+
+데이터는 페이지 로드 후 JS(ChartCard)가
+  GET /{source}/query/recent_parsing_results
+를 호출해 채운다. 라우터에서는 카드 메타 정보만 내려준다.
 """
 from fastapi import APIRouter, Request
 
 from app.routers._templating import NAV_ITEMS, templates
-from app.services import dram_service, es_service, vnand_service
 
 router = APIRouter()
+
+# 통합 대시보드에 표시할 차트 카드 정의
+#   - source       : 백엔드 라우트 prefix (vnand|dram)
+#   - source_label : UI 배지/제목용
+#   - query_id     : 차트 데이터를 가져올 쿼리 ID
+#   - products     : 카드 안에서 분리해 그릴 PRODUCT 목록
+DASHBOARD_CARDS = [
+    {
+        "source": "vnand",
+        "source_label": "VNAND DB",
+        "title": "VNAND 파싱 결과",
+        "query_id": "recent_parsing_results",
+        "products": ["LAM", "TEL"],
+    },
+    {
+        "source": "dram",
+        "source_label": "DRAM DB",
+        "title": "DRAM 파싱 결과",
+        "query_id": "recent_parsing_results",
+        "products": ["AMAT", "LAM", "TEL"],
+    },
+]
 
 
 @router.get("/")
 def dashboard(request: Request):
-    cards = []
-
-    for q in vnand_service.list_dashboard_queries():
-        cards.append({
-            "source": vnand_service.SOURCE,
-            "source_label": vnand_service.SOURCE_LABEL,
-            "query_id": q.id,
-            "title": q.title,
-        })
-    for q in dram_service.list_dashboard_queries():
-        cards.append({
-            "source": dram_service.SOURCE,
-            "source_label": dram_service.SOURCE_LABEL,
-            "query_id": q.id,
-            "title": q.title,
-        })
-    for q in es_service.list_dashboard_queries():
-        cards.append({
-            "source": es_service.SOURCE,
-            "source_label": es_service.SOURCE_LABEL,
-            "query_id": q.id,
-            "title": q.title,
-        })
-
     return templates.TemplateResponse(
         request,
         "home.html",
         {
             "nav_items": NAV_ITEMS,
             "active_nav": "home",
-            "cards": cards,
+            "cards": DASHBOARD_CARDS,
         },
     )

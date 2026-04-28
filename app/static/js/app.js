@@ -535,7 +535,444 @@
     LogPanel.init();
   });
 
+  // ============================================================
+  // ChartCard — 통합 대시보드 전용 카드
+  //   - source(vnand|dram) 의 query_id 결과를 fetch
+  //   - PRODUCT(LAM/TEL/AMAT) 별로 분리된 차트 그룹 렌더링
+  //   - 각 PRODUCT 마다 REGULAR / COMPLETE 두 개 막대 차트(상하 분리, 옵션 c)
+  //   - X축: TKIN_TIME(YYYY-MM-DD)
+  //   - QueryRunner 와 동일한 race-UI 패턴(_runToken, AbortController, 토스트, 배지)
+  // ============================================================
+  class ChartCard {
+    /**
+     * @param {Object} opts
+     * @param {HTMLElement} opts.rootEl
+     * @param {string} opts.source       - "vnand" | "dram"
+     * @param {string} opts.queryId      - 보통 "recent_parsing_results"
+     * @param {string[]} opts.products   - ["LAM", "TEL"] 등
+     * @param {number} [opts.autoRefreshIntervalMs=10000]
+     * @param {boolean} [opts.showRaceToast=true]
+     */
+    constructor(opts) {
+      this.root = opts.rootEl;
+      this.source = opts.source;
+      this.queryId = opts.queryId;
+      this.products = Array.isArray(opts.products) ? opts.products : [];
+      this.intervalMs = opts.autoRefreshIntervalMs || 10000;
+      this.showRaceToast = opts.showRaceToast !== false;
+
+      this.refreshBtn = this.root.querySelector('[data-role="refresh"]');
+      this.autoCheck = this.root.querySelector('[data-role="auto-refresh"]');
+      this.spinner = this.root.querySelector('[data-role="spinner"]');
+      this.elapsedEl = this.root.querySelector('[data-role="elapsed"]');
+      this.errorEl = this.root.querySelector('[data-role="error"]');
+      this.statusBadgeEl = this.root.querySelector('[data-role="status-badge"]');
+      this.cancelCountEl = this.root.querySelector('[data-role="cancel-count"]');
+      this.cancelCountNumEl = this.cancelCountEl
+        ? this.cancelCountEl.querySelector('.cancel-count-num')
+        : null;
+      this.productGroupsEl = this.root.querySelector('[data-role="product-groups"]');
+
+      // PRODUCT -> { regular: Chart, complete: Chart, regularStat, completeStat, groupEl }
+      this._charts = {};
+      this._initProductSlots();
+
+      this.timer = null;
+      this.inFlight = false;
+      this._destroyed = false;
+      this._runToken = 0;
+      this._abortCtrl = null;
+      this._cancelledCount = 0;
+      this._supersedeTimer = null;
+
+      this._onRefreshClick = () => this.run();
+      this._onAutoChange = () => this._applyAutoRefresh();
+    }
+
+    _initProductSlots() {
+      this.products.forEach(p => {
+        const groupEl = this.productGroupsEl
+          ? this.productGroupsEl.querySelector(`.product-group[data-product="${p}"]`)
+          : null;
+        if (!groupEl) return;
+        this._charts[p] = {
+          groupEl,
+          regularCanvas: groupEl.querySelector('[data-role="chart-regular"]'),
+          completeCanvas: groupEl.querySelector('[data-role="chart-complete"]'),
+          regularStatEl: groupEl.querySelector('[data-role="stat-regular"]'),
+          completeStatEl: groupEl.querySelector('[data-role="stat-complete"]'),
+          regularChart: null,
+          completeChart: null,
+        };
+      });
+    }
+
+    init({ runOnLoad = true } = {}) {
+      if (this._destroyed) return;
+      if (this.refreshBtn) this.refreshBtn.addEventListener('click', this._onRefreshClick);
+      if (this.autoCheck) {
+        this.autoCheck.checked = false;
+        this.autoCheck.addEventListener('change', this._onAutoChange);
+      }
+      this._setStatusBadge('idle');
+      if (runOnLoad) this.run();
+    }
+
+    destroy() {
+      if (this._destroyed) return;
+      this._destroyed = true;
+      this._stopTimer();
+      if (this._supersedeTimer) { clearTimeout(this._supersedeTimer); this._supersedeTimer = null; }
+      if (this._abortCtrl) {
+        try { this._abortCtrl.abort(); } catch (_) {}
+        this._abortCtrl = null;
+      }
+      if (this.refreshBtn) this.refreshBtn.removeEventListener('click', this._onRefreshClick);
+      if (this.autoCheck) this.autoCheck.removeEventListener('change', this._onAutoChange);
+      Object.values(this._charts).forEach(slot => {
+        if (slot.regularChart) { try { slot.regularChart.destroy(); } catch (_) {} slot.regularChart = null; }
+        if (slot.completeChart) { try { slot.completeChart.destroy(); } catch (_) {} slot.completeChart = null; }
+      });
+      if (this.elapsedEl) this.elapsedEl.textContent = '';
+      if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
+      if (this.spinner) this.spinner.hidden = true;
+      this._setLoadingDim(false);
+      this._setStatusBadge('idle');
+    }
+
+    _applyAutoRefresh() {
+      if (this._destroyed) return;
+      if (this.autoCheck && this.autoCheck.checked) this._startTimer();
+      else this._stopTimer();
+    }
+
+    _startTimer() {
+      this._stopTimer();
+      this.timer = setInterval(() => {
+        if (this._destroyed) return;
+        if (!this.inFlight) this.run();
+      }, this.intervalMs);
+    }
+
+    _stopTimer() {
+      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    }
+
+    _setSpinner(on) { if (this.spinner) this.spinner.hidden = !on; }
+
+    _setError(msg) {
+      if (!this.errorEl) return;
+      if (msg) { this.errorEl.textContent = msg; this.errorEl.hidden = false; }
+      else { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
+    }
+
+    _setStatusBadge(state, text) {
+      const el = this.statusBadgeEl;
+      if (!el) return;
+      const labels = {
+        idle: '', loading: '실행 중',
+        superseded: '이전 요청 취소 · 재실행',
+        error: '실패', ok: '완료',
+      };
+      const label = (text != null) ? text : labels[state];
+      el.dataset.state = state;
+      el.textContent = label || '';
+      el.hidden = !label;
+    }
+
+    _setLoadingDim(on) {
+      if (this.productGroupsEl) {
+        this.productGroupsEl.classList.toggle('is-loading', !!on);
+      }
+    }
+
+    _bumpCancelCount() {
+      this._cancelledCount += 1;
+      if (this.cancelCountEl) {
+        if (this.cancelCountNumEl) this.cancelCountNumEl.textContent = String(this._cancelledCount);
+        else this.cancelCountEl.textContent = String(this._cancelledCount);
+        this.cancelCountEl.hidden = false;
+        this.cancelCountEl.classList.remove('pulse');
+        // eslint-disable-next-line no-unused-expressions
+        this.cancelCountEl.offsetWidth;
+        this.cancelCountEl.classList.add('pulse');
+      }
+    }
+
+    async run() {
+      if (this._destroyed) return;
+
+      const hadInFlight = this.inFlight && !!this._abortCtrl;
+      if (hadInFlight) {
+        try { this._abortCtrl.abort(); } catch (_) {}
+        this._bumpCancelCount();
+        this._setStatusBadge('superseded');
+        if (this._supersedeTimer) clearTimeout(this._supersedeTimer);
+        this._supersedeTimer = setTimeout(() => {
+          if (!this._destroyed && this.inFlight) this._setStatusBadge('loading');
+          else if (!this._destroyed) this._setStatusBadge('idle');
+          this._supersedeTimer = null;
+        }, 1500);
+        if (this.showRaceToast) {
+          Toast.show(
+            `이전 ${this.source.toUpperCase()} 차트(${this.queryId})를 취소하고 다시 불러옵니다.`,
+            { level: 'warn', icon: '⚠', durationMs: 2800 }
+          );
+        }
+      }
+
+      const token = ++this._runToken;
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      this._abortCtrl = ctrl;
+
+      this.inFlight = true;
+      this._setError(null);
+      this._setSpinner(true);
+      this._setLoadingDim(true);
+      if (!hadInFlight) this._setStatusBadge('loading');
+
+      const url = `/${this.source}/query/${encodeURIComponent(this.queryId)}`;
+      const startedAt = performance.now();
+      try {
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (this._destroyed || token !== this._runToken) return;
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          let detail = `HTTP ${res.status}`;
+          try { const j = JSON.parse(text); if (j && j.detail) detail = j.detail; }
+          catch (_) { if (text) detail = text; }
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        if (this._destroyed || token !== this._runToken) return;
+
+        this._renderCharts(data);
+        const ms = data.elapsed_ms != null ? data.elapsed_ms : Math.round(performance.now() - startedAt);
+        if (this.elapsedEl) {
+          this.elapsedEl.textContent = `${fmtElapsed(ms)} · ${data.row_count}행`;
+        }
+        this._setStatusBadge('ok');
+        setTimeout(() => {
+          if (!this._destroyed && this._runToken === token && !this.inFlight) {
+            this._setStatusBadge('idle');
+          }
+        }, 1600);
+      } catch (err) {
+        if (err && (err.name === 'AbortError' || err.code === 20)) return;
+        if (this._destroyed || token !== this._runToken) return;
+        this._setError(`차트 로드 실패: ${err.message || err}`);
+        if (this.elapsedEl) this.elapsedEl.textContent = '';
+        this._setStatusBadge('error');
+      } finally {
+        if (token === this._runToken) {
+          this.inFlight = false;
+          this._abortCtrl = null;
+          if (!this._destroyed) {
+            this._setSpinner(false);
+            this._setLoadingDim(false);
+          }
+        }
+      }
+    }
+
+    /**
+     * 행을 PRODUCT 별로 그룹핑.
+     * data.columns 안에서 PRODUCT/TKIN_TIME/REGULAR/COMPLETE 컬럼을
+     * 대소문자 무시하고 찾는다.
+     */
+    _groupByProduct(data) {
+      const cols = data.columns || [];
+      const rows = data.rows || [];
+      const findCol = (name) => {
+        const target = name.toLowerCase();
+        return cols.find(c => String(c).toLowerCase() === target) || null;
+      };
+      const cProduct = findCol('PRODUCT');
+      const cTkin = findCol('TKIN_TIME') || findCol('TKIN-TIME');
+      const cRegular = findCol('REGULAR');
+      const cComplete = findCol('COMPLETE');
+
+      // PRODUCT -> Map<dateStr, {regular, complete}>
+      const groups = {};
+      this.products.forEach(p => { groups[p] = new Map(); });
+
+      rows.forEach(r => {
+        const product = cProduct ? String(r[cProduct] ?? '').toUpperCase() : '';
+        if (!groups[product]) return; // 우리가 보여줄 PRODUCT 가 아니면 무시
+        const dateRaw = cTkin ? r[cTkin] : null;
+        const dateStr = this._toDateStr(dateRaw);
+        if (!dateStr) return;
+        const reg = cRegular ? Number(r[cRegular]) || 0 : 0;
+        const cpl = cComplete ? Number(r[cComplete]) || 0 : 0;
+        const m = groups[product];
+        const prev = m.get(dateStr) || { regular: 0, complete: 0 };
+        prev.regular += reg;
+        prev.complete += cpl;
+        m.set(dateStr, prev);
+      });
+
+      // 각 PRODUCT 안의 dateMap 을 날짜 오름차순 배열로 변환
+      const out = {};
+      Object.entries(groups).forEach(([p, m]) => {
+        const dates = Array.from(m.keys()).sort();
+        out[p] = {
+          dates,
+          regular: dates.map(d => m.get(d).regular),
+          complete: dates.map(d => m.get(d).complete),
+        };
+      });
+      return out;
+    }
+
+    _toDateStr(val) {
+      if (val == null) return null;
+      if (typeof val === 'string') {
+        // 이미 'YYYY-MM-DD' 형태이거나 ISO 문자열
+        const m = val.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+        return null;
+      }
+      if (val instanceof Date) {
+        if (isNaN(val.getTime())) return null;
+        return val.toISOString().slice(0, 10);
+      }
+      // 숫자(epoch ms)
+      if (typeof val === 'number') {
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      }
+      return null;
+    }
+
+    _renderCharts(data) {
+      if (this._destroyed) return;
+      if (typeof Chart === 'undefined') {
+        this._setError('Chart.js 라이브러리가 로드되지 않았습니다.');
+        return;
+      }
+      const grouped = this._groupByProduct(data);
+
+      this.products.forEach(p => {
+        const slot = this._charts[p];
+        if (!slot) return;
+        const g = grouped[p] || { dates: [], regular: [], complete: [] };
+        const sumReg = g.regular.reduce((a, b) => a + b, 0);
+        const sumCpl = g.complete.reduce((a, b) => a + b, 0);
+        if (slot.regularStatEl) slot.regularStatEl.textContent = `합계 ${this._fmtNum(sumReg)}`;
+        if (slot.completeStatEl) slot.completeStatEl.textContent = `합계 ${this._fmtNum(sumCpl)}`;
+
+        this._upsertChart(slot, 'regularChart', slot.regularCanvas, {
+          labels: g.dates,
+          values: g.regular,
+          color: this._colorFor(p, 'regular'),
+          label: `${p} REGULAR`,
+        });
+        this._upsertChart(slot, 'completeChart', slot.completeCanvas, {
+          labels: g.dates,
+          values: g.complete,
+          color: this._colorFor(p, 'complete'),
+          label: `${p} COMPLETE`,
+        });
+      });
+    }
+
+    _fmtNum(n) {
+      if (n == null) return '0';
+      try { return Number(n).toLocaleString('ko-KR'); } catch (_) { return String(n); }
+    }
+
+    _colorFor(product, kind) {
+      // PRODUCT 별 톤 + REGULAR/COMPLETE 의 명도 차이
+      const palette = {
+        LAM:  { regular: '#6366f1', complete: '#a78bfa' },
+        TEL:  { regular: '#0ea5e9', complete: '#67e8f9' },
+        AMAT: { regular: '#10b981', complete: '#6ee7b7' },
+      };
+      const fallback = { regular: '#64748b', complete: '#cbd5e1' };
+      return (palette[product] || fallback)[kind] || fallback.regular;
+    }
+
+    _upsertChart(slot, key, canvas, payload) {
+      if (!canvas || !canvas.isConnected) return;
+      const cfg = {
+        type: 'bar',
+        data: {
+          labels: payload.labels,
+          datasets: [{
+            label: payload.label,
+            data: payload.values,
+            backgroundColor: payload.color,
+            borderColor: payload.color,
+            borderWidth: 0,
+            borderRadius: 4,
+            maxBarThickness: 28,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 250 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(15,23,42,0.92)',
+              titleColor: '#f8fafc',
+              bodyColor: '#e2e8f0',
+              padding: 8,
+              cornerRadius: 6,
+              callbacks: {
+                label: (ctx) => `${payload.label}: ${this._fmtNum(ctx.parsed.y)}`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#64748b', font: { size: 11 }, maxRotation: 0, autoSkip: true },
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(148,163,184,0.18)' },
+              ticks: {
+                color: '#64748b', font: { size: 11 },
+                callback: (v) => this._fmtNum(v),
+              },
+            },
+          },
+        },
+      };
+
+      if (slot[key]) {
+        try {
+          slot[key].data.labels = cfg.data.labels;
+          slot[key].data.datasets[0].data = cfg.data.datasets[0].data;
+          slot[key].data.datasets[0].backgroundColor = cfg.data.datasets[0].backgroundColor;
+          slot[key].data.datasets[0].borderColor = cfg.data.datasets[0].borderColor;
+          slot[key].data.datasets[0].label = cfg.data.datasets[0].label;
+          slot[key].update('none');
+          return;
+        } catch (_) {
+          try { slot[key].destroy(); } catch (_) {}
+          slot[key] = null;
+        }
+      }
+      try {
+        slot[key] = new Chart(canvas.getContext('2d'), cfg);
+      } catch (e) {
+        // Chart 생성 실패 시 다음 run 에서 재시도
+        slot[key] = null;
+      }
+    }
+  }
+
   // 외부 노출
   window.QueryRunner = QueryRunner;
+  window.ChartCard = ChartCard;
   window.Toast = Toast;
 })();

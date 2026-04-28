@@ -1,3 +1,10 @@
+{#
+  통합 대시보드 — 차트 중심 리뉴얼.
+  - 카드 단위: VNAND DB / DRAM DB
+  - 카드 안에서 PRODUCT 별로 차트 그룹을 분리(VNAND: LAM/TEL, DRAM: AMAT/LAM/TEL)
+  - 각 PRODUCT 그룹은 REGULAR / COMPLETE 두 개의 막대 차트(상하)로 분리(옵션 c)
+  - 데이터 소스: 각 source 의 recent_parsing_results 쿼리 결과
+#}
 {% extends "base.html" %}
 
 {% block title %}통합 대시보드{% endblock %}
@@ -7,23 +14,21 @@
 
 {% if not cards %}
   <div class="empty-state">
-    <p>통합 대시보드에 표시할 쿼리가 없습니다.</p>
-    <p class="hint">
-      <code>app/queries/*_queries.py</code> 에서 쿼리의
-      <code>show_in_dashboard=True</code> 로 설정하세요.
-    </p>
+    <p>표시할 카드가 정의되어 있지 않습니다.</p>
   </div>
 {% else %}
 
-<div class="dashboard-grid">
+<div class="dashboard-grid dashboard-grid-charts">
   {% for card in cards %}
-  <section class="card dashboard-card"
+  <section class="card chart-card"
            data-source="{{ card.source }}"
-           data-query-id="{{ card.query_id }}">
+           data-query-id="{{ card.query_id }}"
+           data-products='{{ card.products | tojson }}'>
     <header class="card-header">
       <div class="card-title">
         <span class="badge">{{ card.source_label }}</span>
         <strong>{{ card.title }}</strong>
+        <span class="card-sub">recent_parsing_results · TKIN_TIME 기준</span>
       </div>
       <div class="card-controls">
         <span class="status-area">
@@ -46,11 +51,39 @@
         </label>
       </div>
     </header>
-    <div class="card-body">
-      <table class="display compact" data-role="table" style="width:100%">
-        <thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead>
-        <tbody></tbody>
-      </table>
+
+    <div class="card-body chart-card-body">
+      {# PRODUCT 그룹 - JS 가 dataset 채워줌 #}
+      <div class="product-groups" data-role="product-groups">
+        {% for product in card.products %}
+        <div class="product-group" data-product="{{ product }}">
+          <div class="product-group-title">
+            <span class="product-tag">{{ product }}</span>
+          </div>
+          <div class="chart-pair">
+            <div class="chart-block chart-block-regular">
+              <div class="chart-block-head">
+                <span class="chart-block-label">REGULAR</span>
+                <span class="chart-block-stat" data-role="stat-regular"></span>
+              </div>
+              <div class="chart-canvas-wrap">
+                <canvas data-role="chart-regular" aria-label="{{ product }} REGULAR 일자별 막대 차트"></canvas>
+              </div>
+            </div>
+            <div class="chart-block chart-block-complete">
+              <div class="chart-block-head">
+                <span class="chart-block-label">COMPLETE</span>
+                <span class="chart-block-stat" data-role="stat-complete"></span>
+              </div>
+              <div class="chart-canvas-wrap">
+                <canvas data-role="chart-complete" aria-label="{{ product }} COMPLETE 일자별 막대 차트"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
       <div class="error-msg" data-role="error" hidden></div>
     </div>
   </section>
@@ -63,14 +96,15 @@
 
 {% block extra_scripts %}
 <script>
-  // 카드별로 QueryRunner 인스턴스 생성
-  document.querySelectorAll('.dashboard-card').forEach(el => {
-    new QueryRunner({
+  // 카드별 ChartCard 인스턴스 생성
+  document.querySelectorAll('.chart-card').forEach(el => {
+    const products = JSON.parse(el.dataset.products || '[]');
+    new ChartCard({
       rootEl: el,
       source: el.dataset.source,
       queryId: el.dataset.queryId,
+      products: products,
       autoRefreshIntervalMs: 10000,
-      pageLength: 10,
     }).init({ runOnLoad: true });
   });
 </script>
