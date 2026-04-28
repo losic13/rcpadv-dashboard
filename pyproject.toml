@@ -1,0 +1,21 @@
+[project]
+name = "dashboard"
+version = "0.1.0"
+description = "사내 데이터 소스(VNAND/DRAM MariaDB, Elasticsearch) 통합 대시보드"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.12",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+    "sqlalchemy>=2.0",
+    "pymysql>=1.1",
+    "elasticsearch>=8.15,<9",
+]
+
+[tool.uv]
+package = false

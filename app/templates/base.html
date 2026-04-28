@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}사내 대시보드{% endblock %}</title>
+
+  {# favicon - 외부 요청 막기 위한 1x1 투명 png #}
+  <link rel="icon" href="data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
+
+  <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/vendor/datatables/datatables.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div class="layout">
+  {% include "_sidebar.html" %}
+
+  <main class="content">
+    <header class="page-header">
+      <h1>{% block page_heading %}{% endblock %}</h1>
+    </header>
+
+    <div class="page-body">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+
+{% include "_log_panel.html" %}
+
+<!-- vendor scripts -->
+<script src="/static/vendor/jquery/jquery.min.js"></script>
+<script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/static/vendor/datatables/datatables.min.js"></script>
+
+<!-- app scripts -->
+<script src="/static/js/app.js"></script>
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>
