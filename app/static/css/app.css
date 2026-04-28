@@ -1277,20 +1277,20 @@ table[data-role="table"].is-loading {
   padding: 14px 16px 16px;
 }
 
-/* 카드 내부의 PRODUCT 그룹 영역 */
-.product-groups {
+/* 카드 내부의 metric(REGULAR/COMPLETE) 섹션 영역 */
+.metric-sections {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   position: relative;
   transition: filter 200ms ease, opacity 200ms ease;
 }
-.product-groups.is-loading {
+.metric-sections.is-loading {
   filter: blur(0.6px);
   opacity: 0.65;
   pointer-events: none;
 }
-.product-groups.is-loading::after {
+.metric-sections.is-loading::after {
   content: '갱신 중...';
   position: absolute;
   top: 8px; left: 50%;
@@ -1303,73 +1303,86 @@ table[data-role="table"].is-loading {
   border-radius: var(--radius-pill);
   letter-spacing: 0.02em;
   pointer-events: none;
+  z-index: 2;
 }
 
-.product-group {
+.metric-section {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: #fcfcfd;
   padding: 10px 12px 12px;
 }
-.product-group + .product-group { /* gap 으로 처리됨 */ }
+.metric-section-regular  { border-left: 3px solid #4338ca; }
+.metric-section-complete { border-left: 3px solid #0e7490; }
 
-.product-group-title {
+.metric-section-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
-.product-tag {
-  display: inline-flex;
-  align-items: center;
+.metric-section-label {
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #fff;
-  background: linear-gradient(135deg, var(--color-brand-600, #4f46e5), var(--color-brand-500, #6366f1));
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
+  font-weight: 800;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  white-space: nowrap;
+}
+.metric-section-regular  .metric-section-label {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
   box-shadow: 0 1px 2px rgba(79, 70, 229, 0.25);
 }
-
-/* 옵션 c) — REGULAR 와 COMPLETE 차트를 상하로 분리 */
-.chart-pair {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.metric-section-complete .metric-section-label {
+  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  box-shadow: 0 1px 2px rgba(8, 145, 178, 0.25);
 }
-.chart-block {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px 10px;
-}
-.chart-block-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-.chart-block-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-}
-.chart-block-regular .chart-block-label { color: #4338ca; }
-.chart-block-complete .chart-block-label { color: #0e7490; }
-.chart-block-stat {
+.metric-section-stat {
   font-size: 11.5px;
   color: var(--color-text);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  white-space: nowrap;
 }
+.metric-section-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.metric-section-legend .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+}
+.metric-section-legend .legend-bar {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.metric-section-legend .legend-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.metric-section-legend .legend-ma {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-family: var(--font-mono, ui-monospace, "JetBrains Mono", monospace);
+}
+
 .chart-canvas-wrap {
   position: relative;
   width: 100%;
-  height: 140px;
+  height: 200px;
 }
 .chart-canvas-wrap > canvas {
   display: block;
@@ -1391,5 +1404,5 @@ table[data-role="table"].is-loading {
   .toast-container { left: 12px; right: 12px; top: 12px; }
   .toast { min-width: 0; max-width: none; }
   .files-input { flex: 1 1 100%; }
-  .chart-canvas-wrap { height: 120px; }
+  .chart-canvas-wrap { height: 170px; }
 }
