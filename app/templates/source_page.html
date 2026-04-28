@@ -24,25 +24,34 @@
 
   <header class="card-header source-controls">
     <div class="control-row">
-      <label for="query-select">쿼리</label>
-      <select id="query-select" class="form-select">
-        {% for q in queries %}
-        <option value="{{ q.id }}"
-                data-params='{{ q.params | tojson }}'
-                title="{{ q.description }}">
-          {{ q.title }}
-        </option>
-        {% endfor %}
-      </select>
+      <div class="query-picker">
+        <label for="query-select">쿼리</label>
+        <select id="query-select" class="form-select">
+          {% for q in queries %}
+          <option value="{{ q.id }}"
+                  data-params='{{ q.params | tojson }}'
+                  title="{{ q.description }}">
+            {{ q.title }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
 
-      <button type="button" class="btn btn-primary" data-role="refresh">실행</button>
+      <button type="button" class="btn btn-run" data-role="refresh">
+        <span class="btn-run-icon" aria-hidden="true">▶</span>
+        <span class="btn-run-label">실행</span>
+      </button>
+
+      <span class="control-divider" aria-hidden="true"></span>
 
       <label class="auto-refresh">
         <input type="checkbox" data-role="auto-refresh"> 자동갱신 (10s)
       </label>
 
-      <span class="elapsed" data-role="elapsed"></span>
-      <span class="spinner" data-role="spinner" hidden>⏳ 실행 중...</span>
+      <span class="status-area">
+        <span class="spinner" data-role="spinner" hidden>⏳ 실행 중...</span>
+        <span class="elapsed" data-role="elapsed"></span>
+      </span>
     </div>
 
     {# 파라미터 입력 영역 — 쿼리 선택에 따라 동적으로 채움 #}

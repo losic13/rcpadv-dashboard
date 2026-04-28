@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# 사내 대시보드 실행 스크립트 (nohup)
+# Recipe Advisor Site Reliability Dashboard 실행 스크립트 (nohup)
 # 사용법: ./run.sh start | stop | status | restart
 # ============================================================
 
