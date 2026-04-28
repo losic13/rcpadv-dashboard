@@ -141,36 +141,60 @@ a { color: inherit; text-decoration: none; }
 .source-controls .control-row:last-child { margin-bottom: 0; }
 .source-controls label { margin: 0; }
 
-/* 쿼리 셀렉터를 라벨과 묶어 시각적으로 그룹핑 */
-.query-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 4px 10px 4px 12px;
+/* ---- 쿼리 탭 (VNAND/DRAM/ES 공통) ---- */
+.query-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 12px;
+  background: #f3f4f6;
+  border-bottom: 1px solid var(--color-border);
+  /* 카드 상단 모서리에 자연스럽게 붙도록 */
+  margin: 0;
 }
-.query-picker label {
-  font-size: 12px;
-  color: var(--color-muted);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.query-picker select {
-  border: none;
+.query-tab {
+  position: relative;
+  appearance: none;
   background: transparent;
-  outline: none;
-  min-width: 280px;
-  font-size: 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  padding: 10px 18px;
+  margin-top: 6px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--color-text);
-  padding: 4px 6px;
+  color: var(--color-muted);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+  /* 활성 탭의 -1px 가리기용 영역 확보 */
+  bottom: -1px;
 }
-.query-picker:focus-within {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+.query-tab:hover {
+  background: #e5e7eb;
+  color: var(--color-text);
+}
+.query-tab:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+.query-tab.active {
+  background: #fff;
+  color: #1d4ed8;
+  font-weight: 600;
+  border-color: var(--color-border);
+  /* 카드 본문과 시각적으로 이어지도록 아래 경계 가리기 */
+  box-shadow: 0 1px 0 0 #fff;
+}
+.query-tab.active::after {
+  /* 활성 탭 상단 강조 바 */
+  content: "";
+  position: absolute;
+  left: 12px; right: 12px; top: 0;
+  height: 2px;
+  background: #2563eb;
+  border-radius: 2px 2px 0 0;
 }
 
 /* 컨트롤 분리선 */

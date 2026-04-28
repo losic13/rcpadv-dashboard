@@ -4,6 +4,8 @@
     - page_title: 화면 제목
     - source: "vnand" | "dram" | "es"
     - queries: [{id, title, description, params: [{name,label,type,default,required}]}]
+
+  쿼리 선택은 상단 탭 페이지로 표시한다.
 #}
 {% extends "base.html" %}
 
@@ -22,21 +24,25 @@
 
 <section class="card source-page" id="source-page" data-source="{{ source }}">
 
+  {# ---- 쿼리 탭 ---- #}
+  <nav class="query-tabs" role="tablist" aria-label="쿼리 목록">
+    {% for q in queries %}
+    <button type="button"
+            class="query-tab {% if loop.first %}active{% endif %}"
+            role="tab"
+            id="tab-{{ q.id }}"
+            data-query-id="{{ q.id }}"
+            data-params='{{ q.params | tojson }}'
+            data-description="{{ q.description }}"
+            aria-selected="{% if loop.first %}true{% else %}false{% endif %}"
+            aria-controls="result-panel">
+      {{ q.title }}
+    </button>
+    {% endfor %}
+  </nav>
+
   <header class="card-header source-controls">
     <div class="control-row">
-      <div class="query-picker">
-        <label for="query-select">쿼리</label>
-        <select id="query-select" class="form-select">
-          {% for q in queries %}
-          <option value="{{ q.id }}"
-                  data-params='{{ q.params | tojson }}'
-                  title="{{ q.description }}">
-            {{ q.title }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-
       <button type="button" class="btn btn-run" data-role="refresh">
         <span class="btn-run-icon" aria-hidden="true">▶</span>
         <span class="btn-run-label">실행</span>
@@ -54,7 +60,7 @@
       </span>
     </div>
 
-    {# 파라미터 입력 영역 — 쿼리 선택에 따라 동적으로 채움 #}
+    {# 파라미터 입력 영역 — 탭 전환 시 동적으로 채움 #}
     <div class="control-row params-row" id="params-row" hidden>
       <span class="params-label">파라미터:</span>
       <div class="params-inputs" id="params-inputs"></div>
@@ -65,7 +71,7 @@
     </div>
   </header>
 
-  <div class="card-body">
+  <div class="card-body" id="result-panel" role="tabpanel" aria-live="polite">
     <table class="display compact" data-role="table" id="result-table" style="width:100%">
       <thead><tr><th>(쿼리를 실행하세요)</th></tr></thead>
       <tbody></tbody>
@@ -83,12 +89,13 @@
     const root = document.getElementById('source-page');
     if (!root) return;
 
-    const select = document.getElementById('query-select');
+    const tabsContainer = root.querySelector('.query-tabs');
     const paramsRow = document.getElementById('params-row');
     const paramsInputs = document.getElementById('params-inputs');
     const description = document.getElementById('query-description');
 
     let runner = null;
+    let activeTab = null;
 
     function inputTypeFor(paramType) {
       switch (paramType) {
@@ -135,17 +142,30 @@
       return out;
     }
 
-    function applyQuery(opt) {
-      let params = [];
-      try { params = JSON.parse(opt.dataset.params || '[]'); } catch (_) {}
-      rebuildParamInputs(params);
-      description.textContent = opt.title || '';
+    function activateTab(tabBtn) {
+      if (!tabBtn || tabBtn === activeTab) return;
 
+      // 탭 활성화 상태 갱신
+      tabsContainer.querySelectorAll('.query-tab').forEach(t => {
+        const isActive = (t === tabBtn);
+        t.classList.toggle('active', isActive);
+        t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        t.setAttribute('tabindex', isActive ? '0' : '-1');
+      });
+      activeTab = tabBtn;
+
+      // 파라미터/설명 갱신
+      let params = [];
+      try { params = JSON.parse(tabBtn.dataset.params || '[]'); } catch (_) {}
+      rebuildParamInputs(params);
+      description.textContent = tabBtn.dataset.description || '';
+
+      // QueryRunner 인스턴스 재생성
       if (runner) runner.destroy();
       runner = new QueryRunner({
         rootEl: root,
         source: root.dataset.source,
-        queryId: opt.value,
+        queryId: tabBtn.dataset.queryId,
         autoRefreshIntervalMs: 10000,
         paramsCollector: paramsCollector,
         pageLength: 25,
@@ -154,11 +174,29 @@
       runner.init({ runOnLoad: false });
     }
 
-    select.addEventListener('change', e => applyQuery(e.target.selectedOptions[0]));
+    // 탭 클릭
+    tabsContainer.addEventListener('click', e => {
+      const btn = e.target.closest('.query-tab');
+      if (btn) activateTab(btn);
+    });
 
-    if (select.options.length > 0) {
-      applyQuery(select.options[0]);
-    }
+    // 키보드 좌/우 화살표로 탭 이동 (a11y)
+    tabsContainer.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const tabs = Array.from(tabsContainer.querySelectorAll('.query-tab'));
+      const idx = tabs.indexOf(document.activeElement);
+      if (idx === -1) return;
+      const next = e.key === 'ArrowRight'
+        ? tabs[(idx + 1) % tabs.length]
+        : tabs[(idx - 1 + tabs.length) % tabs.length];
+      next.focus();
+      activateTab(next);
+      e.preventDefault();
+    });
+
+    // 첫 탭 자동 활성화
+    const firstTab = tabsContainer.querySelector('.query-tab');
+    if (firstTab) activateTab(firstTab);
   })();
 </script>
 {% endblock %}

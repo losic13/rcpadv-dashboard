@@ -5,6 +5,28 @@
     2) 모듈 단독 실행:  uv run python -m app.main
     3) nohup 스크립트:  ./run.sh start
 """
+import os
+import sys
+
+# ------------------------------------------------------------
+# 실행 환경 보정 — 상대경로/패키지 경로 이슈 대응
+#   - `python app/main.py` 처럼 직접 실행하거나, IDE 의 Run 버튼처럼
+#     CWD 가 webapp 루트가 아닌 경우에도 `from app.xxx import ...` 가
+#     올바르게 동작하도록 webapp 루트를 sys.path 에 추가한다.
+# ------------------------------------------------------------
+def _ensure_project_root_on_path() -> None:
+    # 현재 작업 디렉토리(우선) + 이 파일의 부모의 부모(webapp 루트) 두 군데를 보장
+    candidates = [
+        os.path.abspath("."),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+    ]
+    for p in candidates:
+        if p and p not in sys.path:
+            sys.path.append(p)
+
+
+_ensure_project_root_on_path()
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 
