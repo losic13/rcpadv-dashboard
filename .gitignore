@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.python-version
+
+# Env
+.env
+
+# Logs / runtime
+logs/
+*.log
+app.pid
+nohup.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store

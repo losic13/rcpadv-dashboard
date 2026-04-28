@@ -1,0 +1,14 @@
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <span>📊 사내 대시보드</span>
+  </div>
+  <nav>
+    <ul class="nav-list">
+      {% for item in nav_items %}
+      <li class="nav-item {% if item.key == active_nav %}active{% endif %}">
+        <a href="{{ item.url }}">{{ item.label }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </nav>
+</aside>
