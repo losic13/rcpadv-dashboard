@@ -15,4 +15,13 @@
       {% endfor %}
     </ul>
   </nav>
+
+  <div class="sidebar-footer">
+    <form method="post" action="/logout" class="sidebar-logout-form">
+      <button type="submit" class="sidebar-logout-btn" title="로그아웃">
+        <span class="sidebar-logout-icon" aria-hidden="true">⎋</span>
+        <span class="sidebar-logout-label">로그아웃</span>
+      </button>
+    </form>
+  </div>
 </aside>

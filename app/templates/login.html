@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로그인 · Recipe Advisor Site Reliability Dashboard</title>
+
+  {# favicon - 외부 요청 막기 위한 inline svg #}
+  <link rel="icon" href="data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
+
+  <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="login-body">
+
+<main class="login-main">
+  <section class="login-card" role="dialog" aria-labelledby="login-title">
+    <header class="login-card-header">
+      <div class="login-brand">
+        <div class="login-brand-icon" aria-hidden="true">📊</div>
+        <div class="login-brand-name">
+          <span class="login-brand-line-1">Recipe Advisor</span>
+          <span class="login-brand-line-2">Site Reliability Dashboard</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="login-card-body">
+      <h1 id="login-title" class="login-title">로그인</h1>
+      <p class="login-subtitle">대시보드에 접근하려면 비밀번호를 입력하세요.</p>
+
+      {% if error %}
+      <div class="login-error" role="alert">
+        <span class="login-error-icon" aria-hidden="true">⚠</span>
+        <span>{{ error }}</span>
+      </div>
+      {% endif %}
+
+      <form method="post" action="/login" class="login-form" autocomplete="off" novalidate>
+        <input type="hidden" name="next" value="{{ next }}">
+
+        <label class="login-field">
+          <span class="login-field-label">비밀번호</span>
+          <span class="login-input-wrap">
+            <input type="password"
+                   name="password"
+                   class="login-input"
+                   placeholder="비밀번호 입력"
+                   autocomplete="current-password"
+                   autofocus
+                   required>
+            <button type="button" class="login-input-toggle" data-role="toggle-password"
+                    aria-label="비밀번호 표시/숨김" tabindex="-1">
+              <span class="login-eye-on" aria-hidden="true">👁</span>
+              <span class="login-eye-off" aria-hidden="true" hidden>🚫</span>
+            </button>
+          </span>
+        </label>
+
+        <button type="submit" class="login-submit">
+          <span class="login-submit-label">로그인</span>
+          <span class="login-submit-icon" aria-hidden="true">→</span>
+        </button>
+      </form>
+    </div>
+
+    <footer class="login-card-footer">
+      <span>© Recipe Advisor</span>
+    </footer>
+  </section>
+</main>
+
+<script>
+  // 비밀번호 보기/숨김 토글
+  (function () {
+    const btn = document.querySelector('[data-role="toggle-password"]');
+    if (!btn) return;
+    const input = btn.parentElement.querySelector('input[name="password"]');
+    const eyeOn = btn.querySelector('.login-eye-on');
+    const eyeOff = btn.querySelector('.login-eye-off');
+    btn.addEventListener('click', () => {
+      const isPwd = input.type === 'password';
+      input.type = isPwd ? 'text' : 'password';
+      if (eyeOn)  eyeOn.hidden  = isPwd;
+      if (eyeOff) eyeOff.hidden = !isPwd;
+      input.focus();
+    });
+  })();
+</script>
+
+</body>
+</html>

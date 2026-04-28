@@ -417,9 +417,16 @@
       this.dataTable = $(this.tableEl).DataTable({
         data: data.rows || [],
         columns: columns,
-        dom: '<"dt-top"lBf>rt<"dt-bottom"ip>',
+        // 상단 툴바: [length 셀렉터][CSV 버튼] ··· [검색]
+        // 하단 툴바: [건수 정보] ··· [페이지네이션]
+        dom: '<"dt-top"<"dt-top-left"lB><"dt-top-right"f>>rt<"dt-bottom"<"dt-bottom-left"i><"dt-bottom-right"p>>',
         buttons: [
-          { extend: 'csvHtml5', text: 'CSV 내보내기', filename: `${this.source}_${this.queryId}` }
+          {
+            extend: 'csvHtml5',
+            text: 'CSV 내보내기',
+            titleAttr: 'CSV 파일로 내보내기',
+            filename: `${this.source}_${this.queryId}`,
+          }
         ],
         pageLength: this.pageLength,
         lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, '전체']],
@@ -445,15 +452,16 @@
   // DataTables 한국어 번역 (간단 버전)
   const DATATABLES_KO = {
     emptyTable: '데이터가 없습니다.',
-    info: '_TOTAL_ 건 중 _START_ ~ _END_',
-    infoEmpty: '0 건',
-    infoFiltered: '(전체 _MAX_ 건 중 검색)',
-    lengthMenu: '_MENU_ 건씩 보기',
+    info: '_START_–_END_ / 총 _TOTAL_건',
+    infoEmpty: '0건',
+    infoFiltered: '(전체 _MAX_건 중 검색)',
+    lengthMenu: '_MENU_건씩',
     loadingRecords: '로딩 중...',
     processing: '처리 중...',
-    search: '검색:',
+    search: '',
+    searchPlaceholder: '검색...',
     zeroRecords: '검색 결과 없음',
-    paginate: { first: '처음', last: '마지막', next: '다음', previous: '이전' },
+    paginate: { first: '처음', last: '마지막', next: '›', previous: '‹' },
   };
 
   // ============================================================
@@ -814,20 +822,22 @@
         const reg = cRegular ? Number(r[cRegular]) || 0 : 0;
         const cpl = cComplete ? Number(r[cComplete]) || 0 : 0;
         const m = groups[product];
-        const prev = m.get(dateStr) || { regular: 0, complete: 0 };
-        prev.regular += reg;
+        const prev = m.get(dateStr) || { regularRaw: 0, complete: 0 };
+        prev.regularRaw += reg;
         prev.complete += cpl;
         m.set(dateStr, prev);
       });
 
-      // 각 PRODUCT 안의 dateMap 을 날짜 오름차순 배열로 변환
+      // 각 PRODUCT 안의 dateMap 을 날짜 오름차순 배열로 변환.
+      // 여기서는 원본 REGULAR / COMPLETE 값을 그대로 노출하고,
+      // 표시용 합산(REGULAR + COMPLETE)은 _renderCharts 에서 처리한다.
       const out = {};
       Object.entries(groups).forEach(([p, m]) => {
         const dates = Array.from(m.keys()).sort();
         out[p] = {
           dates,
-          regular: dates.map(d => m.get(d).regular),
-          complete: dates.map(d => m.get(d).complete),
+          regular: dates.map(d => m.get(d).regularRaw || 0),
+          complete: dates.map(d => m.get(d).complete || 0),
         };
       });
       return out;
@@ -873,6 +883,8 @@
       const labels = Array.from(labelSet).sort();
 
       // 각 metric 에 대해 PRODUCT 별 series 만들기
+      // - regular 차트: REGULAR + COMPLETE 합산값을 사용 ("초벌파싱 파일 수")
+      // - complete 차트: COMPLETE 만 사용                ("본 파싱 파일 수")
       ['regular', 'complete'].forEach(metric => {
         const slot = this._charts[metric];
         if (!slot) return;
@@ -881,7 +893,14 @@
         const series = this.products.map(p => {
           const g = grouped[p] || { dates: [], regular: [], complete: [] };
           const lookup = new Map();
-          g.dates.forEach((d, i) => lookup.set(d, g[metric][i]));
+          g.dates.forEach((d, i) => {
+            // 'regular' 메트릭은 "초벌파싱 파일 수" = REGULAR + COMPLETE 합산
+            // 'complete' 메트릭은 "본 파싱 파일 수" = COMPLETE 만
+            const v = (metric === 'regular')
+              ? (Number(g.regular[i]) || 0) + (Number(g.complete[i]) || 0)
+              : (Number(g.complete[i]) || 0);
+            lookup.set(d, v);
+          });
           const values = labels.map(d => lookup.has(d) ? lookup.get(d) : null);
           return {
             product: p,
