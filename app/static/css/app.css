@@ -1,5 +1,5 @@
 /* ============================================================
- * 사내 대시보드 스타일
+ * Recipe Advisor Site Reliability Dashboard 스타일
  * - Bootstrap 5 위에 사이드바/카드/로그패널만 추가
  * ============================================================ */
 
@@ -53,10 +53,32 @@ a { color: inherit; text-decoration: none; }
   flex-direction: column;
 }
 .sidebar-brand {
-  padding: 18px 20px;
-  font-size: 16px;
-  font-weight: 600;
+  padding: 16px 18px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sidebar-brand .brand-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.sidebar-brand .brand-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.sidebar-brand .brand-name strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+.sidebar-brand .brand-name small {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 400;
 }
 .nav-list {
   list-style: none;
@@ -114,11 +136,58 @@ a { color: inherit; text-decoration: none; }
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .source-controls .control-row:last-child { margin-bottom: 0; }
 .source-controls label { margin: 0; }
-.source-controls select { min-width: 280px; }
+
+/* 쿼리 셀렉터를 라벨과 묶어 시각적으로 그룹핑 */
+.query-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px 4px 12px;
+}
+.query-picker label {
+  font-size: 12px;
+  color: var(--color-muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.query-picker select {
+  border: none;
+  background: transparent;
+  outline: none;
+  min-width: 280px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.query-picker:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+/* 컨트롤 분리선 */
+.control-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--color-border);
+  margin: 0 4px;
+}
+
+/* 상태 영역(스피너 + 실행시간) */
+.status-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;        /* 컨트롤 라인 우측으로 정렬 */
+}
 .params-row .params-label {
   font-size: 12px;
   color: var(--color-muted);
@@ -167,6 +236,58 @@ a { color: inherit; text-decoration: none; }
   padding: 0;
 }
 .btn-link:hover { text-decoration: underline; }
+
+/* ---- 실행/새로고침 강조 버튼 ---- */
+.btn-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border: 1px solid #1d4ed8;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.25),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.05s ease;
+  user-select: none;
+}
+.btn-run:hover {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.btn-run:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.25);
+}
+.btn-run:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35),
+              0 1px 2px rgba(37, 99, 235, 0.25);
+}
+.btn-run:disabled {
+  background: #9ca3af;
+  border-color: #6b7280;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn-run-icon {
+  font-size: 12px;
+  line-height: 1;
+  display: inline-block;
+}
+.btn-run-label { line-height: 1; }
+.btn-run-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+  gap: 5px;
+}
+.btn-run-sm .btn-run-icon { font-size: 11px; }
 
 .elapsed {
   font-size: 12px;

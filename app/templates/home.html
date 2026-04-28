@@ -26,9 +26,14 @@
         <strong>{{ card.title }}</strong>
       </div>
       <div class="card-controls">
-        <span class="elapsed" data-role="elapsed"></span>
-        <span class="spinner" data-role="spinner" hidden>⏳</span>
-        <button type="button" class="btn btn-sm" data-role="refresh">새로고침</button>
+        <span class="status-area">
+          <span class="spinner" data-role="spinner" hidden>⏳</span>
+          <span class="elapsed" data-role="elapsed"></span>
+        </span>
+        <button type="button" class="btn-run btn-run-sm" data-role="refresh" title="새로고침">
+          <span class="btn-run-icon" aria-hidden="true">↻</span>
+          <span class="btn-run-label">새로고침</span>
+        </button>
         <label class="auto-refresh">
           <input type="checkbox" data-role="auto-refresh"> 자동(10s)
         </label>
