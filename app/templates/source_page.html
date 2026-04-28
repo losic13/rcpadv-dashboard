@@ -3,9 +3,9 @@
   컨텍스트:
     - page_title: 화면 제목
     - source: "vnand" | "dram" | "es"
-    - queries: [{id, title, description, params: [{name,label,type,default,required}]}]
+    - queries: [{id, title, description, params: [...]}]   ← params 는 더 이상 UI 노출하지 않음
 
-  쿼리 선택은 상단 탭 페이지로 표시한다.
+  쿼리 선택은 상단 탭 페이지로 표시. 탭 전환 시 자동으로 실행한다.
 #}
 {% extends "base.html" %}
 
@@ -32,11 +32,10 @@
             role="tab"
             id="tab-{{ q.id }}"
             data-query-id="{{ q.id }}"
-            data-params='{{ q.params | tojson }}'
             data-description="{{ q.description }}"
             aria-selected="{% if loop.first %}true{% else %}false{% endif %}"
             aria-controls="result-panel">
-      {{ q.title }}
+      <span class="query-tab-label">{{ q.title }}</span>
     </button>
     {% endfor %}
   </nav>
@@ -58,12 +57,6 @@
         <span class="spinner" data-role="spinner" hidden>⏳ 실행 중...</span>
         <span class="elapsed" data-role="elapsed"></span>
       </span>
-    </div>
-
-    {# 파라미터 입력 영역 — 탭 전환 시 동적으로 채움 #}
-    <div class="control-row params-row" id="params-row" hidden>
-      <span class="params-label">파라미터:</span>
-      <div class="params-inputs" id="params-inputs"></div>
     </div>
 
     <div class="control-row description-row">
@@ -90,57 +83,10 @@
     if (!root) return;
 
     const tabsContainer = root.querySelector('.query-tabs');
-    const paramsRow = document.getElementById('params-row');
-    const paramsInputs = document.getElementById('params-inputs');
     const description = document.getElementById('query-description');
 
     let runner = null;
     let activeTab = null;
-
-    function inputTypeFor(paramType) {
-      switch (paramType) {
-        case 'int':      return 'number';
-        case 'date':     return 'date';
-        case 'datetime': return 'datetime-local';
-        default:         return 'text';
-      }
-    }
-
-    function rebuildParamInputs(params) {
-      paramsInputs.innerHTML = '';
-      if (!params || params.length === 0) {
-        paramsRow.hidden = true;
-        return;
-      }
-      paramsRow.hidden = false;
-      params.forEach(p => {
-        const wrap = document.createElement('span');
-        wrap.className = 'param-item';
-        const label = document.createElement('label');
-        label.textContent = p.label || p.name;
-        label.htmlFor = `param-${p.name}`;
-        const input = document.createElement('input');
-        input.type = inputTypeFor(p.type);
-        input.id = `param-${p.name}`;
-        input.name = p.name;
-        input.className = 'form-control form-control-sm';
-        input.dataset.role = 'param';
-        if (p.default != null) input.value = p.default;
-        wrap.appendChild(label);
-        wrap.appendChild(input);
-        paramsInputs.appendChild(wrap);
-      });
-    }
-
-    // QueryRunner 가 매 실행마다 호출. 빈 값은 제외하여 서버에 전달.
-    function paramsCollector() {
-      const out = {};
-      paramsInputs.querySelectorAll('input[data-role="param"]').forEach(inp => {
-        const v = inp.value;
-        if (v !== '' && v != null) out[inp.name] = v;
-      });
-      return out;
-    }
 
     function activateTab(tabBtn) {
       if (!tabBtn || tabBtn === activeTab) return;
@@ -154,24 +100,20 @@
       });
       activeTab = tabBtn;
 
-      // 파라미터/설명 갱신
-      let params = [];
-      try { params = JSON.parse(tabBtn.dataset.params || '[]'); } catch (_) {}
-      rebuildParamInputs(params);
+      // 설명 갱신
       description.textContent = tabBtn.dataset.description || '';
 
-      // QueryRunner 인스턴스 재생성
+      // QueryRunner 인스턴스 재생성 후 자동 실행
       if (runner) runner.destroy();
       runner = new QueryRunner({
         rootEl: root,
         source: root.dataset.source,
         queryId: tabBtn.dataset.queryId,
         autoRefreshIntervalMs: 10000,
-        paramsCollector: paramsCollector,
         pageLength: 25,
       });
-      // 자동 실행하지 않음 — 사용자가 [실행] 클릭
-      runner.init({ runOnLoad: false });
+      // 탭 전환 시 자동으로 [실행] — runOnLoad: true
+      runner.init({ runOnLoad: true });
     }
 
     // 탭 클릭
@@ -194,7 +136,7 @@
       e.preventDefault();
     });
 
-    // 첫 탭 자동 활성화
+    // 첫 탭 자동 활성화 + 자동 실행
     const firstTab = tabsContainer.querySelector('.query-tab');
     if (firstTab) activateTab(firstTab);
   })();
