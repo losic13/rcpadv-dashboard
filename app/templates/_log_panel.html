@@ -1,0 +1,23 @@
+<!-- 화면 하단 고정 로그 패널 -->
+<div id="log-panel" class="log-panel collapsed">
+  <div class="log-panel-header" id="log-panel-toggle">
+    <span class="log-panel-title">▲ 로그 패널</span>
+    <span class="log-panel-meta">
+      <span id="log-count">0</span>건
+      <button type="button" class="btn-link" id="log-clear-view" title="화면에서만 비우기">화면 지우기</button>
+    </span>
+  </div>
+  <div class="log-panel-body">
+    <table class="log-table">
+      <thead>
+        <tr>
+          <th style="width: 160px;">시간</th>
+          <th style="width: 80px;">레벨</th>
+          <th style="width: 180px;">로거</th>
+          <th>메시지</th>
+        </tr>
+      </thead>
+      <tbody id="log-tbody"></tbody>
+    </table>
+  </div>
+</div>
