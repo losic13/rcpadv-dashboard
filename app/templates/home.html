@@ -27,21 +27,25 @@
       </div>
       <div class="card-controls">
         <span class="status-area">
-          <span class="spinner" data-role="spinner" hidden>⏳</span>
+          <span class="spinner" data-role="spinner" hidden>
+            <span class="spinner-dot"></span>
+          </span>
           <span class="elapsed" data-role="elapsed"></span>
         </span>
         <button type="button" class="btn-run btn-run-sm" data-role="refresh" title="새로고침">
           <span class="btn-run-icon" aria-hidden="true">↻</span>
           <span class="btn-run-label">새로고침</span>
         </button>
-        <label class="auto-refresh">
-          <input type="checkbox" data-role="auto-refresh"> 자동(10s)
+        <label class="auto-refresh toggle-switch toggle-switch-sm" title="10초마다 자동으로 다시 실행">
+          <input type="checkbox" data-role="auto-refresh">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">자동 <span class="toggle-suffix">10s</span></span>
         </label>
       </div>
     </header>
     <div class="card-body">
       <table class="display compact" data-role="table" style="width:100%">
-        <thead><tr><th>(데이터 없음)</th></tr></thead>
+        <thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="error-msg" data-role="error" hidden></div>
