@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     LOG_FILE: str = "logs/app.log"
     LOG_BUFFER_SIZE: int = 500
 
+    # ---- Auth (단일 비밀번호 기반 로그인) ----
+    # APP_PASSWORD: 로그인 페이지에서 입력받을 비밀번호 (.env 로 주입 권장)
+    # SESSION_SECRET_KEY: 세션 쿠키 서명 키 — 운영에서는 반드시 .env 로 교체
+    # SESSION_MAX_AGE: 세션 유효 시간(초). 기본 12시간.
+    APP_PASSWORD: str = "changeme"
+    SESSION_SECRET_KEY: str = "dev-only-secret-please-override-in-env"
+    SESSION_MAX_AGE: int = 60 * 60 * 12
+    SESSION_COOKIE_NAME: str = "rcpadv_session"
+
     # ---- Helpers ----
     def vnand_db_url(self) -> str:
         return (

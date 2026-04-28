@@ -31,13 +31,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.logger import get_logger, setup_logging
 from app.repositories import es_client, mariadb
-from app.routers import dram, es, files, home, logs, vnand
+from app.routers import auth, dram, es, files, home, logs, vnand
+from app.routers.auth import is_authenticated, is_public_path
 
 # ---- 로깅 초기화 (라우터 import 전에 호출되어도 무방하지만 일관성 위해 여기서) ----
 setup_logging()
@@ -62,11 +65,58 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ---- 인증 미들웨어 ----
+# Starlette 미들웨어는 등록 순서의 역순으로 wrap 된다(LIFO):
+# 가장 늦게 add 된 것이 가장 바깥쪽. 따라서 SessionMiddleware 가 auth
+# 미들웨어를 감싸도록 auth 를 먼저 등록하고, SessionMiddleware 를 뒤에 등록한다.
+# 그래야 auth 미들웨어 안에서 request.session 이 사용 가능.
+#
+# 동작:
+#   - 공개 경로(/login, /logout, /static/, /favicon)  → 그대로 통과
+#   - 인증 OK                                          → 그대로 통과
+#   - 미인증 + JSON/XHR 요청                           → 401 응답
+#   - 미인증 + HTML 페이지                             → /login?next=<현재URL> 로 303
+@app.middleware("http")
+async def require_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if is_public_path(path):
+        return await call_next(request)
+
+    if is_authenticated(request):
+        return await call_next(request)
+
+    accept = request.headers.get("accept", "")
+    is_xhr = request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+    if is_xhr or ("application/json" in accept and "text/html" not in accept):
+        return JSONResponse(
+            {"detail": "인증이 필요합니다. /login 에서 로그인하세요."},
+            status_code=401,
+        )
+
+    qs = request.url.query
+    nxt = path + (f"?{qs}" if qs else "")
+    return RedirectResponse(url=f"/login?next={nxt}", status_code=303)
+
+
+# ---- 세션(서명된 쿠키) ----
+# auth 미들웨어보다 뒤에 등록하여 외곽 래퍼가 되도록 한다.
+# itsdangerous 로 서명된 쿠키에 세션 저장. request.session 사용 가능.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SESSION_SECRET_KEY,
+    session_cookie=settings.SESSION_COOKIE_NAME,
+    max_age=settings.SESSION_MAX_AGE,
+    same_site="lax",
+    https_only=False,  # 사내 환경에서 http 도 허용
+)
+
+
 # ---- 정적 자원 ----
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ---- 라우터 등록 ----
+app.include_router(auth.router)   # /login, /logout (공개)
 app.include_router(home.router)
 app.include_router(files.router)
 app.include_router(vnand.router)
