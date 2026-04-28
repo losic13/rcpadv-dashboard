@@ -1,0 +1,226 @@
+{#
+  Log File Download 페이지.
+  - 경로 입력 → [확인] 버튼: /files/check 호출, 존재 여부 + 크기/이름 표시
+  - [다운로드] 버튼: /files/download 호출, 브라우저 다운로드
+  - 없으면 사용자에게 친절히 알림
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card files-page" id="files-page">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">Server FS</span>
+      <strong>로그 파일 다운로드</strong>
+    </div>
+  </header>
+
+  <div class="card-body">
+    <p class="files-hint">
+      백엔드 서버(이 앱이 실행 중인 호스트)의 절대/상대 경로를 입력하세요.
+      파일이 존재하면 바로 다운로드되고, 존재하지 않으면 알림이 표시됩니다.
+    </p>
+
+    <form id="file-form" class="files-form" autocomplete="off"
+          onsubmit="return false;">
+      <label for="file-path" class="files-label">파일 경로</label>
+      <div class="files-input-row">
+        <input type="text"
+               id="file-path"
+               class="files-input"
+               placeholder="예) /var/log/app/app.log  또는  C:\logs\app.log"
+               spellcheck="false"
+               autocapitalize="off"
+               autocorrect="off">
+        <button type="button" class="btn" id="btn-check" title="존재 여부만 확인">
+          <span aria-hidden="true">🔍</span>
+          <span>확인</span>
+        </button>
+        <button type="submit" class="btn btn-run" id="btn-download" title="다운로드">
+          <span class="btn-run-icon" aria-hidden="true">⬇</span>
+          <span class="btn-run-label">다운로드</span>
+        </button>
+      </div>
+    </form>
+
+    <div id="file-status" class="file-status" hidden></div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    'use strict';
+
+    const form        = document.getElementById('file-form');
+    const input       = document.getElementById('file-path');
+    const btnCheck    = document.getElementById('btn-check');
+    const btnDownload = document.getElementById('btn-download');
+    const statusEl    = document.getElementById('file-status');
+
+    function fmtSize(bytes) {
+      if (bytes == null) return '?';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let v = bytes;
+      let i = 0;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return (i === 0) ? `${v} ${units[i]}` : `${v.toFixed(2)} ${units[i]}`;
+    }
+
+    function setStatus(level, html) {
+      statusEl.className = `file-status file-status-${level}`;
+      statusEl.innerHTML = html;
+      statusEl.hidden = false;
+    }
+
+    function clearStatus() {
+      statusEl.hidden = true;
+      statusEl.innerHTML = '';
+    }
+
+    function getPath() {
+      const v = (input.value || '').trim();
+      if (!v) {
+        setStatus('warn',
+          '<span class="status-icon">⚠</span> 경로를 입력하세요.');
+        input.focus();
+        return null;
+      }
+      return v;
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    async function doCheck() {
+      const path = getPath();
+      if (!path) return;
+
+      setStatus('loading',
+        '<span class="status-icon">⏳</span> 확인 중...');
+
+      try {
+        const res = await fetch(
+          `/files/check?path=${encodeURIComponent(path)}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          setStatus('ok',
+            `<span class="status-icon">✓</span> ` +
+            `<strong>파일이 존재합니다.</strong>` +
+            `<div class="status-meta">` +
+              `<div><span class="meta-key">이름</span> ${escapeHtml(data.name || '')}</div>` +
+              `<div><span class="meta-key">크기</span> ${fmtSize(data.size_bytes)}` +
+                (data.size_bytes != null ? ` <span class="meta-sub">(${data.size_bytes.toLocaleString()} bytes)</span>` : '') +
+              `</div>` +
+              `<div><span class="meta-key">경로</span> <code>${escapeHtml(data.path || path)}</code></div>` +
+            `</div>`);
+          if (window.Toast) {
+            Toast.show('파일을 찾았습니다.', { level: 'success', icon: '✓', durationMs: 2000 });
+          }
+        } else if (res.status === 404) {
+          setStatus('error',
+            `<span class="status-icon">✗</span> ` +
+            `<strong>파일이 존재하지 않습니다.</strong>` +
+            `<div class="status-meta"><code>${escapeHtml(data.path || path)}</code></div>`);
+          if (window.Toast) {
+            Toast.show('해당 경로에 파일이 없습니다.', { level: 'error', icon: '✗', durationMs: 2800 });
+          }
+        } else {
+          const msg = (data && (data.message || data.detail)) || `HTTP ${res.status}`;
+          setStatus('error',
+            `<span class="status-icon">✗</span> ` +
+            `<strong>확인 실패:</strong> ${escapeHtml(msg)}`);
+        }
+      } catch (err) {
+        setStatus('error',
+          `<span class="status-icon">✗</span> ` +
+          `<strong>요청 실패:</strong> ${escapeHtml(err.message || err)}`);
+      }
+    }
+
+    async function doDownload() {
+      const path = getPath();
+      if (!path) return;
+
+      // 다운로드 전에 한 번 check 해서 사용자 경험 향상 (없으면 즉시 안내)
+      setStatus('loading',
+        '<span class="status-icon">⏳</span> 파일 확인 중...');
+      let preCheckOk = true;
+      try {
+        const res = await fetch(
+          `/files/check?path=${encodeURIComponent(path)}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          preCheckOk = false;
+          setStatus('error',
+            `<span class="status-icon">✗</span> ` +
+            `<strong>파일이 존재하지 않습니다.</strong>` +
+            `<div class="status-meta"><code>${escapeHtml(data.path || path)}</code></div>`);
+          if (window.Toast) {
+            Toast.show('해당 경로에 파일이 없습니다.', { level: 'error', icon: '✗', durationMs: 2800 });
+          }
+        } else if (!res.ok) {
+          preCheckOk = false;
+          const msg = (data && (data.message || data.detail)) || `HTTP ${res.status}`;
+          setStatus('error',
+            `<span class="status-icon">✗</span> ` +
+            `<strong>확인 실패:</strong> ${escapeHtml(msg)}`);
+        } else {
+          // 존재 — 다운로드 시작 안내
+          setStatus('ok',
+            `<span class="status-icon">⬇</span> ` +
+            `<strong>다운로드를 시작합니다.</strong>` +
+            `<div class="status-meta">` +
+              `<div><span class="meta-key">이름</span> ${escapeHtml(data.name || '')}</div>` +
+              `<div><span class="meta-key">크기</span> ${fmtSize(data.size_bytes)}</div>` +
+              `<div><span class="meta-key">경로</span> <code>${escapeHtml(data.path || path)}</code></div>` +
+            `</div>`);
+        }
+      } catch (err) {
+        preCheckOk = false;
+        setStatus('error',
+          `<span class="status-icon">✗</span> ` +
+          `<strong>요청 실패:</strong> ${escapeHtml(err.message || err)}`);
+      }
+
+      if (!preCheckOk) return;
+
+      // 브라우저 기본 다운로드 트리거 — location.assign 대신 hidden iframe 사용해
+      // 응답 헤더(Content-Disposition: attachment)에 의해 다운로드되도록.
+      const url = `/files/download?path=${encodeURIComponent(path)}`;
+      // a[download] 사용; 같은 출처라서 정상 동작
+      const a = document.createElement('a');
+      a.href = url;
+      a.rel = 'noopener';
+      // download 속성을 빈 문자열로 두면 서버 헤더의 filename 을 따른다
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    btnCheck.addEventListener('click', doCheck);
+    btnDownload.addEventListener('click', doDownload);
+    form.addEventListener('submit', e => { e.preventDefault(); doDownload(); });
+
+    // 입력값이 바뀌면 이전 상태 메시지 비우기 (혼동 방지)
+    input.addEventListener('input', clearStatus);
+
+    // 자동 포커스
+    input.focus();
+  })();
+</script>
+{% endblock %}
