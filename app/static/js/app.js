@@ -4,7 +4,9 @@
  * 1) QueryRunner: 쿼리 실행 + DataTables 갱신 + 자동갱신 + 스피너 + CSV
  *    - 모든 페이지(통합 대시보드/개별 페이지)에서 동일하게 재사용
  *    - 탭 전환으로 인한 race condition 방어 처리 포함
+ *    - race 발생 시 사용자에게 명시적으로 표시 (배지 + 토스트)
  * 2) LogPanel: 하단 로그 패널 폴링/렌더
+ * 3) Toast: race / 알림용 우측 상단 토스트
  * ============================================================ */
 
 (function () {
@@ -41,6 +43,46 @@
     '<thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead><tbody></tbody>';
 
   // ============================================================
+  // Toast — 우측 상단 알림 (race 상태 등)
+  // ============================================================
+  const Toast = {
+    containerId: 'toast-container',
+    _ensureContainer() {
+      let el = document.getElementById(this.containerId);
+      if (!el) {
+        el = document.createElement('div');
+        el.id = this.containerId;
+        el.className = 'toast-container';
+        document.body.appendChild(el);
+      }
+      return el;
+    },
+    show(message, opts = {}) {
+      const { level = 'info', durationMs = 3000, icon } = opts;
+      const container = this._ensureContainer();
+      const t = document.createElement('div');
+      t.className = `toast toast-${level}`;
+      const iconHtml = icon
+        ? `<span class="toast-icon" aria-hidden="true">${escapeHtml(icon)}</span>`
+        : '';
+      t.innerHTML =
+        iconHtml +
+        `<span class="toast-msg">${escapeHtml(message)}</span>` +
+        `<button type="button" class="toast-close" aria-label="닫기">×</button>`;
+      const closeBtn = t.querySelector('.toast-close');
+      const removeFn = () => {
+        t.classList.add('toast-leaving');
+        setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 220);
+      };
+      closeBtn.addEventListener('click', removeFn);
+      container.appendChild(t);
+      // mount 애니메이션
+      requestAnimationFrame(() => t.classList.add('toast-shown'));
+      if (durationMs > 0) setTimeout(removeFn, durationMs);
+    },
+  };
+
+  // ============================================================
   // QueryRunner
   // ============================================================
   class QueryRunner {
@@ -52,6 +94,7 @@
      * @param {number} [opts.autoRefreshIntervalMs=10000]
      * @param {Function} [opts.paramsCollector] - () => {param: value, ...}
      * @param {number} [opts.pageLength=25]
+     * @param {boolean} [opts.showRaceToast=true] - race 발생 시 토스트 표시 여부
      */
     constructor(opts) {
       this.root = opts.rootEl;
@@ -60,13 +103,20 @@
       this.intervalMs = opts.autoRefreshIntervalMs || 10000;
       this.paramsCollector = opts.paramsCollector || (() => ({}));
       this.pageLength = opts.pageLength || 25;
+      this.showRaceToast = opts.showRaceToast !== false;
 
       this.tableEl = this.root.querySelector('[data-role="table"]');
+      this.tableWrapEl = this.tableEl ? this.tableEl.parentElement : null;
       this.refreshBtn = this.root.querySelector('[data-role="refresh"]');
       this.autoCheck = this.root.querySelector('[data-role="auto-refresh"]');
       this.spinner = this.root.querySelector('[data-role="spinner"]');
       this.elapsedEl = this.root.querySelector('[data-role="elapsed"]');
       this.errorEl = this.root.querySelector('[data-role="error"]');
+      this.statusBadgeEl = this.root.querySelector('[data-role="status-badge"]');
+      this.cancelCountEl = this.root.querySelector('[data-role="cancel-count"]');
+      this.cancelCountNumEl = this.cancelCountEl
+        ? this.cancelCountEl.querySelector('.cancel-count-num')
+        : null;
 
       this.dataTable = null;
       this.timer = null;
@@ -74,6 +124,8 @@
       this._destroyed = false;
       this._runToken = 0;          // 매 run() 호출마다 증가; 이전 run의 응답 무시 판별용
       this._abortCtrl = null;       // 현재 in-flight fetch 의 AbortController
+      this._cancelledCount = 0;     // 사용자에게 표시되는 누적 race 횟수
+      this._supersedeTimer = null;  // "이전 요청 취소됨" 배지 자동 해제 타이머
 
       this._onRefreshClick = () => this.run();
       this._onAutoChange = () => this._applyAutoRefresh();
@@ -88,6 +140,7 @@
       }
       // 초기 placeholder
       if (this.tableEl) this.tableEl.innerHTML = PLACEHOLDER_HTML;
+      this._setStatusBadge('idle');
       if (runOnLoad) this.run();
     }
 
@@ -97,6 +150,7 @@
 
       // 1) 자동갱신 타이머 정지
       this._stopTimer();
+      if (this._supersedeTimer) { clearTimeout(this._supersedeTimer); this._supersedeTimer = null; }
 
       // 2) in-flight fetch 가 있으면 취소(응답 도착 후 _renderTable 호출 차단)
       if (this._abortCtrl) {
@@ -123,6 +177,8 @@
       if (this.elapsedEl) this.elapsedEl.textContent = '';
       if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
       if (this.spinner) this.spinner.hidden = true;
+      this._setLoadingDim(false);
+      this._setStatusBadge('idle');
     }
 
     _applyAutoRefresh() {
@@ -162,13 +218,79 @@
       }
     }
 
+    /**
+     * 상태 배지 표시.
+     *   state: 'idle' | 'loading' | 'superseded' | 'error' | 'ok'
+     *   text:  배지에 표시할 텍스트 (생략 시 기본 텍스트)
+     */
+    _setStatusBadge(state, text) {
+      const el = this.statusBadgeEl;
+      if (!el) return;
+      const labels = {
+        idle:        '',
+        loading:     '실행 중',
+        superseded:  '이전 요청 취소 · 재실행',
+        error:       '실패',
+        ok:          '완료',
+      };
+      const label = (text != null) ? text : labels[state];
+      el.dataset.state = state;
+      el.textContent = label || '';
+      el.hidden = !label;
+    }
+
+    _setLoadingDim(on) {
+      if (this.tableWrapEl) {
+        this.tableWrapEl.classList.toggle('is-loading', !!on);
+      }
+      if (this.tableEl) {
+        this.tableEl.classList.toggle('is-loading', !!on);
+      }
+    }
+
+    _bumpCancelCount() {
+      this._cancelledCount += 1;
+      if (this.cancelCountEl) {
+        if (this.cancelCountNumEl) {
+          this.cancelCountNumEl.textContent = String(this._cancelledCount);
+        } else {
+          this.cancelCountEl.textContent = String(this._cancelledCount);
+        }
+        this.cancelCountEl.hidden = false;
+        // 펄스 효과 잠깐 부여
+        this.cancelCountEl.classList.remove('pulse');
+        // 강제 reflow 로 애니메이션 재시작
+        // eslint-disable-next-line no-unused-expressions
+        this.cancelCountEl.offsetWidth;
+        this.cancelCountEl.classList.add('pulse');
+      }
+    }
+
     async run() {
       if (this._destroyed) return;
 
       // 새 실행 시작 — 이전 in-flight 가 있으면 취소
-      if (this._abortCtrl) {
+      const hadInFlight = this.inFlight && !!this._abortCtrl;
+      if (hadInFlight) {
         try { this._abortCtrl.abort(); } catch (_) {}
+        this._bumpCancelCount();
+        // 사용자에게 즉시 알림: 배지 + 토스트
+        this._setStatusBadge('superseded');
+        if (this._supersedeTimer) clearTimeout(this._supersedeTimer);
+        this._supersedeTimer = setTimeout(() => {
+          // 진행중이면 다시 loading 으로 표시 (run 메서드가 그 사이 setStatus 했을 수도)
+          if (!this._destroyed && this.inFlight) this._setStatusBadge('loading');
+          else if (!this._destroyed) this._setStatusBadge('idle');
+          this._supersedeTimer = null;
+        }, 1500);
+        if (this.showRaceToast) {
+          Toast.show(
+            `이전 ${this.source.toUpperCase()} 쿼리(${this.queryId})를 취소하고 새 쿼리로 다시 실행합니다.`,
+            { level: 'warn', icon: '⚠', durationMs: 2800 }
+          );
+        }
       }
+
       const token = ++this._runToken;
       const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
       this._abortCtrl = ctrl;
@@ -176,6 +298,9 @@
       this.inFlight = true;
       this._setError(null);
       this._setSpinner(true);
+      this._setLoadingDim(true);
+      // race 직후 superseded 표시 중이면 잠깐 유지, 아니면 loading 표시
+      if (!hadInFlight) this._setStatusBadge('loading');
 
       const params = this.paramsCollector() || {};
       const url = `/${this.source}/query/${encodeURIComponent(this.queryId)}${buildQueryString(params)}`;
@@ -209,17 +334,28 @@
         if (this.elapsedEl) {
           this.elapsedEl.textContent = `${fmtElapsed(ms)} · ${data.row_count}행`;
         }
+        this._setStatusBadge('ok');
+        // ok 배지는 1.6초 후 idle 로 자동 전환 (조용한 상태)
+        setTimeout(() => {
+          if (!this._destroyed && this._runToken === token && !this.inFlight) {
+            this._setStatusBadge('idle');
+          }
+        }, 1600);
       } catch (err) {
-        // AbortError 는 의도적 취소이므로 무시
+        // AbortError 는 의도적 취소이므로 무시 (race 발생; 새 run 이 이미 동작 중)
         if (err && (err.name === 'AbortError' || err.code === 20)) return;
         if (this._destroyed || token !== this._runToken) return;
         this._setError(`쿼리 실패: ${err.message || err}`);
         if (this.elapsedEl) this.elapsedEl.textContent = '';
+        this._setStatusBadge('error');
       } finally {
         if (token === this._runToken) {
           this.inFlight = false;
           this._abortCtrl = null;
-          if (!this._destroyed) this._setSpinner(false);
+          if (!this._destroyed) {
+            this._setSpinner(false);
+            this._setLoadingDim(false);
+          }
         }
       }
     }
@@ -401,4 +537,5 @@
 
   // 외부 노출
   window.QueryRunner = QueryRunner;
+  window.Toast = Toast;
 })();
