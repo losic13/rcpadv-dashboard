@@ -552,7 +552,7 @@
   //   - X축: TKIN_TIME(YYYY-MM-DD)
   //   - QueryRunner 와 동일한 race-UI 패턴(_runToken, AbortController, 토스트, 배지)
   // ============================================================
-  const MOVING_AVG_WINDOW = 7; // 이동평균 윈도(최근 N일)
+  const MOVING_AVG_WINDOW = 4; // 이동평균 윈도(최근 N일)
 
   class ChartCard {
     /**
@@ -982,13 +982,15 @@
     }
 
     _maColorFor(product, kind) {
-      // 이동평균선은 막대보다 진한 톤으로 — REGULAR/COMPLETE 모두 동일 PRODUCT 의 진한 색 사용
+      // 이동평균선은 막대 색상과 거의 유사하되 더 연하게 — PRODUCT × REGULAR/COMPLETE 별로
+      // 각 막대 색의 lighter tone 을 매칭 (HSL 기준 lightness 를 끌어올린 톤).
       const palette = {
-        LAM:  '#3730a3',
-        TEL:  '#0369a1',
-        AMAT: '#047857',
+        LAM:  { regular: '#a5b4fc', complete: '#ddd6fe' },
+        TEL:  { regular: '#7dd3fc', complete: '#cffafe' },
+        AMAT: { regular: '#6ee7b7', complete: '#bbf7d0' },
       };
-      return palette[product] || '#1f2937';
+      const fallback = { regular: '#cbd5e1', complete: '#e2e8f0' };
+      return (palette[product] || fallback)[kind] || fallback.regular;
     }
 
     /**
