@@ -3,6 +3,7 @@
  *
  * 1) QueryRunner: 쿼리 실행 + DataTables 갱신 + 자동갱신 + 스피너 + CSV
  *    - 모든 페이지(통합 대시보드/개별 페이지)에서 동일하게 재사용
+ *    - 탭 전환으로 인한 race condition 방어 처리 포함
  * 2) LogPanel: 하단 로그 패널 폴링/렌더
  * ============================================================ */
 
@@ -35,6 +36,10 @@
       .replace(/'/g, '&#039;');
   }
 
+  // 자동 실행 안내 placeholder (탭 전환 시 잠깐 보였다가 결과로 교체됨)
+  const PLACEHOLDER_HTML =
+    '<thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead><tbody></tbody>';
+
   // ============================================================
   // QueryRunner
   // ============================================================
@@ -66,35 +71,62 @@
       this.dataTable = null;
       this.timer = null;
       this.inFlight = false;
+      this._destroyed = false;
+      this._runToken = 0;          // 매 run() 호출마다 증가; 이전 run의 응답 무시 판별용
+      this._abortCtrl = null;       // 현재 in-flight fetch 의 AbortController
 
       this._onRefreshClick = () => this.run();
       this._onAutoChange = () => this._applyAutoRefresh();
     }
 
     init({ runOnLoad = true } = {}) {
+      if (this._destroyed) return;
       if (this.refreshBtn) this.refreshBtn.addEventListener('click', this._onRefreshClick);
       if (this.autoCheck) {
         this.autoCheck.checked = false; // 항상 OFF 가 기본
         this.autoCheck.addEventListener('change', this._onAutoChange);
       }
+      // 초기 placeholder
+      if (this.tableEl) this.tableEl.innerHTML = PLACEHOLDER_HTML;
       if (runOnLoad) this.run();
     }
 
     destroy() {
+      if (this._destroyed) return;
+      this._destroyed = true;
+
+      // 1) 자동갱신 타이머 정지
       this._stopTimer();
+
+      // 2) in-flight fetch 가 있으면 취소(응답 도착 후 _renderTable 호출 차단)
+      if (this._abortCtrl) {
+        try { this._abortCtrl.abort(); } catch (_) {}
+        this._abortCtrl = null;
+      }
+
+      // 3) 이벤트 리스너 해제
       if (this.refreshBtn) this.refreshBtn.removeEventListener('click', this._onRefreshClick);
       if (this.autoCheck) this.autoCheck.removeEventListener('change', this._onAutoChange);
+
+      // 4) DataTables 인스턴스 제거 — destroy(false) 로 <table> 노드 자체는 보존
       if (this.dataTable) {
-        try { this.dataTable.destroy(true); } catch (e) {}
+        try { this.dataTable.destroy(false); } catch (_) {}
         this.dataTable = null;
       }
-      // 빈 테이블로 리셋
-      if (this.tableEl) {
-        this.tableEl.innerHTML = '<thead><tr><th>(쿼리를 실행하세요)</th></tr></thead><tbody></tbody>';
+
+      // 5) 빈 placeholder 로 리셋 (요소가 살아있을 때만)
+      if (this.tableEl && this.tableEl.isConnected) {
+        try { this.tableEl.innerHTML = PLACEHOLDER_HTML; } catch (_) {}
       }
+
+      // 6) 상태 영역 초기화
+      if (this.elapsedEl) this.elapsedEl.textContent = '';
+      if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
+      if (this.spinner) this.spinner.hidden = true;
     }
 
     _applyAutoRefresh() {
+      if (this._destroyed) return;
       if (this.autoCheck && this.autoCheck.checked) this._startTimer();
       else this._stopTimer();
     }
@@ -102,6 +134,7 @@
     _startTimer() {
       this._stopTimer();
       this.timer = setInterval(() => {
+        if (this._destroyed) return;
         if (!this.inFlight) this.run();
       }, this.intervalMs);
     }
@@ -130,7 +163,16 @@
     }
 
     async run() {
-      if (this.inFlight) return; // 중복 방지
+      if (this._destroyed) return;
+
+      // 새 실행 시작 — 이전 in-flight 가 있으면 취소
+      if (this._abortCtrl) {
+        try { this._abortCtrl.abort(); } catch (_) {}
+      }
+      const token = ++this._runToken;
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      this._abortCtrl = ctrl;
+
       this.inFlight = true;
       this._setError(null);
       this._setSpinner(true);
@@ -140,7 +182,14 @@
 
       const startedAt = performance.now();
       try {
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+
+        // 도중에 destroy 또는 새 run 이 들어왔다면 결과 폐기
+        if (this._destroyed || token !== this._runToken) return;
+
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           let detail = `HTTP ${res.status}`;
@@ -151,21 +200,35 @@
           throw new Error(detail);
         }
         const data = await res.json();
+
+        // 응답 본문 파싱 후 한 번 더 체크
+        if (this._destroyed || token !== this._runToken) return;
+
         this._renderTable(data);
         const ms = data.elapsed_ms != null ? data.elapsed_ms : Math.round(performance.now() - startedAt);
         if (this.elapsedEl) {
           this.elapsedEl.textContent = `${fmtElapsed(ms)} · ${data.row_count}행`;
         }
       } catch (err) {
+        // AbortError 는 의도적 취소이므로 무시
+        if (err && (err.name === 'AbortError' || err.code === 20)) return;
+        if (this._destroyed || token !== this._runToken) return;
         this._setError(`쿼리 실패: ${err.message || err}`);
         if (this.elapsedEl) this.elapsedEl.textContent = '';
       } finally {
-        this._setSpinner(false);
-        this.inFlight = false;
+        if (token === this._runToken) {
+          this.inFlight = false;
+          this._abortCtrl = null;
+          if (!this._destroyed) this._setSpinner(false);
+        }
       }
     }
 
     _renderTable(data) {
+      // 안전장치: destroy 됐거나 테이블 요소가 사라졌다면 그리지 않는다
+      if (this._destroyed) return;
+      if (!this.tableEl || !this.tableEl.isConnected) return;
+
       const columns = (data.columns || []).map(c => ({
         title: c,
         data: c,
@@ -180,23 +243,34 @@
 
       // 결과가 0행이고 컬럼도 없는 케이스
       if (columns.length === 0) {
-        if (this.dataTable) { try { this.dataTable.destroy(true); } catch (_) {} this.dataTable = null; }
-        this.tableEl.innerHTML = '<thead><tr><th>(결과 없음)</th></tr></thead><tbody></tbody>';
+        if (this.dataTable) { try { this.dataTable.destroy(false); } catch (_) {} this.dataTable = null; }
+        if (this.tableEl && this.tableEl.isConnected) {
+          this.tableEl.innerHTML = '<thead><tr><th class="placeholder-cell">결과 없음</th></tr></thead><tbody></tbody>';
+        }
+        this._cachedColumns = null;
         return;
       }
 
       // 같은 컬럼 구성이면 데이터만 갱신, 아니면 재초기화
       const sameColumns = this._sameColumns(columns);
       if (this.dataTable && sameColumns) {
-        this.dataTable.clear().rows.add(data.rows || []).draw(false);
-        return;
+        try {
+          this.dataTable.clear().rows.add(data.rows || []).draw(false);
+        } catch (_) {
+          // DataTables 가 죽었으면 재초기화 경로로
+          this.dataTable = null;
+        }
+        if (this.dataTable) return;
       }
 
       // 재초기화
       if (this.dataTable) {
-        try { this.dataTable.destroy(true); } catch (_) {}
+        try { this.dataTable.destroy(false); } catch (_) {}
         this.dataTable = null;
       }
+
+      // tableEl 재확인 (DataTables.destroy 로 노드가 detach 됐을 가능성)
+      if (!this.tableEl || !this.tableEl.isConnected) return;
 
       // thead 재구성 (DataTables 가 인식하도록)
       const thead = '<thead><tr>' +

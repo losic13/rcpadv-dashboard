@@ -6,6 +6,7 @@
     - queries: [{id, title, description, params: [...]}]   ← params 는 더 이상 UI 노출하지 않음
 
   쿼리 선택은 상단 탭 페이지로 표시. 탭 전환 시 자동으로 실행한다.
+  탭 전환 race condition 은 QueryRunner 측 _runToken / AbortController 로 방어.
 #}
 {% extends "base.html" %}
 
@@ -42,19 +43,22 @@
 
   <header class="card-header source-controls">
     <div class="control-row">
-      <button type="button" class="btn btn-run" data-role="refresh">
-        <span class="btn-run-icon" aria-hidden="true">▶</span>
-        <span class="btn-run-label">실행</span>
+      <button type="button" class="btn btn-run" data-role="refresh" title="쿼리 다시 실행">
+        <span class="btn-run-icon" aria-hidden="true">↻</span>
+        <span class="btn-run-label">새로고침</span>
       </button>
 
-      <span class="control-divider" aria-hidden="true"></span>
-
-      <label class="auto-refresh">
-        <input type="checkbox" data-role="auto-refresh"> 자동갱신 (10s)
+      <label class="auto-refresh toggle-switch" title="10초마다 자동으로 다시 실행">
+        <input type="checkbox" data-role="auto-refresh">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">자동갱신 <span class="toggle-suffix">10s</span></span>
       </label>
 
       <span class="status-area">
-        <span class="spinner" data-role="spinner" hidden>⏳ 실행 중...</span>
+        <span class="spinner" data-role="spinner" hidden>
+          <span class="spinner-dot"></span>
+          <span class="spinner-text">실행 중</span>
+        </span>
         <span class="elapsed" data-role="elapsed"></span>
       </span>
     </div>
@@ -66,7 +70,7 @@
 
   <div class="card-body" id="result-panel" role="tabpanel" aria-live="polite">
     <table class="display compact" data-role="table" id="result-table" style="width:100%">
-      <thead><tr><th>(쿼리를 실행하세요)</th></tr></thead>
+      <thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead>
       <tbody></tbody>
     </table>
     <div class="error-msg" data-role="error" hidden></div>
