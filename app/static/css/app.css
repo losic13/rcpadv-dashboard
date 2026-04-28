@@ -716,39 +716,54 @@ table.dataTable tbody tr:hover td {
   color: var(--color-muted);
 }
 
-/* ── 상단/하단 도구막대(toolbar) 공통 ──
-   dom: '<"dt-top"<"dt-top-left"lB><"dt-top-right"f>>rt
-         <"dt-bottom"<"dt-bottom-left"i><"dt-bottom-right"p>>'
+/* ── 상단/하단 도구막대(toolbar) ──
+   dom: '<"dt-top"<"dt-top-right"i>>rt
+         <"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>'
+   - 상단: info(우측 정렬) — "1–25 / 총 30건"
+   - 하단: [length 셀렉터][CSV 내보내기][검색] 한 줄 + [페이지네이션]
 */
-.dataTables_wrapper .dt-top,
+.dataTables_wrapper .dt-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 0 2px;
+  min-height: 22px;
+  background: transparent;
+  border: 0;
+}
+.dataTables_wrapper .dt-top-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 .dataTables_wrapper .dt-bottom {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   padding: 10px 12px;
+  margin-top: 10px;
   background: linear-gradient(180deg, #fafbff 0%, var(--color-surface) 100%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   flex-wrap: wrap;
 }
-.dataTables_wrapper .dt-top { margin-bottom: 10px; }
-.dataTables_wrapper .dt-bottom {
-  margin-top: 10px;
-  background: var(--color-surface);
-}
-.dataTables_wrapper .dt-top-left,
-.dataTables_wrapper .dt-top-right,
-.dataTables_wrapper .dt-bottom-left,
-.dataTables_wrapper .dt-bottom-right {
+.dataTables_wrapper .dt-tools {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
-  margin: 0;
+  flex-wrap: nowrap;        /* 한 줄에 length / CSV / 검색 모두 */
+  min-width: 0;
 }
-.dataTables_wrapper .dt-top-right { margin-left: auto; }
-.dataTables_wrapper .dt-bottom-right { margin-left: auto; }
+.dataTables_wrapper .dt-bottom-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 
 /* ── 페이지 길이 선택(예: "25건씩 보기") ── */
 .dataTables_wrapper .dataTables_length {
@@ -839,7 +854,8 @@ table.dataTable tbody tr:hover td {
 
 /* ── 검색 입력 ── */
 .dataTables_wrapper .dataTables_filter {
-  margin: 0;        /* 위치 정렬은 .dt-top-right 가 담당 */
+  margin: 0;        /* 위치 정렬은 .dt-tools 가 담당 */
+  margin-left: auto; /* length / CSV 다음에 검색을 우측으로 밀기 */
 }
 .dataTables_wrapper .dataTables_filter label {
   display: inline-flex;
@@ -881,7 +897,12 @@ table.dataTable tbody tr:hover td {
 .dataTables_wrapper .dataTables_info {
   font-size: 11.5px;
   color: var(--color-muted);
-  padding: 0;
+  padding: 4px 10px;
+  background: var(--color-surface-2, #f8fafc);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* ── 페이지네이션 ── */
@@ -920,8 +941,12 @@ table.dataTable tbody tr:hover td {
   cursor: default;
 }
 
-/* 좁은 화면에서는 줄바꿈 + 검색창 가득 차게 */
-@media (max-width: 640px) {
+/* 좁은 화면: dt-tools 한 줄이 깨지면 줄바꿈 + 검색창 가득 차게 */
+@media (max-width: 760px) {
+  .dataTables_wrapper .dt-tools {
+    flex-wrap: wrap;
+    width: 100%;
+  }
   .dataTables_wrapper .dataTables_filter {
     margin-left: 0;
     width: 100%;
@@ -929,6 +954,14 @@ table.dataTable tbody tr:hover td {
   .dataTables_wrapper .dataTables_filter input,
   .dataTables_wrapper .dataTables_filter input:focus {
     width: 100%;
+  }
+  .dataTables_wrapper .dt-bottom {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dataTables_wrapper .dt-bottom-right {
+    margin-left: 0;
+    justify-content: flex-end;
   }
 }
 

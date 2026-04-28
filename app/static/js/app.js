@@ -417,9 +417,9 @@
       this.dataTable = $(this.tableEl).DataTable({
         data: data.rows || [],
         columns: columns,
-        // 상단 툴바: [length 셀렉터][CSV 버튼] ··· [검색]
-        // 하단 툴바: [건수 정보] ··· [페이지네이션]
-        dom: '<"dt-top"<"dt-top-left"lB><"dt-top-right"f>>rt<"dt-bottom"<"dt-bottom-left"i><"dt-bottom-right"p>>',
+        // 상단: [info 우측 정렬]
+        // 하단: [length + CSV + 검색] 한 줄 + [페이지네이션]
+        dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
         buttons: [
           {
             extend: 'csvHtml5',
@@ -910,12 +910,24 @@
           };
         });
 
-        // 합계 통계 (전체 PRODUCT 합산)
-        const total = series.reduce(
-          (acc, s) => acc + s.values.reduce((a, b) => a + (b || 0), 0),
-          0
-        );
-        if (slot.statEl) slot.statEl.textContent = `합계 ${this._fmtNum(total)}`;
+        // Series 별 일평균 (마지막 데이터 제외) — 차트 헤더 통계
+        //   · 마지막 인덱스 값은 제외
+        //   · null 은 제외하고 유효 일자 수로만 평균
+        //   · 유효 일자 0 이면 — 으로 표시
+        const dailyAvgByProduct = series.map(s => {
+          const head = s.values.slice(0, Math.max(0, s.values.length - 1));
+          const valid = head.filter(v => v != null);
+          const avg = valid.length > 0
+            ? valid.reduce((a, b) => a + (Number(b) || 0), 0) / valid.length
+            : null;
+          return { product: s.product, avg };
+        });
+        if (slot.statEl) {
+          const fmtAvg = (v) => v == null ? '—' : this._fmtNum(Math.round(v * 10) / 10);
+          slot.statEl.textContent =
+            '일평균(마지막 제외) · ' +
+            dailyAvgByProduct.map(d => `${d.product} ${fmtAvg(d.avg)}`).join(' / ');
+        }
 
         // 범례 — 막대 색 + 이동평균선 표시
         if (slot.legendEl) {
@@ -982,14 +994,14 @@
     }
 
     _maColorFor(product, kind) {
-      // 이동평균선은 막대 색상과 거의 유사하되 더 연하게 — PRODUCT × REGULAR/COMPLETE 별로
-      // 각 막대 색의 lighter tone 을 매칭 (HSL 기준 lightness 를 끌어올린 톤).
+      // 이동평균선은 막대와 같은 색 계열을 쓰되 막대보다 한 단계 연하게.
+      // (이전 톤보다는 약간 진하게 — 막대와 라인이 명확히 구별되면서 연관성도 보이도록)
       const palette = {
-        LAM:  { regular: '#a5b4fc', complete: '#ddd6fe' },
-        TEL:  { regular: '#7dd3fc', complete: '#cffafe' },
-        AMAT: { regular: '#6ee7b7', complete: '#bbf7d0' },
+        LAM:  { regular: '#818cf8', complete: '#c4b5fd' },
+        TEL:  { regular: '#38bdf8', complete: '#a5f3fc' },
+        AMAT: { regular: '#34d399', complete: '#86efac' },
       };
-      const fallback = { regular: '#cbd5e1', complete: '#e2e8f0' };
+      const fallback = { regular: '#94a3b8', complete: '#cbd5e1' };
       return (palette[product] || fallback)[kind] || fallback.regular;
     }
 
