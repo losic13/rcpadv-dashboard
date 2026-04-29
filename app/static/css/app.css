@@ -2113,3 +2113,58 @@ table.log-search-result td.log-search-path-cell {
   .log-search-input-row { gap: 6px; }
   table.log-search-result td.log-search-path-cell { max-width: 220px; }
 }
+
+/* ============================================================
+ * 16) EQP I/F Manager (외부 사이트 iframe 임베드 페이지)
+ * ============================================================ */
+.eqp-if-page {
+  /* 페이지 본문 영역을 카드가 거의 가득 채우도록 — iframe 이 시원하게
+     보여야 하므로 헤더(타이틀 + 새 창) + 본문(iframe) 구성을 flex 로 잡는다. */
+  display: flex;
+  flex-direction: column;
+  /* page-body 영역에서 헤더(=h1) 등을 제외한 나머지를 채운다.
+     base.html 의 .page-body / .content 와 함께 작동. */
+  min-height: calc(100vh - 180px);
+}
+.eqp-if-page .card-controls a.btn-run {
+  text-decoration: none;
+}
+.eqp-if-body {
+  /* iframe 이 카드 본문 영역을 가득 채우도록 */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;            /* iframe 은 패딩 없이 꽉 차게 */
+  background: var(--color-surface, #fff);
+}
+.eqp-if-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 70vh;       /* 내용이 짧아도 적당한 높이 보장 */
+  border: 0;
+  display: block;
+  background: #fff;
+}
+.eqp-if-fallback {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 11.5px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  background: linear-gradient(180deg, #fafbff 0%, var(--color-surface, #fff) 100%);
+}
+.eqp-if-empty {
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.eqp-if-empty pre.eqp-if-snippet {
+  margin: 4px 0 0 0;
+  padding: 12px 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+}
