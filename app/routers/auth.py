@@ -22,11 +22,16 @@ router = APIRouter()
 
 # ---- 인증 우회 허용 경로 ----
 # 미인증 상태에서도 접근 가능한 prefix 들. 정적 자원/로그인 자체/헬스 등.
+#   /.well-known/ 은 브라우저(특히 Chrome DevTools) 가 자동으로 보내는
+#   메타데이터 경로(예: /.well-known/appspecific/com.chrome.devtools.json).
+#   인증으로 가로채면 /login 으로 303 리다이렉트가 떠서 콘솔이 시끄러워지므로
+#   public 으로 풀어 두고, 라우터 단에서 204 No Content 로 조용히 응답한다.
 PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/login",
     "/logout",
     "/static/",
     "/favicon",
+    "/.well-known/",
 )
 
 
