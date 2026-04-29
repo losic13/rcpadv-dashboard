@@ -1,5 +1,5 @@
 {#
-  통합 대시보드 — 카드 종류는 두 가지.
+  통합 대시보드 — 카드 종류는 세 가지.
   ① type="chart"
      · 카드 단위: VNAND DB / DRAM DB
      · 카드 내부 구조: metric(REGULAR/COMPLETE) 별로 묶음
@@ -11,6 +11,11 @@
   ② type="count"
      · 임의 쿼리의 결과 행 수(row_count)를 큰 숫자로 보여주는 카운트 카드
      · 데이터 소스: GET /{source}/query/{query_id} 응답의 row_count
+  ③ type="login_today"
+     · "오늘" 하루의 접속자(고유 사용자) 수와 총 로그인 수를 보여주는 카드.
+     · 큰 숫자 = 접속자(distinct), 작은 보조 = 총 로그인(total).
+     · scope="all" 이면 개발자 포함, "customer" 면 제외.
+     · 데이터 소스: GET /login-history/today (단일 호출, 양쪽 scope 모두 포함)
 #}
 {% extends "base.html" %}
 
@@ -27,7 +32,59 @@
 
 <div class="dashboard-grid dashboard-grid-charts">
   {% for card in cards %}
-  {% if card.type == "count" %}
+  {% if card.type == "login_today" %}
+  {# ---- ③ 오늘 접속 스냅샷 카드 ---- #}
+  <section class="card login-today-card"
+           data-scope="{{ card.scope }}">
+    <header class="card-header">
+      <div class="card-title">
+        <span class="badge">{{ card.source_label }}</span>
+        <strong>{{ card.title }}</strong>
+        <span class="card-sub">app_server_user_log · KST · {{ card.scope_label }}</span>
+      </div>
+      <div class="card-controls">
+        <span class="status-area">
+          <span class="spinner" data-role="spinner" hidden>
+            <span class="spinner-dot"></span>
+          </span>
+          <span class="status-badge status-badge-sm" data-role="status-badge" data-state="idle" hidden></span>
+          <span class="cancel-count cancel-count-sm" data-role="cancel-count" hidden
+                title="자동 갱신 도중 취소된 이전 쿼리 누적 횟수">취소 ×<span class="cancel-count-num">0</span></span>
+          <span class="elapsed" data-role="elapsed"></span>
+        </span>
+        <button type="button" class="btn-run btn-run-sm" data-role="refresh" title="새로고침">
+          <span class="btn-run-icon" aria-hidden="true">↻</span>
+          <span class="btn-run-label">새로고침</span>
+        </button>
+        <label class="auto-refresh toggle-switch toggle-switch-sm" title="60초마다 자동으로 다시 실행">
+          <input type="checkbox" data-role="auto-refresh">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">자동 <span class="toggle-suffix">60s</span></span>
+        </label>
+      </div>
+    </header>
+
+    <div class="card-body login-today-body">
+      {# 메인: 접속자(고유 사용자) — 큰 숫자 + 명확한 라벨 #}
+      <div class="login-today-primary" data-role="primary">
+        <span class="login-today-label">접속자</span>
+        <span class="login-today-value" data-role="distinct-value">—</span>
+        <span class="login-today-unit">명</span>
+      </div>
+      {# 보조: 총 로그인 — 흐리게 처리, 참고용 #}
+      <div class="login-today-secondary" data-role="secondary"
+           title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수">
+        <span class="login-today-sec-label">참고 · 총 로그인</span>
+        <span class="login-today-sec-value" data-role="total-value">—</span>
+        <span class="login-today-sec-unit">회</span>
+      </div>
+      {% if card.description %}
+      <p class="login-today-desc">{{ card.description }}</p>
+      {% endif %}
+      <div class="error-msg" data-role="error" hidden></div>
+    </div>
+  </section>
+  {% elif card.type == "count" %}
   {# ---- ② 카운트 카드 ---- #}
   <section class="card count-card"
            data-source="{{ card.source }}"
@@ -156,12 +213,16 @@
   (function initDashboardCards() {
     const chartCards = document.querySelectorAll('.chart-card');
     const countCards = document.querySelectorAll('.count-card');
+    const loginTodayCards = document.querySelectorAll('.login-today-card');
 
     if (chartCards.length && typeof window.ChartCard !== 'function') {
       console.error('[home] ChartCard 가 정의되어 있지 않습니다. /static/js/app.js 캐시를 지우고 새로고침 해주세요.');
     }
     if (countCards.length && typeof window.CountCard !== 'function') {
       console.error('[home] CountCard 가 정의되어 있지 않습니다. /static/js/app.js 캐시를 지우고 새로고침 해주세요.');
+    }
+    if (loginTodayCards.length && typeof window.LoginTodayCard !== 'function') {
+      console.error('[home] LoginTodayCard 가 정의되어 있지 않습니다. /static/js/app.js 캐시를 지우고 새로고침 해주세요.');
     }
 
     chartCards.forEach((el, i) => {
@@ -189,6 +250,21 @@
         }).init({ runOnLoad: true });
       } catch (err) {
         console.error('[home] count-card #' + i + ' 초기화 실패:', err);
+      }
+    });
+
+    // login-today 카드들은 동일한 엔드포인트 (/login-history/today) 를 호출하지만
+    // scope 만 달라서 결과를 둘 다 사용한다. 카드 인스턴스는 각자 자체 fetch 를
+    // 수행한다 (CountCard 와 동일한 race-UI 패턴 재활용을 위해 일관성 유지).
+    loginTodayCards.forEach((el, i) => {
+      try {
+        new LoginTodayCard({
+          rootEl: el,
+          scope: el.dataset.scope || 'all',
+          autoRefreshIntervalMs: 60000,  // 1분 — 접속 카운트는 빠르게 변하지 않음
+        }).init({ runOnLoad: true });
+      } catch (err) {
+        console.error('[home] login-today-card #' + i + ' 초기화 실패:', err);
       }
     });
   })();

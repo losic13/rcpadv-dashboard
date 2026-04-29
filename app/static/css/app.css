@@ -1392,7 +1392,8 @@ table[data-role="table"].is-loading {
   grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
 }
 .chart-card,
-.count-card {
+.count-card,
+.login-today-card {
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
@@ -1403,11 +1404,13 @@ table[data-role="table"].is-loading {
   transition: box-shadow 160ms ease, transform 160ms ease;
 }
 .chart-card:hover,
-.count-card:hover {
+.count-card:hover,
+.login-today-card:hover {
   box-shadow: var(--shadow);
 }
 .chart-card .card-header,
-.count-card .card-header {
+.count-card .card-header,
+.login-today-card .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1418,7 +1421,8 @@ table[data-role="table"].is-loading {
   flex-wrap: wrap;
 }
 .chart-card .card-title,
-.count-card .card-title {
+.count-card .card-title,
+.login-today-card .card-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1428,16 +1432,19 @@ table[data-role="table"].is-loading {
   min-width: 0;
 }
 .chart-card .card-title strong,
-.count-card .card-title strong { font-weight: 700; }
+.count-card .card-title strong,
+.login-today-card .card-title strong { font-weight: 700; }
 .chart-card .card-sub,
-.count-card .card-sub {
+.count-card .card-sub,
+.login-today-card .card-sub {
   color: var(--color-muted);
   font-size: 11.5px;
   font-weight: 500;
   margin-left: 4px;
 }
 .chart-card .card-controls,
-.count-card .card-controls {
+.count-card .card-controls,
+.login-today-card .card-controls {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1486,6 +1493,104 @@ table[data-role="table"].is-loading {
   font-size: 12px;
   color: var(--color-muted);
   text-align: center;
+}
+
+/* ── 오늘 접속 스냅샷 카드 (login-today-card) ── 
+   요구사항:
+   1) "접속자" 수치는 명확히 보이도록 큰 숫자 + 또렷한 색.
+   2) "총 로그인" 수치는 참고만 가능하도록 작고 흐릿하게.
+   ───────────────────────────────────────────── */
+.login-today-body {
+  padding: 22px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 160px;
+}
+.login-today-primary {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  transition: opacity 160ms ease, filter 160ms ease;
+}
+.login-today-primary.is-loading {
+  opacity: 0.55;
+  filter: blur(0.6px);
+}
+.login-today-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-brand-700, #4338ca);
+  text-transform: none;
+  align-self: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.10);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+.login-today-value {
+  font-size: 56px;
+  line-height: 1.05;
+  font-weight: 800;
+  color: var(--color-brand-700, #4338ca);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.login-today-unit {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+/* 단 아래 줄: 총 로그인 — 일부러 작고 흐릿하게 구성. */
+.login-today-secondary {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: help;          /* title 툴팁 힌트 */
+  transition: opacity 160ms ease, filter 160ms ease;
+}
+.login-today-secondary.is-loading {
+  opacity: 0.45;
+  filter: blur(0.4px);
+}
+.login-today-sec-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: #94a3b8;
+}
+.login-today-sec-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;        /* 주을 수치보다 원안된 회색계 */
+  font-variant-numeric: tabular-nums;
+}
+.login-today-sec-unit {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+.login-today-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--color-muted);
+  text-align: center;
+  line-height: 1.5;
 }
 
 /* 카드 내부의 metric(REGULAR/COMPLETE) 섹션 영역 */
