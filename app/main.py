@@ -50,6 +50,7 @@ from app.routers import (
     login_history,
     logs,
     vnand,
+    well_known,
 )
 from app.routers.auth import is_authenticated, is_public_path
 
@@ -128,6 +129,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ---- 라우터 등록 ----
 app.include_router(auth.router)   # /login, /logout (공개)
+app.include_router(well_known.router)  # /.well-known/* (브라우저 자동 요청, 공개)
 app.include_router(home.router)
 app.include_router(login_history.router)
 app.include_router(log_search.router)
