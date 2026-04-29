@@ -2485,3 +2485,130 @@ body.ls-dl-modal-open { overflow: hidden; }
   .login-history-page .lh-chart-wrap { height: 260px; }
   .login-history-page .lh-field input[type="date"] { min-width: 130px; }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   "개발자 ID" 보기 토글 버튼 + hover tooltip
+   - 카드 헤더 우측(card-controls)에 작게 배치되는 보조 버튼.
+   - 시각적으로 강조하지 않고 .btn-ghost 스타일과 비슷하게 절제.
+   - 마우스 오버(또는 focus/click) 시 .lh-dev-tip 이 표시된다.
+   ────────────────────────────────────────────────────────────── */
+.login-history-page .card-controls {
+  position: relative;          /* tooltip absolute 기준 */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.login-history-page .lh-dev-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--color-muted, #64748b);
+  background: transparent;
+  border: 1px dashed var(--color-border, #cbd5e1);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.login-history-page .lh-dev-toggle:hover,
+.login-history-page .lh-dev-toggle:focus,
+.login-history-page .lh-dev-toggle[aria-expanded="true"] {
+  outline: none;
+  background: rgba(99, 102, 241, 0.10);
+  border-color: rgba(99, 102, 241, 0.55);
+  border-style: solid;
+  color: var(--color-brand-700, #4338ca);
+}
+.login-history-page .lh-dev-toggle-label { font-weight: 600; }
+
+/* tooltip body (카드 헤더 우측 아래로 펼침) */
+.login-history-page .lh-dev-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: block;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 8px 10px;
+  background: #1e293b;       /* 어두운 배경 — 일반 tooltip 룩 */
+  color: #f8fafc;
+  border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.25);
+  font-size: 12px;
+  line-height: 1.55;
+  pointer-events: auto;      /* tooltip 위로 마우스 이동 가능 */
+}
+.login-history-page .lh-dev-tip[hidden] { display: none; }
+/* 작은 화살표 (북쪽 방향) */
+.login-history-page .lh-dev-tip::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: 18px;
+  width: 10px;
+  height: 10px;
+  background: #1e293b;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+.login-history-page .lh-dev-tip-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #c7d2fe;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+  text-transform: none;
+}
+.login-history-page .lh-dev-tip-body {
+  display: block;
+  word-break: break-all;
+}
+.login-history-page .lh-dev-count {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  background: rgba(99, 102, 241, 0.30);
+  color: #e0e7ff;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.login-history-page .lh-dev-items {
+  display: inline;
+}
+.login-history-page .lh-dev-id {
+  display: inline-block;
+  margin: 1px 4px 1px 0;
+  padding: 1px 7px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
+  color: #e2e8f0;
+}
+.login-history-page .lh-dev-empty {
+  display: inline-block;
+  color: #cbd5e1;
+  font-style: italic;
+}
+.login-history-page .lh-dev-empty code {
+  background: rgba(255, 255, 255, 0.10);
+  color: #f1f5f9;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  /* 작은 화면에서는 화면 우측 끝에 붙으면 잘림 방지를 위해 좌측 정렬 */
+  .login-history-page .lh-dev-tip { right: auto; left: 0; }
+  .login-history-page .lh-dev-tip::before { right: auto; left: 18px; }
+}
