@@ -49,21 +49,37 @@ def page(request: Request):
 # ============================================================
 @router.get("/check")
 def check(path: str = Query(..., description="확인할 절대/상대 경로")):
+    """다운로드 전 사전 검증용. Log Search 페이지의 행 클릭 핸들러가 사용한다.
+
+    응답:
+        200 → {ok:true, exists:true, is_file:true, path, name, size_bytes}
+        404 → {ok:false, exists:false, reason:'not_found', path, message}
+        400 → {ok:false, exists:true, is_file:false, reason:'not_a_file',
+                path, message}
+    """
     p = _resolve_path(path)
     if not p.exists():
         return JSONResponse(
-            {"exists": False, "path": str(p), "message": "파일이 존재하지 않습니다."},
             status_code=404,
+            content={
+                "ok": False,
+                "exists": False,
+                "reason": "not_found",
+                "path": str(p),
+                "message": "파일이 존재하지 않습니다.",
+            },
         )
     if not p.is_file():
         return JSONResponse(
-            {
+            status_code=400,
+            content={
+                "ok": False,
                 "exists": True,
                 "is_file": False,
+                "reason": "not_a_file",
                 "path": str(p),
                 "message": "지정한 경로는 일반 파일이 아닙니다(디렉토리이거나 특수 파일).",
             },
-            status_code=400,
         )
 
     try:
@@ -72,6 +88,7 @@ def check(path: str = Query(..., description="확인할 절대/상대 경로")):
         size = None
 
     return {
+        "ok": True,
         "exists": True,
         "is_file": True,
         "path": str(p),
@@ -89,16 +106,30 @@ def download(path: str = Query(..., description="다운로드할 파일 경로")
     p = _resolve_path(path)
 
     if not p.exists():
+        # 시나리오: DB 에는 path 가 남아 있지만 실제 파일이 정리/이동되어 없는 경우.
+        # Log Search 페이지에서는 사전에 /files/check 로 검증하지만, 사용자가
+        # 다운로드 URL 을 직접 호출했을 때를 위해 일관된 JSON 응답을 돌려준다.
         log.warning("파일 다운로드 실패 — 존재하지 않음: %s", p)
-        raise HTTPException(
+        return JSONResponse(
             status_code=404,
-            detail=f"파일이 존재하지 않습니다: {p}",
+            content={
+                "ok": False,
+                "reason": "not_found",
+                "path": str(p),
+                "message": "파일이 존재하지 않습니다. DB 에는 경로가 남아 있지만 "
+                           "실제 파일은 이미 정리되었거나 이동되었을 수 있습니다.",
+            },
         )
     if not p.is_file():
         log.warning("파일 다운로드 실패 — 일반 파일 아님: %s", p)
-        raise HTTPException(
+        return JSONResponse(
             status_code=400,
-            detail=f"지정한 경로는 일반 파일이 아닙니다: {p}",
+            content={
+                "ok": False,
+                "reason": "not_a_file",
+                "path": str(p),
+                "message": "지정한 경로는 일반 파일이 아닙니다(디렉토리이거나 특수 파일).",
+            },
         )
 
     log.info("파일 다운로드 시작: %s", p)

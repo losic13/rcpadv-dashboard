@@ -2116,6 +2116,156 @@ table.log-search-result td.log-search-path-cell {
   table.log-search-result td.log-search-path-cell { max-width: 220px; }
 }
 
+/* ── 요약 pill 의 [SOURCE] 라벨 ──
+   pill 안에서 "[VNAND]" 같은 태그를 약간 강조해, 한 눈에 어느 DB 인지
+   구분되도록 한다. (성공/실패 색은 부모 .ls-table-pill 에서 결정됨) */
+.ls-table-pill .ls-table-source {
+  font-weight: 700;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
+  color: inherit;
+}
+.ls-table-pill.ls-ok  .ls-table-source { background: rgba(16, 185, 129, 0.18); }
+.ls-table-pill.ls-err .ls-table-source { background: rgba(239, 68, 68, 0.18); }
+
+/* ── 다운로드 버튼: 행마다 <button> 으로 바뀌었으므로
+   기본 button 스타일 초기화 (a 와 동일 톤 유지) ── */
+button.log-search-dl {
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+button.log-search-dl:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+/* ── 다운로드 시 파일이 없는 것으로 확인된 행 ── */
+.log-search-dl.log-search-dl-missing {
+  color: var(--color-danger, #b91c1c);
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.32);
+}
+.log-search-dl.log-search-dl-missing:hover {
+  background: rgba(239, 68, 68, 0.18);
+  box-shadow: none;
+}
+tr.log-search-row-missing td.log-search-path-cell {
+  color: rgba(185, 28, 28, 0.85);
+  text-decoration: line-through;
+  text-decoration-color: rgba(185, 28, 28, 0.35);
+}
+
+/* ── 다운로드 결과 안내 모달 ── */
+body.ls-dl-modal-open { overflow: hidden; }
+.ls-dl-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1080;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ls-dl-modal[hidden] { display: none; }
+.ls-dl-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+.ls-dl-modal-card {
+  position: relative;
+  width: min(560px, 96vw);
+  background: var(--color-surface, #fff);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border, #e2e8f0);
+}
+.ls-dl-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  background: rgba(99, 102, 241, 0.05);
+}
+.ls-dl-modal[data-kind="missing"] .ls-dl-modal-header {
+  background: rgba(245, 158, 11, 0.08);
+}
+.ls-dl-modal[data-kind="error"]   .ls-dl-modal-header {
+  background: rgba(239, 68, 68, 0.08);
+}
+.ls-dl-modal-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.ls-dl-modal-header strong {
+  flex: 1;
+  font-size: 15px;
+  color: var(--color-text);
+}
+.ls-dl-modal-close {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  color: var(--color-muted);
+}
+.ls-dl-modal-close:hover { color: var(--color-text); }
+
+.ls-dl-modal-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ls-dl-modal-msg {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-text);
+}
+.ls-dl-modal-path {
+  margin: 0;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow: auto;
+}
+.ls-dl-modal-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+.ls-dl-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  background: rgba(15, 23, 42, 0.02);
+}
+
 /* ============================================================
  * 16) EQP I/F Manager (외부 사이트 iframe 임베드 페이지)
  * ============================================================ */
