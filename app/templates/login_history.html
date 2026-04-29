@@ -45,34 +45,26 @@
         <button type="button" class="btn-ghost" data-quick="90">최근 90일</button>
       </div>
 
-      <button type="submit" class="btn-primary" id="lh-run">
+      {# 다른 페이지(VNAND/DRAM '새로고침', File Download '다운로드')와
+         동일한 룩앤필을 위해 .btn .btn-run 컴포넌트 사용. #}
+      <button type="submit" class="btn btn-run" id="lh-run" title="기간으로 조회">
         <span class="btn-run-icon" aria-hidden="true">📊</span>
-        <span>조회</span>
+        <span class="btn-run-label">조회</span>
       </button>
     </form>
 
     <p class="lh-hint">
-      <code>action='login'</code> 행을 일자(KST)별로 집계해 막대 차트로 보여줍니다.
-      <strong>중복 포함</strong>은 총 로그인 횟수, <strong>중복 제거</strong>는
-      해당 날짜에 한 번 이상 접속한 고유 사용자 수입니다. 막대에 마우스를 올리면
-      누가 접속했는지 상위 {{ ' ' }}<span data-role="topn">10</span>명이 함께 표시됩니다.
-      <span data-role="dev-info" class="lh-dev-info" hidden></span>
+      <code>action='login'</code> 행을 일자(KST)별로 집계해 누적 막대 차트로 보여줍니다.
+      막대 하단(짙은 색)이 <strong>중복 제거(고유 사용자 수)</strong>,
+      그 위에 쌓이는 부분이 <strong>같은 사용자의 추가 로그인(중복분)</strong>이며
+      막대 전체 길이가 곧 <strong>총 로그인 수</strong>입니다.
+      막대에 마우스를 올리면 누가 접속했는지 상위
+      <span data-role="topn">10</span>명이 함께 표시됩니다.
     </p>
 
     <div class="error-msg" id="lh-error" hidden></div>
 
-    <!-- 차트 1: 전체 -->
-    <section class="lh-chart-block">
-      <header class="lh-chart-header">
-        <h2 class="lh-chart-title">전체 접속 (개발자 포함)</h2>
-        <div class="lh-chart-stats" data-role="stats-all">—</div>
-      </header>
-      <div class="lh-chart-wrap">
-        <canvas id="lh-chart-all"></canvas>
-      </div>
-    </section>
-
-    <!-- 차트 2: 고객만 -->
+    <!-- 차트 1: 고객만 (위) -->
     <section class="lh-chart-block">
       <header class="lh-chart-header">
         <h2 class="lh-chart-title">고객 접속 (개발자 제외)</h2>
@@ -80,6 +72,17 @@
       </header>
       <div class="lh-chart-wrap">
         <canvas id="lh-chart-customer"></canvas>
+      </div>
+    </section>
+
+    <!-- 차트 2: 전체 (아래) -->
+    <section class="lh-chart-block">
+      <header class="lh-chart-header">
+        <h2 class="lh-chart-title">전체 접속 (개발자 포함)</h2>
+        <div class="lh-chart-stats" data-role="stats-all">—</div>
+      </header>
+      <div class="lh-chart-wrap">
+        <canvas id="lh-chart-all"></canvas>
       </div>
     </section>
   </div>
@@ -97,7 +100,6 @@
     const runBtn   = document.getElementById('lh-run');
     const statusEl = document.querySelector('.login-history-page [data-role="status"]');
     const errorEl  = document.getElementById('lh-error');
-    const devInfoEl = document.querySelector('[data-role="dev-info"]');
     const topNEl    = document.querySelector('[data-role="topn"]');
     const statsAllEl = document.querySelector('[data-role="stats-all"]');
     const statsCustEl = document.querySelector('[data-role="stats-customer"]');
@@ -187,6 +189,14 @@
     }
 
     function renderChart(canvas, title, days, series, meta) {
+      // 누적 막대 시각화:
+      //   - 하단(짙은 녹): 고유 사용자 수 (= distinct)
+      //   - 상단(보라):    추가 중복분    (= total - distinct, 항상 ≥ 0)
+      // → 막대 전체 길이 = 총 로그인 수 (= total) 가 되어 두 지표를 한 막대에서 한눈에 비교 가능.
+      const distinctData = (series.distinct || []).map((v) => v || 0);
+      const totalData    = (series.total    || []).map((v) => v || 0);
+      const extraData    = totalData.map((t, i) => Math.max(0, t - (distinctData[i] || 0)));
+
       const ctx = canvas.getContext('2d');
       const chart = new Chart(ctx, {
         type: 'bar',
@@ -194,24 +204,22 @@
           labels: days,
           datasets: [
             {
-              label: '중복 포함 (총 로그인)',
-              data: series.total,
-              backgroundColor: 'rgba(99, 102, 241, 0.65)',
-              borderColor:    'rgba(67, 56, 202, 0.95)',
-              borderWidth: 1,
-              borderRadius: 3,
-              categoryPercentage: 0.7,
-              barPercentage: 0.9,
-            },
-            {
+              // 하단 = 고유 사용자
               label: '중복 제거 (고유 사용자)',
-              data: series.distinct,
-              backgroundColor: 'rgba(16, 185, 129, 0.65)',
+              data: distinctData,
+              backgroundColor: 'rgba(16, 185, 129, 0.75)',
               borderColor:    'rgba(5, 122, 85, 0.95)',
               borderWidth: 1,
-              borderRadius: 3,
-              categoryPercentage: 0.7,
-              barPercentage: 0.9,
+              stack: 'logins',
+            },
+            {
+              // 상단 = 추가 중복분 (= total - distinct)
+              label: '중복분 (같은 사용자 추가 로그인)',
+              data: extraData,
+              backgroundColor: 'rgba(99, 102, 241, 0.55)',
+              borderColor:    'rgba(67, 56, 202, 0.85)',
+              borderWidth: 1,
+              stack: 'logins',
             },
           ],
         },
@@ -225,8 +233,10 @@
             tooltip: {
               callbacks: {
                 title: (items) => items && items[0] ? items[0].label : '',
+                // 누적 막대에서 라벨은 두 데이터셋이 각각 출력된다.
+                // 추가로 "총합" 한 줄을 footer 의 사용자 목록 위에 보여 주기 위해
+                // afterBody 에서 합산값과 사용자 카운트를 함께 반환한다.
                 label: (item) => {
-                  // 데이터셋별 한 줄씩 (총/고유)
                   const v = item.parsed.y;
                   return `${item.dataset.label}: ${v}`;
                 },
@@ -240,10 +250,12 @@
           },
           scales: {
             x: {
+              stacked: true,
               ticks: { autoSkip: true, maxRotation: 0 },
               grid:  { display: false },
             },
             y: {
+              stacked: true,
               beginAtZero: true,
               ticks: { precision: 0 },
             },
@@ -281,21 +293,8 @@
       if (statsAllEl)  statsAllEl.textContent  = summaryText(data.all);
       if (statsCustEl) statsCustEl.textContent = summaryText(data.customer);
 
-      // 개발자 화이트리스트 안내
-      if (devInfoEl) {
-        const devs = data.developer_ids || [];
-        if (devs.length === 0) {
-          devInfoEl.hidden = false;
-          devInfoEl.innerHTML =
-            '<em>(개발자 ID 화이트리스트가 비어 있어 두 차트가 동일합니다. ' +
-            '<code>app/queries/developer_ids.py</code> 에 ID 를 추가하세요.)</em>';
-        } else {
-          devInfoEl.hidden = false;
-          devInfoEl.innerHTML =
-            '제외 중인 개발자 ID(' + devs.length + '명): <code>' +
-            devs.map(escapeHtml).join(', ') + '</code>';
-        }
-      }
+      // 개발자 ID 목록은 의도적으로 화면에 노출하지 않는다.
+      // (관리자/운영자만 app/queries/developer_ids.py 에서 직접 관리)
       if (topNEl && data.tooltip_top_n) topNEl.textContent = data.tooltip_top_n;
     }
 
