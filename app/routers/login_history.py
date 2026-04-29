@@ -53,3 +53,44 @@ def run(
     except Exception as ex:
         log.exception("[login_history] 집계 실패: %s", ex)
         raise HTTPException(status_code=500, detail=f"집계 실패: {ex}")
+
+
+@router.get("/today")
+def today_snapshot():
+    """통합 대시보드 카드용: 오늘(KST) 하루치 접속자/총 로그인 수.
+
+    응답 형태(간결화):
+        {
+          "date": "2026-04-29",
+          "all":      {"distinct": 12, "total": 25},   # 개발자 포함
+          "customer": {"distinct":  9, "total": 18},   # 개발자 제외
+          "developer_count": 3,
+          "elapsed_ms": 42
+        }
+
+    fetch_history(today, today) 결과를 카드 표시용으로 압축한다.
+    """
+    today = date.today()
+    try:
+        full = svc.fetch_history(today, today)
+    except Exception as ex:
+        log.exception("[login_history] today 집계 실패: %s", ex)
+        raise HTTPException(status_code=500, detail=f"집계 실패: {ex}")
+
+    # fetch_history 는 days 길이만큼 시리즈를 주는데, today=today 인 경우
+    # 항상 길이 1 짜리 리스트가 된다. [0] 하나만 꺼내 단일 값으로 정리.
+    def _pick(side: dict) -> dict:
+        totals = side.get("total") or [0]
+        distincts = side.get("distinct") or [0]
+        return {
+            "total": int(totals[0] if totals else 0),
+            "distinct": int(distincts[0] if distincts else 0),
+        }
+
+    return {
+        "date": full.get("end") or today.isoformat(),
+        "all": _pick(full.get("all") or {}),
+        "customer": _pick(full.get("customer") or {}),
+        "developer_count": len(full.get("developer_ids") or []),
+        "elapsed_ms": int(full.get("elapsed_ms") or 0),
+    }
