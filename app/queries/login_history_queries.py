@@ -5,12 +5,18 @@
 설계 메모:
   - 쿼리는 :start, :end 두 개의 datetime 바인딩을 사용한다.
     [start, end) 반-개방 구간 — end 는 포함하지 않음.
-  - 시간대(KST) 변환은 SELECT 시점에 처리. DB 에는 date_time 컬럼이 어떤
-    타임존으로 들어가 있든, KST(+09:00) 기준 날짜로 묶이도록
-    `CONVERT_TZ(date_time, '+00:00', '+09:00')` 를 사용한다.
-    *운영 DB 의 date_time 이 이미 KST 로 저장되어 있다면* 결과적으로
-    UTC 로 9시간 빼고 다시 9시간 더하는 셈이 되어 같은 값이 나온다.
-    (→ 정확한 동작은 운영 DB 컨벤션에 따라 SELECT 절을 조정하면 됨.)
+    *바인딩 값은 KST 벽시계 기준의 naive datetime* 으로 들어온다.
+    (예: KST 2026-04-29 00:00 ~ 2026-04-30 00:00)
+  - DB 의 `date_time` 컬럼은 UTC 로 저장된다고 가정한다 (운영 컨벤션).
+    그래서 WHERE 절에서도 `CONVERT_TZ(date_time, '+00:00', '+09:00')`
+    으로 KST 로 변환한 값과 비교한다. 이렇게 해야 KST 의 하루 경계가
+    DB 의 UTC 행과 정확히 매칭된다 (예: KST 04-29 02:00 = UTC 04-28 17:00).
+    이전 버전은 WHERE 가 raw `date_time` 을 KST 벽시계 값과 직접 비교했기
+    때문에 KST 0~9시 사이의 로그인이 누락(=다음날로 밀림)되는 버그가 있었다.
+    → "통합 대시보드 오늘 카드는 0인데 사용자 접속 이력 페이지에는 보임"
+       증상의 근본 원인.
+  - SELECT 의 `DATE(CONVERT_TZ(...))` 는 일자 그루핑용. WHERE 의 변환은
+    범위 매칭용으로 별도 적용 (인덱스 범위 활용은 손해를 보지만, 정확도 우선).
   - SELECT 결과 컬럼:
       day        : 'YYYY-MM-DD' (KST 기준)
       user_id    : 원본 user_id (개발자/고객 분류는 파이썬에서 처리)
@@ -38,8 +44,8 @@ LOGIN_HISTORY_SQL = """
         COUNT(*)                                           AS login_count
     FROM advisor.app_server_user_log
     WHERE action = 'login'
-      AND `date_time` >= :start
-      AND `date_time` <  :end
+      AND CONVERT_TZ(`date_time`, '+00:00', '+09:00') >= :start
+      AND CONVERT_TZ(`date_time`, '+00:00', '+09:00') <  :end
     GROUP BY day, user_id
     ORDER BY day ASC, user_id ASC
 """

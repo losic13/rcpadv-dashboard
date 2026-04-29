@@ -13,8 +13,8 @@
      · 데이터 소스: GET /{source}/query/{query_id} 응답의 row_count
   ③ type="login_today"
      · "오늘" 하루의 접속자(고유 사용자) 수와 총 로그인 수를 보여주는 카드.
+     · 한 카드 안에 [전체 접속] + [고객 접속] 두 컬럼을 좌·우로 배치.
      · 큰 숫자 = 접속자(distinct), 작은 보조 = 총 로그인(total).
-     · scope="all" 이면 개발자 포함, "customer" 면 제외.
      · 데이터 소스: GET /login-history/today (단일 호출, 양쪽 scope 모두 포함)
 #}
 {% extends "base.html" %}
@@ -33,14 +33,13 @@
 <div class="dashboard-grid dashboard-grid-charts">
   {% for card in cards %}
   {% if card.type == "login_today" %}
-  {# ---- ③ 오늘 접속 스냅샷 카드 ---- #}
-  <section class="card login-today-card"
-           data-scope="{{ card.scope }}">
+  {# ---- ③ 오늘 접속자수 카드 (전체/고객 통합) ---- #}
+  <section class="card login-today-card login-today-card-merged">
     <header class="card-header">
       <div class="card-title">
         <span class="badge">{{ card.source_label }}</span>
         <strong>{{ card.title }}</strong>
-        <span class="card-sub">app_server_user_log · KST · {{ card.scope_label }}</span>
+        <span class="card-sub">app_server_user_log · KST · 전체 / 고객</span>
       </div>
       <div class="card-controls">
         <span class="status-area">
@@ -64,20 +63,50 @@
       </div>
     </header>
 
-    <div class="card-body login-today-body">
-      {# 메인: 접속자(고유 사용자) — 큰 숫자 + 명확한 라벨 #}
-      <div class="login-today-primary" data-role="primary">
-        <span class="login-today-label">접속자</span>
-        <span class="login-today-value" data-role="distinct-value">—</span>
-        <span class="login-today-unit">명</span>
+    <div class="card-body login-today-body login-today-body-merged">
+      {# 좌·우 두 컬럼: [전체 접속] | [고객 접속].
+         각 컬럼은 data-scope 속성으로 구분. JS 는 한 번의 fetch 응답에서
+         scope 별 값을 꺼내 같은 카드 내 두 컬럼을 동시에 채운다. #}
+      <div class="login-today-cols">
+        <div class="login-today-col" data-scope="all">
+          <div class="login-today-col-head">
+            <span class="login-today-col-title">전체 접속</span>
+            <span class="login-today-col-sub">개발자 포함</span>
+          </div>
+          <div class="login-today-primary" data-role="primary-all">
+            <span class="login-today-label">접속자</span>
+            <span class="login-today-value" data-role="distinct-value-all">—</span>
+            <span class="login-today-unit">명</span>
+          </div>
+          <div class="login-today-secondary" data-role="secondary-all"
+               title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수">
+            <span class="login-today-sec-label">총 로그인</span>
+            <span class="login-today-sec-value" data-role="total-value-all">—</span>
+            <span class="login-today-sec-unit">회</span>
+          </div>
+        </div>
+
+        <div class="login-today-col-divider" aria-hidden="true"></div>
+
+        <div class="login-today-col" data-scope="customer">
+          <div class="login-today-col-head">
+            <span class="login-today-col-title">고객 접속</span>
+            <span class="login-today-col-sub">개발자 제외</span>
+          </div>
+          <div class="login-today-primary" data-role="primary-customer">
+            <span class="login-today-label">접속자</span>
+            <span class="login-today-value" data-role="distinct-value-customer">—</span>
+            <span class="login-today-unit">명</span>
+          </div>
+          <div class="login-today-secondary" data-role="secondary-customer"
+               title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수">
+            <span class="login-today-sec-label">총 로그인</span>
+            <span class="login-today-sec-value" data-role="total-value-customer">—</span>
+            <span class="login-today-sec-unit">회</span>
+          </div>
+        </div>
       </div>
-      {# 보조: 총 로그인 — 흐리게 처리, 참고용 #}
-      <div class="login-today-secondary" data-role="secondary"
-           title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수">
-        <span class="login-today-sec-label">참고 · 총 로그인</span>
-        <span class="login-today-sec-value" data-role="total-value">—</span>
-        <span class="login-today-sec-unit">회</span>
-      </div>
+
       {% if card.description %}
       <p class="login-today-desc">{{ card.description }}</p>
       {% endif %}
@@ -253,14 +282,12 @@
       }
     });
 
-    // login-today 카드들은 동일한 엔드포인트 (/login-history/today) 를 호출하지만
-    // scope 만 달라서 결과를 둘 다 사용한다. 카드 인스턴스는 각자 자체 fetch 를
-    // 수행한다 (CountCard 와 동일한 race-UI 패턴 재활용을 위해 일관성 유지).
+    // login-today 카드는 단일 카드 안에 [전체/고객] 두 컬럼을 모두 그린다.
+    // /login-history/today 한 번의 fetch 결과에서 양쪽 scope 값을 같이 꺼내쓴다.
     loginTodayCards.forEach((el, i) => {
       try {
         new LoginTodayCard({
           rootEl: el,
-          scope: el.dataset.scope || 'all',
           autoRefreshIntervalMs: 60000,  // 1분 — 접속 카운트는 빠르게 변하지 않음
         }).init({ runOnLoad: true });
       } catch (err) {

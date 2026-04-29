@@ -1034,10 +1034,22 @@ table.dataTable tbody tr:hover td {
   font-size: 11px;
   text-transform: none;
 }
-.log-panel:not(.collapsed) .log-panel-title::before {
-  content: "▼ "; display: inline; color: #6366f1;
+/* 토글 아이콘은 CSS 한 곳에서만 관리해 "확장 시 ▲▼ 두 개가 같이 보이는"
+   증상을 방지한다 (예전엔 템플릿에 ▲ 가 하드코딩되어 있고 CSS 가
+   확장 시 ▼ 를 prepend 해서 두 개가 함께 표시됐었다).
+   - 접힘(collapsed) 상태: ▲  → "클릭하면 위로 펼쳐짐"
+   - 펼침(expanded) 상태:  ▼  → "클릭하면 아래로 접힘"
+   둘 중 한 개만 항상 보인다. */
+.log-panel-title::before {
+  content: "▲ ";
+  display: inline;
+  color: #94a3b8;
+  margin-right: 2px;
 }
-.log-panel.collapsed .log-panel-title { /* '▲ ' 는 템플릿 그대로 */ }
+.log-panel:not(.collapsed) .log-panel-title::before {
+  content: "▼ ";
+  color: #6366f1;
+}
 .log-panel-meta {
   display: flex;
   gap: 12px;
@@ -1626,6 +1638,86 @@ table[data-role="table"].is-loading {
   color: var(--color-muted);
   text-align: center;
   line-height: 1.5;
+}
+
+/* ── 통합형(전체+고객 한 카드) 레이아웃 ──────────────────────
+   .login-today-card-merged 안에 .login-today-cols 가 들어가고
+   그 안에 두 개의 .login-today-col(scope=all|customer) 컬럼과
+   가운데 .login-today-col-divider 가 배치된다.
+   모바일/좁은 화면에서는 컬럼이 세로로 쌓이고 divider 는 가로선으로 변한다.
+   ───────────────────────────────────────────────────────── */
+.login-today-body-merged {
+  /* 컬럼 정렬을 좌우로 하기 위해 stretch 사용 */
+  align-items: stretch;
+  padding: 18px 14px 16px;
+  min-height: 180px;
+}
+.login-today-cols {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  width: 100%;
+  gap: 0;
+}
+.login-today-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 4px 12px;
+}
+.login-today-col-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 4px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--color-border) 15%,
+    var(--color-border) 85%,
+    transparent 100%
+  );
+}
+.login-today-col-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.login-today-col-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+}
+.login-today-col-sub {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+/* 좁은 화면: 두 컬럼을 세로로 쌓고 divider 를 가로선으로 변경 */
+@media (max-width: 560px) {
+  .login-today-cols {
+    flex-direction: column;
+  }
+  .login-today-col-divider {
+    width: auto;
+    height: 1px;
+    align-self: stretch;
+    margin: 10px 12px;
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      var(--color-border) 15%,
+      var(--color-border) 85%,
+      transparent 100%
+    );
+  }
 }
 
 /* 카드 내부의 metric(REGULAR/COMPLETE) 섹션 영역 */

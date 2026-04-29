@@ -1372,11 +1372,14 @@
 
   // ============================================================
   // LoginTodayCard
-  //   - 통합 대시보드의 "오늘 (전체|고객) 접속" 카드 전용 컨트롤러.
+  //   - 통합 대시보드의 "오늘 접속자수" 카드 전용 컨트롤러.
+  //   - 한 카드 안에 [전체 / 고객] 두 컬럼을 동시에 표시한다.
   //   - GET /login-history/today 한 번 호출 → 응답에서
-  //       data[scope].distinct  → 큰 숫자(접속자)
-  //       data[scope].total     → 보조 숫자(총 로그인)
-  //     를 꺼내 렌더링한다.
+  //       data.all.distinct      → 좌측 큰 숫자 (전체 접속자)
+  //       data.all.total         → 좌측 보조 숫자 (전체 총 로그인)
+  //       data.customer.distinct → 우측 큰 숫자 (고객 접속자)
+  //       data.customer.total    → 우측 보조 숫자 (고객 총 로그인)
+  //     양쪽 컬럼을 같은 응답에서 동시에 채운다.
   //   - CountCard 와 동일한 race-UI 패턴(in-flight abort, supersede 배지,
   //     누적 취소 카운터)을 재활용하기 위해 같은 형태로 구현한다.
   //   - "오늘" 의 카운트는 빠르게 변하지 않으므로 자동 갱신 기본 1분.
@@ -1385,14 +1388,12 @@
     /**
      * @param {Object} opts
      * @param {HTMLElement} opts.rootEl
-     * @param {"all"|"customer"} opts.scope
      * @param {number} [opts.autoRefreshIntervalMs=60000]
      * @param {boolean} [opts.showRaceToast=false]   - 한 페이지에 여러 카드가
      *        동시에 갱신되면서 같은 토스트가 두 번 뜨는 것을 막기 위해 기본 false.
      */
     constructor(opts) {
       this.root = opts.rootEl;
-      this.scope = (opts.scope === 'customer') ? 'customer' : 'all';
       this.intervalMs = opts.autoRefreshIntervalMs || 60000;
       this.showRaceToast = !!opts.showRaceToast;
 
@@ -1406,10 +1407,22 @@
       this.cancelCountNumEl = this.cancelCountEl
         ? this.cancelCountEl.querySelector('.cancel-count-num')
         : null;
-      this.primaryEl   = this.root.querySelector('[data-role="primary"]');
-      this.secondaryEl = this.root.querySelector('[data-role="secondary"]');
-      this.distinctEl  = this.root.querySelector('[data-role="distinct-value"]');
-      this.totalEl     = this.root.querySelector('[data-role="total-value"]');
+
+      // 두 컬럼(scope) 별 DOM 참조를 dict 로 보관.
+      this.cols = {
+        all: {
+          primary:  this.root.querySelector('[data-role="primary-all"]'),
+          secondary:this.root.querySelector('[data-role="secondary-all"]'),
+          distinct: this.root.querySelector('[data-role="distinct-value-all"]'),
+          total:    this.root.querySelector('[data-role="total-value-all"]'),
+        },
+        customer: {
+          primary:  this.root.querySelector('[data-role="primary-customer"]'),
+          secondary:this.root.querySelector('[data-role="secondary-customer"]'),
+          distinct: this.root.querySelector('[data-role="distinct-value-customer"]'),
+          total:    this.root.querySelector('[data-role="total-value-customer"]'),
+        },
+      };
 
       this.timer = null;
       this.inFlight = false;
@@ -1493,8 +1506,12 @@
     }
 
     _setLoadingDim(on) {
-      if (this.primaryEl)   this.primaryEl.classList.toggle('is-loading', !!on);
-      if (this.secondaryEl) this.secondaryEl.classList.toggle('is-loading', !!on);
+      ['all', 'customer'].forEach((scope) => {
+        const col = this.cols[scope];
+        if (!col) return;
+        if (col.primary)   col.primary.classList.toggle('is-loading', !!on);
+        if (col.secondary) col.secondary.classList.toggle('is-loading', !!on);
+      });
     }
 
     _bumpCancelCount() {
@@ -1516,9 +1533,11 @@
       catch (_) { return String(n); }
     }
 
-    _setValues(distinct, total) {
-      if (this.distinctEl) this.distinctEl.textContent = this._fmtNum(distinct);
-      if (this.totalEl)    this.totalEl.textContent    = this._fmtNum(total);
+    _setValuesForScope(scope, distinct, total) {
+      const col = this.cols[scope];
+      if (!col) return;
+      if (col.distinct) col.distinct.textContent = this._fmtNum(distinct);
+      if (col.total)    col.total.textContent    = this._fmtNum(total);
     }
 
     async run() {
@@ -1537,7 +1556,7 @@
         }, 1500);
         if (this.showRaceToast) {
           Toast.show(
-            `이전 오늘 접속(${this.scope}) 카드를 취소하고 다시 불러옵니다.`,
+            '이전 오늘 접속자수 카드 요청을 취소하고 다시 불러옵니다.',
             { level: 'warn', icon: '⚠', durationMs: 2800 }
           );
         }
@@ -1573,10 +1592,13 @@
         const data = await res.json();
         if (this._destroyed || token !== this._runToken) return;
 
-        const side = (data && data[this.scope]) || {};
-        const distinct = (typeof side.distinct === 'number') ? side.distinct : 0;
-        const total    = (typeof side.total    === 'number') ? side.total    : 0;
-        this._setValues(distinct, total);
+        // 양쪽 컬럼을 동시에 채운다 (한 응답에 all/customer 모두 포함).
+        ['all', 'customer'].forEach((scope) => {
+          const side = (data && data[scope]) || {};
+          const distinct = (typeof side.distinct === 'number') ? side.distinct : 0;
+          const total    = (typeof side.total    === 'number') ? side.total    : 0;
+          this._setValuesForScope(scope, distinct, total);
+        });
 
         const elapsed = (typeof data.elapsed_ms === 'number')
           ? data.elapsed_ms
