@@ -27,32 +27,11 @@ router = APIRouter()
 #     - unit        : 큰 숫자 옆 단위 (예: "건")
 #     - description : 카드 본문 부가 설명
 DASHBOARD_CARDS = [
-    # ─────────────────────────────────────────────────────
-    # ③ 로그인(접속) 스냅샷 카드 — "오늘" 의 접속자/총 로그인 수.
-    #    * 데이터 소스: GET /login-history/today
-    #    * "전체" / "고객" 두 장을 나란히 보여 준다.
-    #    * 큰 숫자 = 접속자(고유 사용자), 보조 = 총 로그인 횟수
-    #      (사용자 요청: "접속자 수가 명확히 보이도록, 총 로그인은 참고만")
-    # ─────────────────────────────────────────────────────
-    {
-        "type": "login_today",
-        "source": "login_history",
-        "source_label": "VNAND DB",
-        "title": "오늘 전체 접속",
-        "scope": "all",       # all | customer
-        "scope_label": "개발자 포함",
-        "description": "오늘(KST) 하루 동안의 접속자 수와 총 로그인 수.",
-    },
-    {
-        "type": "login_today",
-        "source": "login_history",
-        "source_label": "VNAND DB",
-        "title": "오늘 고객 접속",
-        "scope": "customer",
-        "scope_label": "개발자 제외",
-        "description": "개발자 화이트리스트에 등록된 ID 의 로그인은 제외합니다.",
-    },
-
+    # 카드 표시 순서 (사용자 요청):
+    #   ① VNAND 파싱 결과
+    #   ② DRAM  파싱 결과
+    #   ③ AMAT  비정상 스텝 (미처리)
+    #   ④ 오늘 접속자수  (전체/고객 한 장에 통합)
     {
         "type": "chart",
         "source": "vnand",
@@ -77,6 +56,21 @@ DASHBOARD_CARDS = [
         "query_id": "amat_abnormal_steps_no_treat",
         "unit": "건",
         "description": "사용자 조치가 필요한 이상 감지 로그 건 수 입니다.",
+    },
+    # ─────────────────────────────────────────────────────
+    # ④ 오늘 접속자수 카드 — "전체" / "고객" 을 한 카드 안에 같이 표시.
+    #    * 데이터 소스: GET /login-history/today (단일 호출)
+    #    * 큰 숫자 = 접속자(고유 사용자), 보조 = 총 로그인 횟수
+    #      (사용자 요청: "접속자 수가 명확히 보이도록, 총 로그인은 참고만")
+    #    * 이전 버전은 전체/고객을 두 장의 카드로 나란히 두었으나,
+    #      "한 카드로 합치자" 는 요청에 따라 단일 카드 + 좌우 두 컬럼으로 변경.
+    # ─────────────────────────────────────────────────────
+    {
+        "type": "login_today",
+        "source": "login_history",
+        "source_label": "VNAND DB",
+        "title": "오늘 접속자수",
+        "description": "KST 0시 ~ 현재까지의 로그인 통계입니다. (개발자 포함/제외 두 가지)",
     },
 ]
 
