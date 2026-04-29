@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     SESSION_MAX_AGE: int = 60 * 60 * 12
     SESSION_COOKIE_NAME: str = "rcpadv_session"
 
+    # ---- EQP I/F Manager (외부 페이지 임베드) ----
+    # 사이드바의 "EQP I/F Manager" 페이지가 iframe 으로 로드할 URL.
+    # 운영 환경에서는 사내 EQP I/F Manager 의 실제 주소로 .env 에서 덮어쓴다.
+    # (예: https://eqp-if.intra.example.com/  또는  http://10.0.0.50:8080/ )
+    # 빈 문자열이면 페이지에서 안내 메시지를 띄운다.
+    EQP_IF_MANAGER_URL: str = "https://www.google.com"
+    EQP_IF_MANAGER_TITLE: str = "EQP I/F Manager"
+
     # ---- Helpers ----
     def vnand_db_url(self) -> str:
         return (

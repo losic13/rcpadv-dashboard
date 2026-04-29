@@ -39,7 +39,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.logger import get_logger, setup_logging
 from app.repositories import es_client, mariadb
-from app.routers import auth, dram, es, files, home, log_search, logs, vnand
+from app.routers import auth, dram, eqp_if, es, files, home, log_search, logs, vnand
 from app.routers.auth import is_authenticated, is_public_path
 
 # ---- 로깅 초기화 (라우터 import 전에 호출되어도 무방하지만 일관성 위해 여기서) ----
@@ -123,6 +123,7 @@ app.include_router(log_search.router)
 app.include_router(vnand.router)
 app.include_router(dram.router)
 app.include_router(es.router)
+app.include_router(eqp_if.router)
 app.include_router(logs.router)
 
 

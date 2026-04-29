@@ -1,0 +1,72 @@
+{#
+  EQP I/F Manager — 외부 사이트(EQP_IF_MANAGER_URL) 를 iframe 으로 임베드해
+  같은 사이드바/레이아웃 안에서 보여준다.
+
+  주의:
+    - 일부 사이트(예: google.com)는 X-Frame-Options 또는 CSP frame-ancestors
+      로 임베드를 차단한다. 이 경우 사용자에게는 빈 iframe 으로 보일 수 있어
+      "새 창에서 열기" 링크를 함께 노출한다.
+    - URL 자체가 비어 있으면 안내 메시지를 띄우고 iframe 은 렌더하지 않는다.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card eqp-if-page">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">External</span>
+      <strong>{{ page_title }}</strong>
+      {% if embed_url %}
+      <span class="card-sub">{{ embed_url }}</span>
+      {% endif %}
+    </div>
+    <div class="card-controls">
+      {% if embed_url %}
+      <a class="btn-run btn-run-sm"
+         href="{{ embed_url }}"
+         target="_blank"
+         rel="noopener noreferrer"
+         title="새 창에서 열기 (임베드 차단 사이트 대응)">
+        <span class="btn-run-icon" aria-hidden="true">↗</span>
+        <span class="btn-run-label">새 창에서 열기</span>
+      </a>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="card-body eqp-if-body">
+    {% if not embed_url %}
+      <div class="eqp-if-empty">
+        <p>
+          <strong>EQP I/F Manager URL 이 설정되어 있지 않습니다.</strong>
+        </p>
+        <p>
+          서버의 <code>.env</code> 에 다음 항목을 추가하고 앱을 재시작하세요.
+        </p>
+        <pre class="eqp-if-snippet">EQP_IF_MANAGER_URL=https://your-eqp-if.example.com/
+EQP_IF_MANAGER_TITLE=EQP I/F Manager</pre>
+      </div>
+    {% else %}
+      {# iframe 임베드. allow=… 는 미디어/풀스크린 등 일반 권한.
+         referrerpolicy=no-referrer 는 임베드 대상이 referer 로 사내 정보를
+         받지 않도록 하기 위한 안전장치. sandbox 는 두지 않는다(사내용). #}
+      <iframe
+        class="eqp-if-frame"
+        src="{{ embed_url }}"
+        title="{{ page_title }}"
+        loading="lazy"
+        referrerpolicy="no-referrer"
+        allow="clipboard-read; clipboard-write; fullscreen"
+      ></iframe>
+      <p class="eqp-if-fallback muted">
+        ※ 사이트가 iframe 임베드를 거부(X-Frame-Options / CSP frame-ancestors)
+        하면 위 영역이 비어 보일 수 있습니다. 그럴 땐 우측 상단의
+        <strong>새 창에서 열기</strong> 버튼을 사용하세요.
+      </p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
