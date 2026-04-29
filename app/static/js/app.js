@@ -1145,8 +1145,234 @@
     }
   }
 
+  // ============================================================
+  // CountCard
+  //   - 통합 대시보드의 "카운트 카드" 전용 컨트롤러.
+  //   - 임의 쿼리(GET /{source}/query/{queryId}) 의 응답 row_count 를
+  //     큰 숫자로 표시한다.
+  //   - QueryRunner / ChartCard 와 동일한 race-UI 패턴 사용
+  //     (in-flight abort + supersede 배지 + 누적 취소 카운터).
+  // ============================================================
+  class CountCard {
+    /**
+     * @param {Object} opts
+     * @param {HTMLElement} opts.rootEl
+     * @param {string} opts.source                       - "vnand" | "dram" | "es"
+     * @param {string} opts.queryId
+     * @param {number} [opts.autoRefreshIntervalMs=10000]
+     * @param {boolean} [opts.showRaceToast=true]
+     */
+    constructor(opts) {
+      this.root = opts.rootEl;
+      this.source = opts.source;
+      this.queryId = opts.queryId;
+      this.intervalMs = opts.autoRefreshIntervalMs || 10000;
+      this.showRaceToast = opts.showRaceToast !== false;
+
+      this.refreshBtn = this.root.querySelector('[data-role="refresh"]');
+      this.autoCheck = this.root.querySelector('[data-role="auto-refresh"]');
+      this.spinner = this.root.querySelector('[data-role="spinner"]');
+      this.elapsedEl = this.root.querySelector('[data-role="elapsed"]');
+      this.errorEl = this.root.querySelector('[data-role="error"]');
+      this.statusBadgeEl = this.root.querySelector('[data-role="status-badge"]');
+      this.cancelCountEl = this.root.querySelector('[data-role="cancel-count"]');
+      this.cancelCountNumEl = this.cancelCountEl
+        ? this.cancelCountEl.querySelector('.cancel-count-num')
+        : null;
+      this.displayEl = this.root.querySelector('[data-role="count-display"]');
+      this.valueEl = this.root.querySelector('[data-role="count-value"]');
+
+      this.timer = null;
+      this.inFlight = false;
+      this._destroyed = false;
+      this._runToken = 0;
+      this._abortCtrl = null;
+      this._cancelledCount = 0;
+      this._supersedeTimer = null;
+
+      this._onRefreshClick = () => this.run();
+      this._onAutoChange = () => this._applyAutoRefresh();
+    }
+
+    init({ runOnLoad = true } = {}) {
+      if (this._destroyed) return;
+      if (this.refreshBtn) this.refreshBtn.addEventListener('click', this._onRefreshClick);
+      if (this.autoCheck) {
+        this.autoCheck.checked = false;
+        this.autoCheck.addEventListener('change', this._onAutoChange);
+      }
+      this._setStatusBadge('idle');
+      if (runOnLoad) this.run();
+    }
+
+    destroy() {
+      if (this._destroyed) return;
+      this._destroyed = true;
+      this._stopTimer();
+      if (this._supersedeTimer) { clearTimeout(this._supersedeTimer); this._supersedeTimer = null; }
+      if (this._abortCtrl) {
+        try { this._abortCtrl.abort(); } catch (_) {}
+        this._abortCtrl = null;
+      }
+      if (this.refreshBtn) this.refreshBtn.removeEventListener('click', this._onRefreshClick);
+      if (this.autoCheck) this.autoCheck.removeEventListener('change', this._onAutoChange);
+      if (this.elapsedEl) this.elapsedEl.textContent = '';
+      if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
+      if (this.spinner) this.spinner.hidden = true;
+      this._setLoadingDim(false);
+      this._setStatusBadge('idle');
+    }
+
+    _applyAutoRefresh() {
+      if (this._destroyed) return;
+      if (this.autoCheck && this.autoCheck.checked) this._startTimer();
+      else this._stopTimer();
+    }
+
+    _startTimer() {
+      this._stopTimer();
+      this.timer = setInterval(() => {
+        if (this._destroyed) return;
+        if (!this.inFlight) this.run();
+      }, this.intervalMs);
+    }
+
+    _stopTimer() {
+      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    }
+
+    _setSpinner(on) { if (this.spinner) this.spinner.hidden = !on; }
+
+    _setError(msg) {
+      if (!this.errorEl) return;
+      if (msg) { this.errorEl.textContent = msg; this.errorEl.hidden = false; }
+      else { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
+    }
+
+    _setStatusBadge(state, text) {
+      const el = this.statusBadgeEl;
+      if (!el) return;
+      const labels = {
+        idle: '', loading: '실행 중',
+        superseded: '이전 요청 취소 · 재실행',
+        error: '실패', ok: '완료',
+      };
+      const label = (text != null) ? text : labels[state];
+      el.dataset.state = state;
+      el.textContent = label || '';
+      el.hidden = !label;
+    }
+
+    _setLoadingDim(on) {
+      if (this.displayEl) this.displayEl.classList.toggle('is-loading', !!on);
+    }
+
+    _bumpCancelCount() {
+      this._cancelledCount += 1;
+      if (this.cancelCountEl) {
+        if (this.cancelCountNumEl) this.cancelCountNumEl.textContent = String(this._cancelledCount);
+        else this.cancelCountEl.textContent = String(this._cancelledCount);
+        this.cancelCountEl.hidden = false;
+        this.cancelCountEl.classList.remove('pulse');
+        // eslint-disable-next-line no-unused-expressions
+        this.cancelCountEl.offsetWidth;
+        this.cancelCountEl.classList.add('pulse');
+      }
+    }
+
+    _fmtNum(n) {
+      if (n == null) return '—';
+      try { return Number(n).toLocaleString('ko-KR'); }
+      catch (_) { return String(n); }
+    }
+
+    _setValue(n) {
+      if (!this.valueEl) return;
+      this.valueEl.textContent = this._fmtNum(n);
+    }
+
+    async run() {
+      if (this._destroyed) return;
+
+      const hadInFlight = this.inFlight && !!this._abortCtrl;
+      if (hadInFlight) {
+        try { this._abortCtrl.abort(); } catch (_) {}
+        this._bumpCancelCount();
+        this._setStatusBadge('superseded');
+        if (this._supersedeTimer) clearTimeout(this._supersedeTimer);
+        this._supersedeTimer = setTimeout(() => {
+          if (!this._destroyed && this.inFlight) this._setStatusBadge('loading');
+          else if (!this._destroyed) this._setStatusBadge('idle');
+          this._supersedeTimer = null;
+        }, 1500);
+        if (this.showRaceToast) {
+          Toast.show(
+            `이전 ${this.source.toUpperCase()} 카운트(${this.queryId})를 취소하고 다시 불러옵니다.`,
+            { level: 'warn', icon: '⚠', durationMs: 2800 }
+          );
+        }
+      }
+
+      const token = ++this._runToken;
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      this._abortCtrl = ctrl;
+
+      this.inFlight = true;
+      this._setError(null);
+      this._setSpinner(true);
+      this._setLoadingDim(true);
+      if (!hadInFlight) this._setStatusBadge('loading');
+
+      const url = `/${this.source}/query/${encodeURIComponent(this.queryId)}`;
+      const startedAt = performance.now();
+      try {
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (this._destroyed || token !== this._runToken) return;
+
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const j = await res.json();
+            if (j && j.detail) detail = j.detail;
+          } catch (_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        if (this._destroyed || token !== this._runToken) return;
+
+        // row_count 우선, 없으면 rows.length 폴백
+        const count = (typeof data.row_count === 'number')
+          ? data.row_count
+          : (Array.isArray(data.rows) ? data.rows.length : null);
+        this._setValue(count);
+
+        const elapsed = (typeof data.elapsed_ms === 'number')
+          ? data.elapsed_ms
+          : Math.round(performance.now() - startedAt);
+        if (this.elapsedEl) this.elapsedEl.textContent = fmtElapsed(elapsed);
+        this._setStatusBadge('ok');
+      } catch (err) {
+        if (err && (err.name === 'AbortError' || err.code === 20)) return; // 취소된 건 무시
+        if (this._destroyed || token !== this._runToken) return;
+        this._setError(err && err.message ? err.message : String(err));
+        this._setStatusBadge('error');
+      } finally {
+        if (token === this._runToken) {
+          this.inFlight = false;
+          this._abortCtrl = null;
+          this._setSpinner(false);
+          this._setLoadingDim(false);
+        }
+      }
+    }
+  }
+
   // 외부 노출
   window.QueryRunner = QueryRunner;
   window.ChartCard = ChartCard;
+  window.CountCard = CountCard;
   window.Toast = Toast;
 })();

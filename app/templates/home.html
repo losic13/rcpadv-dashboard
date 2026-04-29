@@ -1,12 +1,16 @@
 {#
-  통합 대시보드 — 차트 중심 리뉴얼.
-  - 카드 단위: VNAND DB / DRAM DB
-  - 카드 내부 구조: metric(REGULAR/COMPLETE) 별로 묶음
-      · 상단: REGULAR 섹션 — PRODUCT 들이 series 로 들어간 한 개의 막대 차트
-      · 하단: COMPLETE 섹션 — 동일 구조
-  - 각 차트에는 PRODUCT 별 막대(서로 다른 색)와,
-    PRODUCT 별 이동평균선(마지막 데이터 제외) Line series 가 함께 그려짐
-  - 데이터 소스: 각 source 의 recent_parsing_results 쿼리 결과
+  통합 대시보드 — 카드 종류는 두 가지.
+  ① type="chart"
+     · 카드 단위: VNAND DB / DRAM DB
+     · 카드 내부 구조: metric(REGULAR/COMPLETE) 별로 묶음
+         - 상단: REGULAR 섹션 — PRODUCT 들이 series 로 들어간 한 개의 막대 차트
+         - 하단: COMPLETE 섹션 — 동일 구조
+     · 각 차트에는 PRODUCT 별 막대(서로 다른 색)와,
+       PRODUCT 별 이동평균선(마지막 데이터 제외) Line series 가 함께 그려짐
+     · 데이터 소스: 각 source 의 recent_parsing_results 쿼리 결과
+  ② type="count"
+     · 임의 쿼리의 결과 행 수(row_count)를 큰 숫자로 보여주는 카운트 카드
+     · 데이터 소스: GET /{source}/query/{query_id} 응답의 row_count
 #}
 {% extends "base.html" %}
 
@@ -23,6 +27,52 @@
 
 <div class="dashboard-grid dashboard-grid-charts">
   {% for card in cards %}
+  {% if card.type == "count" %}
+  {# ---- ② 카운트 카드 ---- #}
+  <section class="card count-card"
+           data-source="{{ card.source }}"
+           data-query-id="{{ card.query_id }}">
+    <header class="card-header">
+      <div class="card-title">
+        <span class="badge">{{ card.source_label }}</span>
+        <strong>{{ card.title }}</strong>
+        <span class="card-sub">{{ card.query_id }} · 결과 행 수</span>
+      </div>
+      <div class="card-controls">
+        <span class="status-area">
+          <span class="spinner" data-role="spinner" hidden>
+            <span class="spinner-dot"></span>
+          </span>
+          <span class="status-badge status-badge-sm" data-role="status-badge" data-state="idle" hidden></span>
+          <span class="cancel-count cancel-count-sm" data-role="cancel-count" hidden
+                title="자동 갱신 도중 취소된 이전 쿼리 누적 횟수">취소 ×<span class="cancel-count-num">0</span></span>
+          <span class="elapsed" data-role="elapsed"></span>
+        </span>
+        <button type="button" class="btn-run btn-run-sm" data-role="refresh" title="새로고침">
+          <span class="btn-run-icon" aria-hidden="true">↻</span>
+          <span class="btn-run-label">새로고침</span>
+        </button>
+        <label class="auto-refresh toggle-switch toggle-switch-sm" title="10초마다 자동으로 다시 실행">
+          <input type="checkbox" data-role="auto-refresh">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">자동 <span class="toggle-suffix">10s</span></span>
+        </label>
+      </div>
+    </header>
+
+    <div class="card-body count-card-body">
+      <div class="count-display" data-role="count-display">
+        <span class="count-value" data-role="count-value">—</span>
+        <span class="count-unit">{{ card.unit or "건" }}</span>
+      </div>
+      {% if card.description %}
+      <p class="count-description">{{ card.description }}</p>
+      {% endif %}
+      <div class="error-msg" data-role="error" hidden></div>
+    </div>
+  </section>
+  {% else %}
+  {# ---- ① 차트 카드 (기본) ---- #}
   <section class="card chart-card"
            data-source="{{ card.source }}"
            data-query-id="{{ card.query_id }}"
@@ -83,6 +133,7 @@
       <div class="error-msg" data-role="error" hidden></div>
     </div>
   </section>
+  {% endif %}
   {% endfor %}
 </div>
 
@@ -92,7 +143,7 @@
 
 {% block extra_scripts %}
 <script>
-  // 카드별 ChartCard 인스턴스 생성
+  // 차트 카드
   document.querySelectorAll('.chart-card').forEach(el => {
     const products = JSON.parse(el.dataset.products || '[]');
     new ChartCard({
@@ -100,6 +151,16 @@
       source: el.dataset.source,
       queryId: el.dataset.queryId,
       products: products,
+      autoRefreshIntervalMs: 10000,
+    }).init({ runOnLoad: true });
+  });
+
+  // 카운트 카드
+  document.querySelectorAll('.count-card').forEach(el => {
+    new CountCard({
+      rootEl: el,
+      source: el.dataset.source,
+      queryId: el.dataset.queryId,
       autoRefreshIntervalMs: 10000,
     }).init({ runOnLoad: true });
   });
