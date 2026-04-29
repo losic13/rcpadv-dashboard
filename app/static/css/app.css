@@ -15,8 +15,8 @@
   /* 본문 영역의 최대 폭. 'none' 으로 두면 화면 전체를 사용한다.
      필요 시 px 값을 다시 지정해 제한을 둘 수 있다. (예: 1920px) */
   --content-max-width: none;
-  --log-panel-collapsed: 40px;
-  --log-panel-expanded: 320px;
+  --log-panel-collapsed: 28px;
+  --log-panel-expanded: 280px;
 
   /* Color — Surface */
   --color-bg: #f4f6fb;
@@ -968,78 +968,107 @@ table.dataTable tbody tr:hover td {
 }
 
 /* ============================================================
- * 12) Log panel (하단 고정)
+ * 12) Log panel (하단 고정 — 컨텐츠 영역에만 깔리도록)
+ *
+ * 디자인 의도:
+ *   - 사이드바의 "로그아웃" 버튼을 가리지 않도록 left 를 사이드바 폭만큼
+ *     밀어 둔다 (모바일에서는 사이드바가 가로로 펼쳐지므로 left:0 복귀).
+ *   - 강한 다크 톤(검정 배경 + 짙은 그림자) → 옅은 톤 보조 영역으로
+ *     강조를 낮춘다. 페이지의 메인 컨텐츠가 시각적으로 우선되도록.
+ *   - 접힌 상태(기본)는 30px 미만의 매우 얇은 트레이로 두어 존재감만 남김.
  * ============================================================ */
 .log-panel {
   position: fixed;
-  left: 0;
+  /* 사이드바를 가리지 않도록 컨텐츠 영역 시작점부터 깔린다. */
+  left: var(--sidebar-width);
   right: 0;
   bottom: 0;
-  background: #0b1220;
-  color: #cbd5e1;
-  border-top: 1px solid #1f2a44;
-  z-index: 100;
+  /* 짙은 다크 → 옅은 슬레이트로 강조 완화 */
+  background: #f1f5f9;
+  color: #475569;
+  border-top: 1px solid #e2e8f0;
+  z-index: 50;            /* 100 → 50, 굳이 모든 UI 위로 떠 있을 필요 없음 */
   height: var(--log-panel-collapsed);
-  transition: height 0.20s var(--ease);
+  transition: height 0.18s var(--ease), background 0.15s var(--ease);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.10);
+  /* 강한 그림자 제거 — 미세한 윗선만 */
+  box-shadow: 0 -1px 0 rgba(15, 23, 42, 0.04);
 }
 .log-panel:not(.collapsed) {
   height: var(--log-panel-expanded);
+  background: #ffffff;
+  box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.06);
 }
 .log-panel-header {
   flex-shrink: 0;
-  padding: 0 18px;
+  padding: 0 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: var(--log-panel-collapsed);
   user-select: none;
-  font-size: 12px;
+  font-size: 11px;
+  color: #64748b;
   border-bottom: 1px solid transparent;
-  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), color 0.15s var(--ease);
 }
 .log-panel:not(.collapsed) .log-panel-header {
-  border-bottom-color: #1f2a44;
-  background: #0d1628;
+  border-bottom-color: #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  height: 32px;     /* 펼쳤을 때만 약간 키워서 클릭 영역 확보 */
 }
-.log-panel-header:hover { background: #0d1628; }
+.log-panel-header:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+.log-panel:not(.collapsed) .log-panel-header:hover {
+  background: #eef2ff;
+}
 .log-panel-title {
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.02em;
-  color: #e2e8f0;
+  color: inherit;
+  font-size: 11px;
+  text-transform: none;
 }
 .log-panel:not(.collapsed) .log-panel-title::before {
-  content: "▼ "; display: inline; color: #93c5fd;
+  content: "▼ "; display: inline; color: #6366f1;
 }
 .log-panel.collapsed .log-panel-title { /* '▲ ' 는 템플릿 그대로 */ }
 .log-panel-meta {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
   color: #94a3b8;
   font-variant-numeric: tabular-nums;
+  font-size: 11px;
 }
 .log-panel-meta #log-count {
   display: inline-block;
   min-width: 2ch;
   text-align: right;
-  padding: 1px 8px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 7px;
+  background: rgba(99, 102, 241, 0.10);
   border-radius: var(--radius-pill);
-  color: #cbd5e1;
+  color: #6366f1;
   font-weight: 600;
+  font-size: 10.5px;
 }
-.log-panel-meta .btn-link { color: #93c5fd; }
-.log-panel-meta .btn-link:hover { color: #c7d2fe; }
+.log-panel-meta .btn-link {
+  color: #94a3b8;
+  font-size: 11px;
+}
+.log-panel-meta .btn-link:hover { color: #6366f1; }
 .log-panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 0 8px 8px 8px;
+  padding: 0 6px 6px 6px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
+  background: #ffffff;
 }
 .log-table {
   width: 100%;
@@ -1048,33 +1077,39 @@ table.dataTable tbody tr:hover td {
 .log-table th {
   position: sticky;
   top: 0;
-  background: #0d1628;
+  background: #f8fafc;
   text-align: left;
-  padding: 8px 10px;
+  padding: 6px 10px;
   font-weight: 600;
-  font-size: 10.5px;
+  font-size: 10px;
   color: #94a3b8;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  border-bottom: 1px solid #1f2a44;
+  border-bottom: 1px solid #e2e8f0;
   z-index: 1;
 }
 .log-table td {
-  padding: 5px 10px;
-  border-bottom: 1px solid #131c30;
+  padding: 4px 10px;
+  border-bottom: 1px solid #f1f5f9;
   vertical-align: top;
   white-space: pre-wrap;
   word-break: break-all;
-  color: #cbd5e1;
+  color: #475569;
 }
-.log-table tr:hover td { background: rgba(255, 255, 255, 0.02); }
-.log-row.level-ERROR td.col-level    { color: #fca5a5; font-weight: 600; }
-.log-row.level-WARNING td.col-level  { color: #fcd34d; font-weight: 600; }
-.log-row.level-INFO td.col-level     { color: #93c5fd; }
+.log-table tr:hover td { background: #f8fafc; }
+.log-row.level-ERROR td.col-level    { color: #dc2626; font-weight: 600; }
+.log-row.level-WARNING td.col-level  { color: #d97706; font-weight: 600; }
+.log-row.level-INFO td.col-level     { color: #4f46e5; }
 .log-row.level-DEBUG td.col-level    { color: #94a3b8; }
-.log-row.level-CRITICAL td.col-level { color: #fca5a5; font-weight: 700; }
+.log-row.level-CRITICAL td.col-level { color: #b91c1c; font-weight: 700; }
 .log-row td.col-ts { color: #94a3b8; }
-.log-row td.col-logger { color: #a5b4fc; }
+.log-row td.col-logger { color: #6366f1; }
+
+/* 모바일 (사이드바가 가로로 펼쳐지는 레이아웃) 에서는
+   로그 패널이 사이드바 아래로 깔리므로 다시 left:0 부터 시작하도록 한다. */
+@media (max-width: 900px) {
+  .log-panel { left: 0; }
+}
 
 /* ============================================================
  * 13) Race / 상태 표시 UI
