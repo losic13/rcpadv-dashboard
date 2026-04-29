@@ -73,13 +73,22 @@
             <span class="login-today-col-title">전체 접속</span>
             <span class="login-today-col-sub">개발자 포함</span>
           </div>
-          <div class="login-today-primary" data-role="primary-all">
+          {# primary 영역 자체에 hover 시 Top N 접속자 ID tooltip 띄움.
+             (이전엔 .login-today-secondary 에 title="..." 속성으로 브라우저
+             기본 툴팁을 사용 + cursor:help 로 ?커서가 표시되었다 — 사용자
+             요청에 따라 둘 다 제거하고 대신 ID Top N 패널로 교체.) #}
+          <div class="login-today-primary login-today-hover" data-role="primary-all">
             <span class="login-today-label">접속자</span>
             <span class="login-today-value" data-role="distinct-value-all">—</span>
             <span class="login-today-unit">명</span>
+            <span class="login-today-tip" data-role="users-tip-all" role="tooltip" hidden>
+              <strong class="login-today-tip-title">접속자 ID
+                <span class="login-today-tip-topn">Top <span data-role="topn-all">10</span></span>
+              </strong>
+              <span class="login-today-tip-body" data-role="users-list-all">—</span>
+            </span>
           </div>
-          <div class="login-today-secondary" data-role="secondary-all"
-               title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수">
+          <div class="login-today-secondary" data-role="secondary-all">
             <span class="login-today-sec-label">총 로그인</span>
             <span class="login-today-sec-value" data-role="total-value-all">—</span>
             <span class="login-today-sec-unit">회</span>
@@ -93,13 +102,18 @@
             <span class="login-today-col-title">고객 접속</span>
             <span class="login-today-col-sub">개발자 제외</span>
           </div>
-          <div class="login-today-primary" data-role="primary-customer">
+          <div class="login-today-primary login-today-hover" data-role="primary-customer">
             <span class="login-today-label">접속자</span>
             <span class="login-today-value" data-role="distinct-value-customer">—</span>
             <span class="login-today-unit">명</span>
+            <span class="login-today-tip" data-role="users-tip-customer" role="tooltip" hidden>
+              <strong class="login-today-tip-title">접속자 ID
+                <span class="login-today-tip-topn">Top <span data-role="topn-customer">10</span></span>
+              </strong>
+              <span class="login-today-tip-body" data-role="users-list-customer">—</span>
+            </span>
           </div>
-          <div class="login-today-secondary" data-role="secondary-customer"
-               title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수">
+          <div class="login-today-secondary" data-role="secondary-customer">
             <span class="login-today-sec-label">총 로그인</span>
             <span class="login-today-sec-value" data-role="total-value-customer">—</span>
             <span class="login-today-sec-unit">회</span>

@@ -69,15 +69,24 @@ def today_snapshot():
     응답 형태(간결화):
         {
           "date": "2026-04-29",
-          "all":      {"distinct": 12, "total": 25},   # 개발자 포함
-          "customer": {"distinct":  9, "total": 18},   # 개발자 제외
+          "all": {
+            "distinct": 12,
+            "total": 25,
+            "users": [{"user_id": "alice", "count": 4}, ...],   # Top N (count 내림차순)
+            "extra_users": 0                                     # Top N 을 초과한 추가 인원 수
+          },
+          "customer": { ... 같은 형태 ... },
           "developer_count": 3,
+          "tooltip_top_n": 10,
           "elapsed_ms": 42
         }
 
     fetch_history(today, today) 결과를 카드 표시용으로 압축한다.
     "오늘" 은 서버 로컬 기준 date.today() 이며, DB 의 date_time 값을
     그대로 비교한다 (타임존 변환 없음).
+
+    users / extra_users 는 카드 hover 툴팁에서 "오늘 접속자 ID Top N"
+    리스트를 보여주기 위해 함께 내려준다.
     """
     today = date.today()
     try:
@@ -91,9 +100,13 @@ def today_snapshot():
     def _pick(side: dict) -> dict:
         totals = side.get("total") or [0]
         distincts = side.get("distinct") or [0]
+        tips = side.get("tooltip") or []
+        first_tip = tips[0] if tips else {}
         return {
             "total": int(totals[0] if totals else 0),
             "distinct": int(distincts[0] if distincts else 0),
+            "users": list(first_tip.get("users") or []),
+            "extra_users": int(first_tip.get("extra_users") or 0),
         }
 
     return {
@@ -101,5 +114,6 @@ def today_snapshot():
         "all": _pick(full.get("all") or {}),
         "customer": _pick(full.get("customer") or {}),
         "developer_count": len(full.get("developer_ids") or []),
+        "tooltip_top_n": int(full.get("tooltip_top_n") or 10),
         "elapsed_ms": int(full.get("elapsed_ms") or 0),
     }
