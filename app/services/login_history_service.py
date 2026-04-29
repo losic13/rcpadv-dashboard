@@ -4,8 +4,8 @@ DB 에서 (day, user_id, login_count) 행을 받아와 페이지가 사용하는
 응답 형태로 가공한다. 응답 구조:
 
     {
-        "start": "2026-04-15",     # KST, 포함
-        "end":   "2026-04-29",     # KST, 포함 (페이지 입력 기준)
+        "start": "2026-04-15",     # 포함
+        "end":   "2026-04-29",     # 포함 (페이지 입력 기준)
         "days":  ["2026-04-15", ..., "2026-04-29"],
         "all": {
             "total":     [3, 5, 4, ...],          # 날짜별 총 로그인 수
@@ -89,7 +89,10 @@ def default_range(*, today: date | None = None, days: int = 14) -> tuple[date, d
 # 메인 로직
 # ============================================================
 def fetch_history(start: date, end: date) -> dict[str, Any]:
-    """start, end (둘 다 포함, KST) 범위로 로그인 이력을 집계한다."""
+    """start, end (둘 다 포함) 범위로 로그인 이력을 집계한다.
+
+    DB 의 date_time 값을 타임존 변환 없이 그대로 비교한다.
+    """
     validate_range(start, end)
     started = time.perf_counter()
 

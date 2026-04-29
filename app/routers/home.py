@@ -70,7 +70,7 @@ DASHBOARD_CARDS = [
         "source": "login_history",
         "source_label": "VNAND DB",
         "title": "오늘 접속자수",
-        "description": "KST 0시 ~ 현재까지의 로그인 통계입니다. (개발자 포함/제외 두 가지)",
+        "description": "오늘 0시 ~ 현재까지의 로그인 통계입니다. (개발자 포함/제외 두 가지)",
     },
 ]
 
