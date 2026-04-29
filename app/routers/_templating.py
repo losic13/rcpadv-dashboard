@@ -25,9 +25,19 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 #   브라우저가 자동으로 최신 파일을 받아 간다.
 # ------------------------------------------------------------
 def _compute_asset_version() -> str:
+    # 앱 자산 + 주요 vendor 자산의 mtime 을 모두 반영해 버전을 만든다.
+    # vendor 파일의 sourceMappingURL 주석을 떼는 등 vendor 파일이 바뀐
+    # 경우에도 사용자 브라우저가 캐시된 옛 파일을 그대로 잡는 일이 없도록
+    # base.html 의 vendor <script>/<link> 에도 ?v={{asset_version}} 을 붙인다.
     paths = [
         STATIC_DIR / "js" / "app.js",
         STATIC_DIR / "css" / "app.css",
+        STATIC_DIR / "vendor" / "bootstrap" / "bootstrap.min.css",
+        STATIC_DIR / "vendor" / "bootstrap" / "bootstrap.bundle.min.js",
+        STATIC_DIR / "vendor" / "datatables" / "datatables.min.css",
+        STATIC_DIR / "vendor" / "datatables" / "datatables.min.js",
+        STATIC_DIR / "vendor" / "chartjs" / "chart.umd.min.js",
+        STATIC_DIR / "vendor" / "jquery" / "jquery.min.js",
     ]
     parts = []
     for p in paths:
@@ -35,7 +45,7 @@ def _compute_asset_version() -> str:
             parts.append(str(int(p.stat().st_mtime)))
         except OSError:
             parts.append("0")
-    # 너무 길면 보기 싫으니 마지막 8자리만
+    # 너무 길면 보기 싫으니 마지막 12자리만
     return "-".join(parts)[-12:]
 
 
