@@ -1578,6 +1578,13 @@ table[data-role="table"].is-loading {
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.10);
   border: 1px solid rgba(99, 102, 241, 0.25);
+  /* 사용자 요청: '총'(1글자)과 '고객'(2글자) 라벨이 각각 들어가도
+     pill 의 폭이 시각적으로 동일하게 보이도록 min-width 고정 +
+     가운데 정렬. (가장 긴 '고객' 기준 최소 폭을 확보) */
+  display: inline-block;
+  min-width: 3.4em;          /* 약 2글자 + 좌우 여유 */
+  text-align: center;
+  box-sizing: border-box;
 }
 .login-today-value {
   font-size: 56px;
@@ -1896,6 +1903,68 @@ table[data-role="table"].is-loading {
   font-variant-numeric: tabular-nums;
   margin-left: auto;
   white-space: nowrap;
+}
+
+/* ── 차트 X축 아래에 배치된 '일평균(마지막 제외)' stat (사용자 요청) ──
+   기존엔 헤더 우측에 텍스트로 노출했지만, 차트 아래로 이동하면서
+   가독성 향상을 위해 chip 형태(PRODUCT 라벨 + 값)로 재구성한다. */
+.metric-section-foot {
+  display: flex;
+  justify-content: center;
+  padding: 8px 4px 2px;
+  /* 캔버스 하단(X축 라벨)과 시각적으로 분리되도록 살짝의 상단 보더 */
+  border-top: 1px dashed rgba(99, 102, 241, 0.18);
+  margin-top: 6px;
+}
+.metric-section-stat-bottom {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  margin-left: 0;          /* foot 컨테이너에서 가운데 정렬되도록 auto 해제 */
+  font-size: 12px;          /* 헤더보다 살짝 키워 가독성 ↑ */
+  color: var(--color-text);
+  white-space: normal;
+}
+.metric-section-stat-bottom .metric-section-stat-lead {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-muted);
+  text-transform: none;
+  margin-right: 2px;
+}
+.metric-section-stat-bottom .metric-section-stat-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  line-height: 1.5;
+}
+/* COMPLETE 섹션은 색감을 cyan 톤으로 살짝 변주 (헤더 라벨과 톤 일치) */
+.metric-section-complete .metric-section-stat-bottom .metric-section-stat-chip {
+  background: rgba(8, 145, 178, 0.08);
+  border-color: rgba(8, 145, 178, 0.22);
+}
+.metric-section-stat-bottom .metric-section-stat-product {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-brand-700, #4338ca);
+  letter-spacing: 0.02em;
+}
+.metric-section-complete .metric-section-stat-bottom .metric-section-stat-product {
+  color: #0e7490;
+}
+.metric-section-stat-bottom .metric-section-stat-value {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 .metric-section-legend {
   display: inline-flex;
