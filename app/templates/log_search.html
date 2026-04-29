@@ -70,6 +70,32 @@
     <div class="error-msg" id="log-search-error" hidden></div>
   </div>
 </section>
+
+<!-- 파일 다운로드 결과 안내 모달 (파일 없음 / 오류 시) -->
+<div id="ls-dl-modal" class="ls-dl-modal" hidden role="dialog" aria-modal="true"
+     aria-labelledby="ls-dl-modal-title">
+  <div class="ls-dl-modal-backdrop" data-role="ls-dl-close"></div>
+  <div class="ls-dl-modal-card">
+    <header class="ls-dl-modal-header">
+      <span class="ls-dl-modal-icon" data-role="ls-dl-icon" aria-hidden="true">⚠️</span>
+      <strong id="ls-dl-modal-title" data-role="ls-dl-title">파일을 다운로드할 수 없습니다</strong>
+      <button type="button" class="ls-dl-modal-close" data-role="ls-dl-close"
+              aria-label="닫기">×</button>
+    </header>
+    <div class="ls-dl-modal-body">
+      <p class="ls-dl-modal-msg" data-role="ls-dl-msg">파일이 존재하지 않습니다.</p>
+      <pre class="ls-dl-modal-path" data-role="ls-dl-path"></pre>
+      <p class="ls-dl-modal-hint" data-role="ls-dl-hint">
+        DB 에는 경로가 남아 있지만 실제 파일은 이미 정리되었거나
+        이동되었을 수 있습니다. 운영자에게 문의해 주세요.
+      </p>
+    </div>
+    <footer class="ls-dl-modal-footer">
+      <button type="button" class="btn-secondary" data-role="ls-dl-copy">경로 복사</button>
+      <button type="button" class="btn-primary" data-role="ls-dl-close">확인</button>
+    </footer>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -125,15 +151,19 @@
     }
 
     // 다운로드 아이콘 (각 행 첫 컬럼). path 가 비어 있으면 비활성.
+    // 클릭 시 곧장 /files/download 로 이동하지 않고, /files/check 로 사전 검증해
+    // 파일이 없거나 오류가 있을 경우 모달로 안내한다(2)번 시나리오).
     function renderDownloadCell(path) {
       if (path == null || path === '') {
         return '<span class="log-search-dl log-search-dl-disabled" title="path 없음">—</span>';
       }
-      const href = '/files/download?path=' + encodeURIComponent(path);
+      const safePath = escapeHtml(path);
+      // data-path 에 원본 경로 보존 (HTML 디코드 신경쓰지 않도록 attr 안에서 escape)
       return (
-        '<a class="log-search-dl" href="' + href + '" ' +
-        'title="다운로드: ' + escapeHtml(path) + '" ' +
-        'target="_blank" rel="noopener">⬇</a>'
+        '<button type="button" class="log-search-dl" ' +
+        'data-role="ls-dl-btn" ' +
+        'data-path="' + safePath + '" ' +
+        'title="다운로드: ' + safePath + '">⬇</button>'
       );
     }
 
@@ -147,14 +177,17 @@
       const total = meta.reduce((a, t) => a + (t.row_count || 0), 0);
       const items = meta.map(t => {
         const cls = t.ok ? 'ok' : 'err';
-        const cnt = t.ok ? `${t.row_count}행` : '실패';
+        const sourceTag = '[' + (t.source || '').toUpperCase() + ']';
+        // pill 표시 형식: "[SOURCE] table_label N행" (실패 시 N행 자리에 '실패')
+        const cntText = t.ok ? `${t.row_count}행` : '실패';
         const tip = t.ok
-          ? `${t.row_count}행 · ${t.elapsed_ms}ms`
-          : `오류: ${t.error || ''}`;
+          ? `${sourceTag} ${t.label} · ${t.row_count}행 · ${t.elapsed_ms}ms`
+          : `${sourceTag} ${t.label} · 오류: ${t.error || ''}`;
         return (
           `<span class="ls-table-pill ls-${cls}" title="${escapeHtml(tip)}">` +
+          `<span class="ls-table-source">${escapeHtml(sourceTag)}</span>` +
           `<span class="ls-table-name">${escapeHtml(t.label)}</span>` +
-          `<span class="ls-table-cnt">${escapeHtml(cnt)}</span>` +
+          `<span class="ls-table-cnt">${escapeHtml(cntText)}</span>` +
           '</span>'
         );
       }).join('');
@@ -162,6 +195,174 @@
         `<div class="ls-summary-line">총 <strong>${total}</strong>건 · 테이블별:</div>` +
         `<div class="ls-summary-pills">${items}</div>`;
       summaryEl.hidden = false;
+    }
+
+    // ───────── 다운로드 시나리오 (파일 없음 / 오류 안내 모달) ─────────
+    const dlModal     = document.getElementById('ls-dl-modal');
+    const dlModalIcon = dlModal && dlModal.querySelector('[data-role="ls-dl-icon"]');
+    const dlModalTtl  = dlModal && dlModal.querySelector('[data-role="ls-dl-title"]');
+    const dlModalMsg  = dlModal && dlModal.querySelector('[data-role="ls-dl-msg"]');
+    const dlModalPath = dlModal && dlModal.querySelector('[data-role="ls-dl-path"]');
+    const dlModalHint = dlModal && dlModal.querySelector('[data-role="ls-dl-hint"]');
+
+    function openDlModal({ kind, title, msg, hint, path }) {
+      if (!dlModal) {
+        // 모달이 없으면 alert 로라도 안내
+        alert((title ? title + '\n' : '') + (msg || '') + (path ? '\n' + path : ''));
+        return;
+      }
+      dlModal.dataset.kind = kind || 'error'; // 'missing' | 'error'
+      if (dlModalIcon) {
+        dlModalIcon.textContent = (kind === 'missing') ? '🗂️' : '⚠️';
+      }
+      if (dlModalTtl)  dlModalTtl.textContent  = title || '파일을 다운로드할 수 없습니다';
+      if (dlModalMsg)  dlModalMsg.textContent  = msg   || '';
+      if (dlModalPath) {
+        dlModalPath.textContent = path || '';
+        dlModalPath.hidden = !path;
+      }
+      if (dlModalHint) {
+        const text = hint || '';
+        dlModalHint.textContent = text;
+        dlModalHint.hidden = !text;
+      }
+      dlModal.hidden = false;
+      document.body.classList.add('ls-dl-modal-open');
+    }
+    function closeDlModal() {
+      if (!dlModal) return;
+      dlModal.hidden = true;
+      document.body.classList.remove('ls-dl-modal-open');
+    }
+    if (dlModal) {
+      dlModal.addEventListener('click', (e) => {
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        const role = t.getAttribute('data-role');
+        if (role === 'ls-dl-close') {
+          closeDlModal();
+          return;
+        }
+        if (role === 'ls-dl-copy') {
+          const p = (dlModalPath && dlModalPath.textContent) || '';
+          if (!p) return;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(p).then(() => {
+              t.textContent = '복사됨!';
+              setTimeout(() => { t.textContent = '경로 복사'; }, 1200);
+            }).catch(() => { t.textContent = '복사 실패'; });
+          } else {
+            // fallback
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = p;
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              t.textContent = '복사됨!';
+              setTimeout(() => { t.textContent = '경로 복사'; }, 1200);
+            } catch (_) { t.textContent = '복사 실패'; }
+          }
+        }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !dlModal.hidden) closeDlModal();
+      });
+    }
+
+    // 행이 가리키는 path 셀의 다운로드 버튼을 시각적으로 비활성 처리
+    function markRowMissing(btn) {
+      if (!btn) return;
+      btn.classList.add('log-search-dl-missing');
+      btn.setAttribute('disabled', 'disabled');
+      btn.setAttribute('title', '파일이 존재하지 않습니다');
+      btn.textContent = '✕';
+      const tr = btn.closest('tr');
+      if (tr) tr.classList.add('log-search-row-missing');
+    }
+
+    /**
+     * 다운로드 처리: 1) /files/check 로 존재 여부/파일 여부 사전 검증
+     *               2) 정상이면 /files/download 로 이동(브라우저 다운로드)
+     *               3) 실패 시 모달 안내
+     */
+    async function handleDownloadClick(btn) {
+      const path = btn && btn.getAttribute('data-path');
+      if (!path) return;
+
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '…';
+
+      try {
+        const res = await fetch(
+          '/files/check?path=' + encodeURIComponent(path),
+          { headers: { 'Accept': 'application/json' } }
+        );
+
+        // /files/check 의 응답은 200 / 404(없음) / 400(디렉토리/잘못된 경로) 가능
+        let body = null;
+        try { body = await res.json(); } catch (_) { /* ignore */ }
+
+        if (res.status === 404 || (body && body.exists === false)) {
+          // 파일 없음 → 모달 + 행 비활성
+          markRowMissing(btn);
+          openDlModal({
+            kind: 'missing',
+            title: '파일이 존재하지 않습니다',
+            msg: '서버 디스크에서 해당 경로의 파일을 찾을 수 없습니다.',
+            hint: 'DB 에는 경로가 남아 있지만, 실제 파일이 정리/이동되었을 수 있습니다. ' +
+                  '운영자에게 문의하거나 다른 경로를 시도해 주세요.',
+            path: path,
+          });
+          return;
+        }
+        if (!res.ok || (body && body.is_file === false)) {
+          openDlModal({
+            kind: 'error',
+            title: '파일을 다운로드할 수 없습니다',
+            msg: (body && body.message)
+                  || (body && body.detail)
+                  || `요청 실패 (HTTP ${res.status})`,
+            hint: '경로가 디렉토리이거나 일반 파일이 아닐 수 있습니다.',
+            path: path,
+          });
+          return;
+        }
+
+        // 정상 → 다운로드 트리거 (같은 탭에서 location 변경: 응답이 attachment 라
+        // 페이지 이동 없이 다운로드만 시작됨)
+        const dlUrl = '/files/download?path=' + encodeURIComponent(path);
+        window.location.href = dlUrl;
+      } catch (e) {
+        openDlModal({
+          kind: 'error',
+          title: '다운로드 요청 중 오류',
+          msg: (e && e.message) ? e.message : String(e),
+          hint: '네트워크 상태나 서버 로그를 확인해 주세요.',
+          path: path,
+        });
+      } finally {
+        // 비활성 처리되지 않은 경우만 원복
+        if (!btn.classList.contains('log-search-dl-missing')) {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      }
+    }
+
+    // 결과 테이블 영역에 위임 클릭 핸들러
+    if (tableEl) {
+      tableEl.addEventListener('click', (e) => {
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        const btn = t.closest('[data-role="ls-dl-btn"]');
+        if (!btn || !tableEl.contains(btn)) return;
+        if (btn.disabled) return;
+        e.preventDefault();
+        handleDownloadClick(btn);
+      });
     }
 
     function destroyDataTable() {
