@@ -5,10 +5,450 @@ PR 단위로 기록한 변경 이력과 의사결정 메모입니다. 최신이 
 > 이 파일은 git log 의 단순 복사가 아니라, **왜 그렇게 결정했는지** 와
 > **어디에 영향이 있는지** 를 함께 적습니다. 새 합류자/LLM 에이전트가 의사결정
 > 맥락을 빠르게 파악하기 위함.
+>
+> 📌 **다른 Claude Code 에게 말 거는 메모**:
+>   - 입문은 [AGENTS.md](./AGENTS.md) 를 먼저 읽으세요.
+>   - 통합 대시보드 구조는 [DASHBOARD.md](./DASHBOARD.md), JS 클래스는
+>     [FRONTEND.md](./FRONTEND.md), Client 접속 이력 페이지는
+>     [LOGIN_HISTORY.md](./LOGIN_HISTORY.md), Log Search 는
+>     [LOG_SEARCH.md](./LOG_SEARCH.md), EQP I/F 는 [EQP_IF.md](./EQP_IF.md)
+>     를 참고하세요.
 
 ---
 
-## PR #14 (작업 중) — 일평균(마지막 제외) 통계 + MA 색 재조정 + DataTables 툴바 재배치
+## PR #33 — AMAT 카드 부제 단순화 + 일평균 정수화·X축 아래 이동 + 오늘접속자 라벨 / 메뉴명 'Client 접속 이력'
+
+**커밋**: `043ccb3 feat(home): AMAT 카드 부제 단순화 + 일평균 정수화·X축 아래 이동 + 오늘접속자 라벨 변경 / refactor(nav): '사용자 접속 이력' → 'Client 접속 이력'`
+**머지**: `2026-04-29` (Merge: `615317b`)
+
+### 변경 사항
+
+1. **AMAT 비정상 스텝 카드 부제 단순화**
+   - 기존: `{query_id} · 결과 행 수` (내부 식별자 노출)
+   - 변경: `결과 행 수` 만 표시. count 카드의 부제에서 query_id 노출은 비기술 사용자에게 잡음.
+
+2. **VNAND/DRAM 차트 카드 — '일평균(마지막 제외)' 재배치 + 정수화**
+   - 위치: 헤더 우측 → **차트 X축 아래** (`.metric-section-foot`).
+   - 표기: 소수점 제거 (`Math.round`) — 정수만 표기. (예: `12.4 → 12`, `12.6 → 13`)
+   - 가독성: PRODUCT 별 chip(`이름 + 큰 값`) 컴포넌트로 재구성. REGULAR(인디고)/COMPLETE(시안) 톤 차별화. dashed top-border 로 캔버스와 분리.
+   - 데이터 슬롯(`data-role="stat-regular"`, `stat-complete`) 은 유지 → JS 영향 최소화.
+
+3. **'사용자 접속 이력' → 'Client 접속 이력' 리네이밍**
+   - 사이드바 메뉴 라벨 / 페이지 타이틀(`<title>` + h1) / 라우터 docstring 일괄 변경.
+   - URL `/login-history` 와 내부 키 `login_history` 는 유지 → 라우팅/북마크 영향 0.
+
+4. **오늘 접속자수 카드 — 1차 라벨 변경**
+   - 전체 컬럼: `접속자` → **`총`**, 고객 컬럼: `접속자` → **`고객`**.
+   - 글자 수가 달라도 시각적 폭이 같도록 `.login-today-label` 에 `min-width: 3.4em; text-align: center` 적용.
+
+### 수정 파일
+- `app/templates/home.html` — AMAT 부제, 차트 푸터 추가, 라벨 텍스트
+- `app/templates/login_history.html` — docstring
+- `app/routers/_templating.py` — `NAV_ITEMS` 라벨
+- `app/routers/login_history.py` — `page_title` / docstring
+- `app/static/css/app.css` — 푸터 chip 스타일, 라벨 pill 폭
+- `app/static/js/app.js` — `Math.round` 정수화 + chip DOM 조립
+
+---
+
+## PR #32 — 오늘 접속자수 카드: ?커서/기본 툴팁 제거 + 접속자 ID Top 10 hover 패널
+
+**커밋**: `3dfa853 feat(home): 오늘 접속자수 카드 - ?커서/기본 툴팁 제거 + 접속자 ID Top 10 hover 패널 / chore(home): 설명문구 '(개발자 포함/제외 두 가지)' 제거`
+**머지**: `2026-04-29` (Merge: `9df7346`)
+
+### 변경 사항
+
+1. **`?` 커서 + 브라우저 기본 툴팁 제거**
+   - 기존: `.login-today-secondary` 에 `cursor: help` + `title="같은 사용자의 중복 로그인까지 합산한 총 로그인 횟수"`.
+   - 변경: 둘 다 제거. cursor 는 기본값으로 복귀.
+
+2. **접속자 ID Top 10 hover 패널로 대체**
+   - `.login-today-primary` 에 hover/focus 시 `.login-today-tip` 박스가 떠서 오늘 로그인한 사용자 ID 상위 10명을 칩 형태로 보여 준다 (count 내림차순).
+   - 데이터 출처: `/login-history/today` 응답에 `users[]` (Top N) + `extra_users` (초과 인원) 추가.
+   - 서버: `app/routers/login_history.py::today_snapshot` 가 기존 `/run` 의 `tooltip[0]` 에서 `users` / `extra_users` 를 추출해 카드 응답에 포함.
+   - JS: `LoginTodayCard._setUsersForScope(scope, users, extra, topN)` 신규. mouseenter/mouseleave/focusin/focusout 핸들러로 토글 (CSS hover 도 안전망).
+   - XSS 방어: `textContent` 로만 user_id 삽입.
+
+3. **카드 하단 설명문 정리**
+   - `오늘 0시 ~ 현재까지의 로그인 통계입니다. (개발자 포함/제외 두 가지)`
+   - → `오늘 0시 ~ 현재까지의 로그인 통계입니다.`
+   - 이미 컬럼 head 의 `개발자 포함 / 개발자 제외` sub 텍스트로 충분히 의도 전달.
+
+### 수정 파일
+- `app/templates/home.html` — `.login-today-tip` 마크업 추가, `title=` 제거, primary 영역에 `login-today-hover` 클래스
+- `app/static/css/app.css` — `.login-today-tip*` 새 규칙, `.login-today-secondary` 의 `cursor: help` 삭제
+- `app/static/js/app.js` — `LoginTodayCard` 의 `_setUsersForScope`, hover 핸들러 + destroy 시 정리
+- `app/routers/login_history.py` — 응답에 `users` / `extra_users` / `tooltip_top_n` 포함
+- `app/routers/home.py` — 카드 description 문구
+
+### 주요 의사결정
+- **`title=` HTML 속성 대신 커스텀 패널**: 브라우저 기본 툴팁은 (1) 폰트/색을 제어할 수 없고, (2) cursor 가 `?` 로 바뀌어 비기능적 인상, (3) 정보 밀도가 부족. 칩 패널로 동등한 정보(상위 10명) + 더 많은 정보(접속 횟수) 동시 노출.
+- **CSS hover safety net**: JS hover 핸들러가 핵심이지만, JS 가 늦게 로드돼도 마우스 hover 동작은 보장되도록 CSS `:hover .login-today-tip { display: block }` 도 추가.
+
+---
+
+## PR #31 — login-history: CONVERT_TZ 제거 + UI 의 KST/타임존 표기 제거
+
+**커밋**: `54b5710 refactor(login-history): CONVERT_TZ 제거 + UI 의 KST/타임존 표기 제거`
+**머지**: `2026-04-29` (Merge: `13cfa90`)
+
+### 변경 사항
+
+1. **SQL 의 `CONVERT_TZ` 제거**
+   - 기존(PR #29): WHERE/SELECT 양쪽에서 `CONVERT_TZ(date_time, '+00:00', '+09:00')` 사용.
+   - 변경: DB 의 `date_time` 값을 **그대로** 사용. `WHERE date_time >= :start AND date_time < :end`, `SELECT DATE(date_time) AS day`.
+   - 의도: 사용자 환경에서는 DB·서버 타임존 정책이 이미 KST 로 일치되어 있어, 코드 단의 보정이 오히려 헷갈림. **DB 가 보유한 값이 진실** 로 간주.
+
+2. **헬퍼 `_today_kst()` 제거**
+   - `app/routers/login_history.py` 의 `KST = timezone(...)`, `_today_kst()` 삭제, `date.today()` 단일 사용.
+
+3. **UI/문서 의 KST 표기 제거**
+   - 카드 description: `KST 0시 ~ 현재까지` → `오늘 0시 ~ 현재까지`.
+   - login_history 페이지 sub: `... · KST 기준 · 일자별 집계` → `... · 일자별 집계`.
+   - 페이지 hint: `(KST)` 제거.
+
+### 수정 파일
+- `app/queries/login_history_queries.py`
+- `app/routers/login_history.py`
+- `app/routers/home.py`
+- `app/services/login_history_service.py`
+- `app/templates/home.html`, `app/templates/login_history.html`
+
+### 운영 시 주의
+- DB 가 UTC 로 저장되는 환경에서 PR #31 을 그대로 적용하면 KST 새벽(0–9시) 로그인이 전일로 표시될 수 있음. 그 경우 PR #29 의 `CONVERT_TZ` 패턴을 다시 도입하거나 DB 자체의 timezone 을 변경해야 함.
+
+---
+
+## PR #30 — `/.well-known/appspecific/com.chrome.devtools.json` 204 응답 (404 noise 제거)
+
+**커밋**: `492f6b3 fix(routes): /.well-known/appspecific/com.chrome.devtools.json 204 응답 (404 noise 제거)`
+**머지**: `2026-04-29` (Merge: `4b499ef`)
+
+### 변경 사항
+
+- Chrome DevTools 가 자동으로 보내는 `GET /.well-known/appspecific/com.chrome.devtools.json` 요청이 인증 미들웨어에 걸려 303 (→ /login) 또는 정의되지 않은 라우트로 404 가 떨어지면서 **콘솔/서버 로그에 빨간 noise** 가 누적되는 문제.
+- **신규 라우터** `app/routers/well_known.py` — `prefix=/.well-known`, `include_in_schema=False`, 위 경로에 **204 No Content** 로 조용히 응답.
+- **인증 우회**: `app/routers/auth.py::PUBLIC_PATH_PREFIXES` 에 `"/.well-known/"` 추가.
+- **main.py** 에 `app.include_router(well_known.router)` 등록.
+- **그 외 `/.well-known/*` 경로** (예: `security.txt`) 는 정의되지 않았으므로 정상적으로 404 → 글로벌 swallow 가 아님.
+
+### 수정 파일
+- `app/routers/well_known.py` (신규)
+- `app/routers/auth.py` — `PUBLIC_PATH_PREFIXES` 에 well-known 추가
+- `app/main.py` — include_router
+
+### 검증
+- `/.well-known/appspecific/com.chrome.devtools.json` → 204 (이전 303/404)
+- 미인증/인증 모두 동일하게 204
+- `/.well-known/security.txt` (미정의) → 404 정상
+
+상세: [WELL_KNOWN.md](./WELL_KNOWN.md)
+
+---
+
+## PR #29 — 통합 대시보드 "오늘 접속자수" 카드 통합 + 카드 순서 변경 + KST 일자 버그 수정 / 로그 패널 토글 정리
+
+**커밋**: `e25a929 feat(home): 오늘 접속자수 카드 통합 + 카드 순서 변경 + KST 일자 버그 수정 / fix(log-panel): 토글 삼각형 중복 표시 정리`
+**머지**: `2026-04-29` (Merge: `53d616b`)
+
+### 변경 사항
+
+1. **오늘 접속자수 카드를 한 장으로 통합**
+   - 기존(PR #27): 두 장(`오늘 전체 접속`, `오늘 고객 접속`) 카드.
+   - 변경: 한 장 카드 안에 좌(전체) | 가운데 divider | 우(고객) 두 컬럼.
+   - 단일 fetch (`/login-history/today`) → `data.all`, `data.customer` 양쪽 동시 채움.
+   - 새 클래스: `.login-today-card-merged`, `.login-today-cols`, `.login-today-col`, `.login-today-col-divider`, `.login-today-col-head`.
+   - JS: `LoginTodayCard.cols = { all: {...}, customer: {...} }` 로 dual-column DOM 보관.
+
+2. **카드 순서 변경**
+   - VNAND 파싱 결과 → DRAM 파싱 결과 → AMAT 비정상 스텝(미처리) → 오늘 접속자수.
+   - `app/routers/home.py::DASHBOARD_CARDS` 리스트 순서 재배치만으로 반영.
+
+3. **KST 기준 "오늘" 버그 수정**
+   - 기존: `date.today()` (= UTC). UTC 15:00–23:59 (= KST 0–8:59) 사이에는 `today` 가 어제로 잡혀 카드가 0명을 표시.
+   - 변경(이 PR): `_today_kst()` 헬퍼 추가, `KST = timezone(timedelta(hours=9))`, SQL 의 WHERE/SELECT 모두 `CONVERT_TZ(date_time, '+00:00', '+09:00')`.
+   - **주의**: PR #31 에서 다시 제거. 설명은 위쪽 PR #31 노트 참고.
+
+4. **카드 보조 라벨 정리**
+   - `참고 · 총 로그인` → `총 로그인` (`참고 · ` 접두 제거 — 이미 작은 글씨라서 부가 설명 불필요).
+
+5. **로그 패널 토글 화살표 중복 표시 수정**
+   - 기존: 템플릿에 `▲` 하드코딩 + CSS `::before` 가 상태에 따라 `▼/▲` → 확장 시 `▲ ▼ 로그 패널` 처럼 두 개.
+   - 변경: 템플릿의 하드코딩 `▲` 제거. CSS `::before` 만으로 collapsed=▲, expanded=▼ 단일 표시.
+
+### 수정 파일
+- `app/templates/home.html` — 통합 카드 마크업, 카드 순서, '총 로그인' 라벨
+- `app/templates/_log_panel.html` — `▲` 제거
+- `app/routers/home.py` — `DASHBOARD_CARDS` 순서, login_today 단일 카드(scope=both)
+- `app/routers/login_history.py` — `_today_kst()`, `today_snapshot` 의 `today = _today_kst()`
+- `app/queries/login_history_queries.py` — `CONVERT_TZ` 도입
+- `app/static/css/app.css` — `.login-today-card-merged*`, 로그 패널 caret 정돈
+- `app/static/js/app.js` — `LoginTodayCard` 가 dual-scope 동시 처리
+
+---
+
+## PR #28 — 로그 패널: 사이드바 로그아웃 가림 해소 + 강조 톤 완화 / AMAT 카드 설명 문구 변경
+
+**커밋**: `5e7251e style(log-panel): 사이드바 로그아웃 가림 해소 + 강조 톤 완화 / fix(home): AMAT 카드 설명 문구 변경`
+**머지**: `2026-04-29` (Merge: `1023f39`)
+
+### 변경 사항
+
+- **로그 패널 sticky 위치 조정**: 사이드바 하단 로그아웃 버튼이 가려지지 않도록 `bottom`/`right` margin 보정.
+- **로그 패널 강조 톤 완화**: 색/그림자/테두리를 부드럽게 — 페이지 본문 작업을 방해하지 않도록.
+- **AMAT 카드 description**: `이상 감지 로그` → `사용자 조치가 필요한 이상 감지 로그 건 수 입니다.` (의미 명확화).
+
+### 수정 파일
+- `app/static/css/app.css` — 로그 패널 위치/스타일
+- `app/routers/home.py` — count 카드 description
+
+---
+
+## PR #27 — 통합 대시보드 "오늘 접속" 카드 추가 (전체/고객, 접속자 강조)
+
+**커밋**: `e0a38ea feat(home): 통합 대시보드 "오늘 접속" 카드 추가 (전체/고객, 접속자 강조)`
+**머지**: `2026-04-29` (Merge: `361e57a`)
+
+### 변경 사항
+
+1. **신규 카드 타입 `login_today`**
+   - 데이터: `GET /login-history/today` (단일 호출).
+   - 표시: 큰 숫자 = 접속자(고유 사용자), 작은 숫자 = 총 로그인 횟수.
+   - **개발자 ID 제외 정책**:
+     - `오늘 전체 접속` (scope=all) — 개발자 포함.
+     - `오늘 고객 접속` (scope=customer) — `app/queries/developer_ids.py::DEVELOPER_USER_IDS` 셋에서 빠짐.
+   - PR #29 에서 두 카드를 한 장으로 통합.
+
+2. **신규 클래스 `LoginTodayCard` (`app/static/js/app.js`)**
+   - `QueryRunner` / `ChartCard` 와 동일한 race-UI 패턴 (`_runToken`, `AbortController`, 상태 배지, 토스트).
+   - `data-scope="all|customer"` 속성으로 어느 키를 꺼낼지 결정.
+
+3. **신규 서비스 메서드** `app/services/login_history_service.py::today_snapshot()` (PR #28 ~ #32 거치며 발전).
+
+### 수정 파일
+- `app/routers/home.py` — `DASHBOARD_CARDS` 에 `type="login_today"` 두 개 추가
+- `app/templates/home.html` — `{% elif card.type == "login_today" %}` 분기
+- `app/static/js/app.js` — `class LoginTodayCard`
+- `app/static/css/app.css` — `.login-today-*` 스타일 셋
+- `app/services/login_history_service.py` — `today_snapshot()` (또는 `/run` 재활용)
+
+---
+
+## PR #26 — Client 접속 이력: Y축 동기화 + 개발자 ID hover tooltip + 시리즈/툴팁 라벨 단순화
+
+**커밋**: `7e1a13e feat(login-history): Y축 동기화 + 개발자 ID hover tooltip + 시리즈/툴팁 라벨 단순화`
+**머지**: `2026-04-29` (Merge: `1a998e7`)
+
+### 변경 사항
+
+- **두 차트(전체/고객)의 Y축 max 동기화**: 두 차트가 같은 스케일을 공유해 비교가 쉬워짐.
+- **개발자 ID hover tooltip**: 페이지 상단 `👤 개발자 ID` 토글 버튼 — hover/click 시 `lh-dev-tip` 패널이 떠서 현재 제외 중인 개발자 ID 목록을 표시. 데이터 소스: `developer_ids.get_developer_id_set()`.
+- **시리즈/툴팁 라벨 단순화**: `중복 포함` → `총 로그인`, `중복 제거` → `접속자` (사용자 친화적 어휘).
+
+### 수정 파일
+- `app/templates/login_history.html`
+- `app/static/css/app.css` — `.lh-dev-toggle`, `.lh-dev-tip`
+- `app/static/js/app.js` — login-history 페이지 인라인 또는 동봉 로직
+
+---
+
+## PR #25 — Client 접속 이력: date_time 컬럼명/카드 순서/누적막대/개발자 ID 숨김/조회 버튼 룩앤필
+
+**커밋**: `d266953 fix(login-history): date_time 컬럼명/카드 순서/누적막대/개발자 ID 숨김/조회 버튼 룩앤필`
+**머지**: `2026-04-29` (Merge: `448eada`)
+
+### 변경 사항
+
+- DB 컬럼명 `datetime` → **`date_time`** 로 정정 (실제 DB 스키마 일치).
+- 차트 카드 순서: `고객 접속(위)` → `전체 접속(아래)` (사용자 요청 — 보고 싶은 정보 우선).
+- 막대 형태: grouped → **stacked**. 막대 하단(짙은 색) = 접속자(고유), 그 위에 쌓이는 = 중복 부분. 막대 전체 길이 = 총 로그인.
+- 개발자 ID 목록 노출 위치 변경: 화면 하단에 큰 박스 → 카드 헤더 우측에 작은 토글 버튼 (PR #26 에서 hover tooltip 까지 추가).
+- 조회 버튼을 다른 페이지의 `.btn .btn-run` 컴포넌트와 동일 룩앤필로 통일.
+
+### 수정 파일
+- `app/queries/login_history_queries.py`, `app/services/login_history_service.py`, `app/routers/login_history.py`
+- `app/templates/login_history.html`, `app/static/css/app.css`, `app/static/js/app.js`
+
+---
+
+## PR #24 — Client 접속 이력 페이지 신규 + 사이드바 정렬 + ES 메뉴 숨김
+
+**커밋**: `416379c feat(login-history): 사용자 접속 이력 페이지 추가 + 사이드바 정렬/ES 숨김`
+**머지**: `2026-04-29` (Merge: `25a0fd1`)
+
+### 변경 사항
+
+1. **신규 페이지 `/login-history`** (당시 이름: "사용자 접속 이력", PR #33 에서 "Client 접속 이력" 으로 리네임).
+   - `vnand.advisor.app_server_user_log` 의 `action='login'` 행을 일자별로 집계.
+   - 두 차트(전체/고객) — grouped bar (PR #25 에서 stacked 로 변경).
+   - 빠른 기간 선택(7/14/30/90일), 사용자별 hover tooltip(상위 10명 + 접속횟수).
+
+2. **신규 모듈**
+   - `app/queries/login_history_queries.py` — SQL 정의 + `fetch_history(start, end)`
+   - `app/services/login_history_service.py` — 응답 가공
+   - `app/routers/login_history.py` — `/login-history`, `/login-history/run`
+   - `app/queries/developer_ids.py` — 개발자 ID 화이트리스트(`DEVELOPER_USER_IDS`, `get_developer_id_set()`)
+   - `app/templates/login_history.html`
+
+3. **사이드바 정렬 규칙** (`_templating.py::NAV_ITEMS`):
+   `통합 대시보드 → 사용자 접속 이력 → Log Search → File Download → VNAND DB → DRAM DB → EQP I/F Manager`.
+
+4. **ES 메뉴 숨김**: `Elasticsearch` 라우트는 유지하되 사이드바에서는 안 보이게 (`NAV_ITEMS_HIDDEN`).
+
+상세: [LOGIN_HISTORY.md](./LOGIN_HISTORY.md)
+
+---
+
+## PR #23 — vendor sourceMappingURL 제거 + 캐시버스팅에 vendor 자산 포함
+
+**커밋**: `1ed04de fix(static): vendor sourceMappingURL 제거 + 캐시버스팅에 vendor 자산 포함`
+**머지**: `2026-04-29` (Merge: `2c57d61`)
+
+### 변경 사항
+
+- `app/static/vendor/*` 의 minified 파일 끝에 붙어 있던 `//# sourceMappingURL=...` 주석 제거 → 브라우저 콘솔 404 noise 차단.
+- `_templating.py::_compute_asset_version()` 가 vendor 파일 mtime 도 반영 → 벤더 파일이 바뀌어도 `?v=...` 가 갱신.
+
+### 수정 파일
+- `app/static/vendor/bootstrap/*`, `app/static/vendor/datatables/*`, `app/static/vendor/chartjs/*`, `app/static/vendor/jquery/*`
+- `app/routers/_templating.py` — `_compute_asset_version()` 의 `paths` 확장
+- `app/templates/base.html` — vendor `<script>`/`<link>` 에 `?v={{ asset_version }}` 부착
+
+---
+
+## PR #22 — Log Search: 요약 pill 에 [SOURCE] 표기 + 다운로드 파일 없음 시나리오 안내 모달
+
+**커밋**: `0804082 feat(log-search): 요약 pill에 [SOURCE] 표기 + 다운로드 파일없음 시나리오 안내 모달`
+**머지**: `2026-04-29` (Merge: `d34ed8d`)
+
+### 변경 사항
+
+1. **요약 pill 3슬롯 표시**
+   - `[SOURCE 뱃지] | 테이블 라벨 | 행 수 / 경과시간`
+   - SOURCE 뱃지 = `vnand` / `dram` 톤의 작은 칩.
+2. **path_column 파일 존재 사전확인**
+   - 행 클릭/다운로드 직전에 `HEAD /files/check?path=...` 호출.
+   - 파일 없음/권한 없음 시 친화적 모달(`File not found` 안내) — 200 응답인데 빈 파일을 다운로드하는 사고 방지.
+3. **테이블 컬럼·행 표시 포맷 다듬기** (긴 path 줄임표 등).
+
+상세: [LOG_SEARCH.md](./LOG_SEARCH.md)
+
+---
+
+## PR #21 — [RcpAdv] 타이틀 프리픽스 + EQP 카드 제목/버튼 정리 + content max-width 해제
+
+**커밋**: `a26622f feat(ui): [RcpAdv] 타이틀 프리픽스 + EQP 카드 제목/버튼 정리 + content max-width 해제`
+**머지**: `2026-04-29` (Merge: `7c056c4`)
+
+### 변경 사항
+
+1. **브라우저 타이틀에 `[RcpAdv]` 접두사**: 다중 탭 환경에서 다른 사이트와 한눈에 구분.
+2. **EQP I/F Manager 페이지 카드 헤더 정리**
+   - 카드 제목에 임베드된 외부 URL 표시(작게).
+   - "새 창 열기" 버튼을 카드 우측 상단으로 이동.
+   - 페이지명 복구.
+3. **콘텐츠 최대 너비 해제**: 메인 영역의 `max-width` 를 풀어 EQP iframe 같은 와이드 콘텐츠가 가용 폭을 모두 사용.
+
+상세: [EQP_IF.md](./EQP_IF.md)
+
+---
+
+## PR #20 — EQP I/F Manager 페이지(iframe 임베드) + 통합대시보드 타이틀 변경
+
+**커밋**: `6bbbb6e feat(eqp-if+title): EQP I/F Manager 페이지(iframe 임베드) 추가 + 통합대시보드 타이틀 변경`
+**머지**: `2026-04-29` (Merge: `ba72973`)
+
+### 변경 사항
+
+1. **신규 페이지 `/eqp-if`**: 외부 사이트(`settings.EQP_IF_MANAGER_URL`) 를 iframe 으로 임베드.
+   - 대상 사이트가 `X-Frame-Options=DENY` / `frame-ancestors 'none'` 을 보내면 iframe 로드가 차단되므로, 안내 메시지 + "새 창으로 열기" 링크를 함께 표시.
+   - 신규 라우터 `app/routers/eqp_if.py`, 템플릿 `app/templates/eqp_if.html`.
+   - `.env` 키: `EQP_IF_MANAGER_URL`, `EQP_IF_MANAGER_TITLE`.
+2. **통합대시보드 타이틀 변경**: 좀 더 명확한 페이지명으로 — 정확한 텍스트는 `app/routers/home.py` / `home.html` 참조.
+
+상세: [EQP_IF.md](./EQP_IF.md)
+
+---
+
+## PR #19 — Log Search 페이지 추가 + File Download 리네임
+
+**커밋**: `4cb1f70 feat(log-search): Log Search 페이지 추가 + File Download 리네임`
+**머지**: `2026-04-29` (Merge: `cc559ac`)
+
+### 변경 사항
+
+1. **신규 페이지 `/log-search`**
+   - 단일 검색 파라미터(예: `root_lot_wf_id`)로 화이트리스트 쿼리들을 **병렬 실행** → 통합 테이블.
+   - DataTables 로 결과 표시. path 컬럼은 클릭 시 `/files/download?path=...` 로 직링크.
+   - 신규 모듈: `app/queries/log_search_queries.py`, `app/services/log_search_service.py`, `app/routers/log_search.py`, `app/templates/log_search.html`.
+   - 환경 변수: `LOG_SEARCH_QUERIES` (서비스 코드 내부 화이트리스트).
+2. **사이드바 메뉴명**: `Log File Download` → `File Download` (Log Search 와 명확히 구분).
+
+상세: [LOG_SEARCH.md](./LOG_SEARCH.md)
+
+---
+
+## PR #18 — count/chart 카드 새로고침 안 되던 문제 — 정적자원 캐시버스팅 + 카드 초기화 격리
+
+**커밋**: `ba56518 fix(home): 카운트/차트 카드 새로고침 안 되던 문제 — 정적자원 캐시버스팅 + 카드 초기화 격리`
+**머지**: `2026-04-29` (Merge: `2445308`)
+
+### 변경 사항
+
+1. **현상**: 새 클래스(`CountCard`) 가 추가되었는데 브라우저가 옛 `app.js` 를 캐시한 채로 보고 있어 `ReferenceError: CountCard is not defined` 가 떨어지고, 그 시점에서 *inline 스크립트 전체가 중단* — 결과적으로 새로고침 버튼 핸들러가 안 붙어 클릭이 무반응.
+2. **수정 1 — 캐시버스팅**: `_templating.py::_compute_asset_version()` 가 `app.js`/`app.css` mtime 을 모아 짧은 해시 생성 → 모든 템플릿에서 `<script src="/static/js/app.js?v={{ asset_version }}">` 로 부착. 코드 배포 시 mtime 변화로 자동 재로딩.
+3. **수정 2 — 카드 초기화 격리**: 각 카드의 `forEach` 콜백을 `try/catch` 로 감싸 한 카드의 예외가 *다른 카드의 초기화* 까지 끊지 않게. 또한 필수 클래스가 `window` 에 없을 때 `console.error` 로 명시적으로 알림.
+
+### 수정 파일
+- `app/routers/_templating.py` — `_compute_asset_version()` + Jinja global `asset_version`
+- `app/templates/base.html`, `app/templates/home.html`, etc. — `?v={{ asset_version }}`
+- `app/templates/home.html` — `try/catch` + 클래스 존재성 체크
+
+---
+
+## PR #17 — 통합 대시보드: 카운트 카드 추가 (DRAM amat_abnormal_steps_no_treat 결과 행 수)
+
+**커밋**: `2e436d5 feat(home): 카운트 카드 추가 (DRAM amat_abnormal_steps_no_treat 결과 행 수)`
+**머지**: `2026-04-29` (Merge: `2cfe762`)
+
+### 변경 사항
+
+1. **신규 카드 타입 `count`**
+   - `card.type = "count"` — 임의 쿼리의 결과 행 수(row_count) 만 큰 숫자로 표시.
+   - 데이터: `GET /{source}/query/{query_id}` 의 응답 `row_count` 사용.
+2. **첫 번째 count 카드**: `AMAT 비정상 스텝 (미처리)` (DRAM, query_id=`amat_abnormal_steps_no_treat`).
+3. **신규 JS 클래스 `CountCard`**
+   - `QueryRunner` / `ChartCard` 와 동일한 race-UI 패턴.
+   - 큰 숫자 + 단위(`건`).
+
+### 수정 파일
+- `app/queries/dram_queries.py` — `amat_abnormal_steps_no_treat` SQL
+- `app/routers/home.py` — `DASHBOARD_CARDS` 에 `type="count"` 추가
+- `app/templates/home.html` — `{% elif card.type == "count" %}` 분기
+- `app/static/js/app.js` — `class CountCard`
+- `app/static/css/app.css` — `.count-card`, `.count-display`, `.count-value`, `.count-unit`
+
+---
+
+## PR #16 — 개발자 문서 8종 신규 (`docs/`) — 두 번째 추가
+
+**커밋**: `f0d6bdd docs: 개발자/LLM용 프로젝트 문서 8종 추가 (docs/)`  (PR #15 의 누락분 재포함)
+**머지**: `2026-04-29` (Merge: `f855d51`)
+
+`docs/` 디렉토리에 README/ARCHITECTURE/DASHBOARD/FRONTEND/QUERY_SYSTEM/AUTH/DEVELOPMENT/CHANGELOG 8개 추가.
+
+---
+
+## PR #15 — docs 첫 추가 (PR #14 와 함께 묶여 머지됨)
+
+**커밋**: `473aecb docs: 개발자/LLM용 프로젝트 문서 8종 추가 (docs/)`
+**머지**: `2026-04-29` (Merge: `860947c`)
+
+PR #14 가 docs 8종 추가까지 포함했으나 PR #15 / #16 를 통해 다시 정리하며 머지.
+
+---
+
+## PR #14 — 일평균(마지막 제외) 통계 + MA 색 재조정 + DataTables 툴바 재배치
 
 **브랜치**: `genspark_ai_developer`
 **대상**: docs 8종 신규 + UI 정돈
