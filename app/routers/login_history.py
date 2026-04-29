@@ -1,4 +1,4 @@
-"""사용자 접속 이력 페이지 / API.
+"""Client 접속 이력 페이지 / API.
 
 라우트:
     GET /login-history          : 페이지 (입력 폼 + 막대 차트 2개)
@@ -35,7 +35,7 @@ def page(request: Request):
         {
             "nav_items": NAV_ITEMS,
             "active_nav": "login_history",
-            "page_title": "사용자 접속 이력",
+            "page_title": "Client 접속 이력",
             "default_start": start.isoformat(),
             "default_end": end.isoformat(),
             "today": today.isoformat(),

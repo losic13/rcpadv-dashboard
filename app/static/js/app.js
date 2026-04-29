@@ -923,10 +923,29 @@
           return { product: s.product, avg };
         });
         if (slot.statEl) {
-          const fmtAvg = (v) => v == null ? '—' : this._fmtNum(Math.round(v * 10) / 10);
-          slot.statEl.textContent =
-            '일평균(마지막 제외) · ' +
-            dailyAvgByProduct.map(d => `${d.product} ${fmtAvg(d.avg)}`).join(' / ');
+          // 사용자 요청: 일평균은 정수만 표기 (소수점 버림이 아닌 반올림 — Math.round).
+          // 예: 12.4 → 12, 12.6 → 13, null → "—"
+          const fmtAvg = (v) => v == null ? '—' : this._fmtNum(Math.round(v));
+          // 가독성 향상: "PRODUCT 값" 묶음을 별도 칩으로 wrap 하여 줄바꿈/정렬을 쉽게.
+          // 텍스트 노드 직접 조립 — DOM 구조 단순화 및 XSS 회피.
+          slot.statEl.innerHTML = '';
+          const lead = document.createElement('span');
+          lead.className = 'metric-section-stat-lead';
+          lead.textContent = '일평균(마지막 제외)';
+          slot.statEl.appendChild(lead);
+          dailyAvgByProduct.forEach(d => {
+            const chip = document.createElement('span');
+            chip.className = 'metric-section-stat-chip';
+            const name = document.createElement('span');
+            name.className = 'metric-section-stat-product';
+            name.textContent = String(d.product);
+            const val  = document.createElement('span');
+            val.className  = 'metric-section-stat-value';
+            val.textContent = fmtAvg(d.avg);
+            chip.appendChild(name);
+            chip.appendChild(val);
+            slot.statEl.appendChild(chip);
+          });
         }
 
         // 범례 — 막대 색 + 이동평균선 표시

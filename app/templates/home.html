@@ -78,7 +78,11 @@
              기본 툴팁을 사용 + cursor:help 로 ?커서가 표시되었다 — 사용자
              요청에 따라 둘 다 제거하고 대신 ID Top N 패널로 교체.) #}
           <div class="login-today-primary login-today-hover" data-role="primary-all">
-            <span class="login-today-label">접속자</span>
+            {# 사용자 요청: 전체 접속 컬럼은 라벨을 '총'으로,
+               고객 접속 컬럼은 '고객'으로 표기. 두 라벨은 글자 수가
+               달라도 시각적으로 동일한 폭이 되도록 .login-today-label 에
+               min-width + text-align:center 를 적용한다. #}
+            <span class="login-today-label">총</span>
             <span class="login-today-value" data-role="distinct-value-all">—</span>
             <span class="login-today-unit">명</span>
             <span class="login-today-tip" data-role="users-tip-all" role="tooltip" hidden>
@@ -103,7 +107,7 @@
             <span class="login-today-col-sub">개발자 제외</span>
           </div>
           <div class="login-today-primary login-today-hover" data-role="primary-customer">
-            <span class="login-today-label">접속자</span>
+            <span class="login-today-label">고객</span>
             <span class="login-today-value" data-role="distinct-value-customer">—</span>
             <span class="login-today-unit">명</span>
             <span class="login-today-tip" data-role="users-tip-customer" role="tooltip" hidden>
@@ -136,7 +140,9 @@
       <div class="card-title">
         <span class="badge">{{ card.source_label }}</span>
         <strong>{{ card.title }}</strong>
-        <span class="card-sub">{{ card.query_id }} · 결과 행 수</span>
+        {# 사용자 요청: count 카드의 보조 텍스트에서 내부 query_id 표기는 제거하고
+           "결과 행 수"만 노출. (예전: '{query_id} · 결과 행 수' → 지금: '결과 행 수') #}
+        <span class="card-sub">결과 행 수</span>
       </div>
       <div class="card-controls">
         <span class="status-area">
@@ -208,24 +214,33 @@
     <div class="card-body chart-card-body">
       {# metric(REGULAR / COMPLETE) 섹션. PRODUCT 들은 각 차트의 series 로 들어감 #}
       <div class="metric-sections" data-role="metric-sections">
+        {# 사용자 요청: '일평균(마지막 제외)' 통계는 차트 헤더가 아닌 X축 아래
+           (캔버스 하단)에 배치한다. 기존 .metric-section-stat 의
+           data-role 은 그대로 두고 위치만 옮겨서 JS 변경을 최소화. #}
         <div class="metric-section metric-section-regular" data-metric="regular">
           <div class="metric-section-head">
             <span class="metric-section-label">초벌파싱 파일 수<span class="metric-section-label-sub">(REGULAR + COMPLETE)</span></span>
             <span class="metric-section-legend" data-role="legend-regular"></span>
-            <span class="metric-section-stat" data-role="stat-regular"></span>
           </div>
           <div class="chart-canvas-wrap">
             <canvas data-role="chart-regular" aria-label="초벌파싱 파일 수(REGULAR+COMPLETE) 일자별 PRODUCT 막대 차트"></canvas>
+          </div>
+          <div class="metric-section-foot">
+            <span class="metric-section-stat metric-section-stat-bottom"
+                  data-role="stat-regular"></span>
           </div>
         </div>
         <div class="metric-section metric-section-complete" data-metric="complete">
           <div class="metric-section-head">
             <span class="metric-section-label">본 파싱 파일 수<span class="metric-section-label-sub">(COMPLETE)</span></span>
             <span class="metric-section-legend" data-role="legend-complete"></span>
-            <span class="metric-section-stat" data-role="stat-complete"></span>
           </div>
           <div class="chart-canvas-wrap">
             <canvas data-role="chart-complete" aria-label="본 파싱 파일 수(COMPLETE) 일자별 PRODUCT 막대 차트"></canvas>
+          </div>
+          <div class="metric-section-foot">
+            <span class="metric-section-stat metric-section-stat-bottom"
+                  data-role="stat-complete"></span>
           </div>
         </div>
       </div>
