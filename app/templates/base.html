@@ -10,7 +10,7 @@
 
   <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/static/vendor/datatables/datatables.min.css">
-  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version }}">
 </head>
 <body>
 
@@ -37,7 +37,10 @@
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 
 <!-- app scripts -->
-<script src="/static/js/app.js"></script>
+{# `?v=…` 는 부팅 시 mtime 으로 생성되는 버전. 새 배포 후 브라우저가
+   옛 캐시(이전 ChartCard/CountCard 정의 누락 버전)를 잡고 있어 발생하던
+   ReferenceError → "새로고침 버튼이 동작하지 않음" 증상을 막는다. #}
+<script src="/static/js/app.js?v={{ asset_version }}"></script>
 {% block extra_scripts %}{% endblock %}
 
 </body>

@@ -143,26 +143,54 @@
 
 {% block extra_scripts %}
 <script>
-  // 차트 카드
-  document.querySelectorAll('.chart-card').forEach(el => {
-    const products = JSON.parse(el.dataset.products || '[]');
-    new ChartCard({
-      rootEl: el,
-      source: el.dataset.source,
-      queryId: el.dataset.queryId,
-      products: products,
-      autoRefreshIntervalMs: 10000,
-    }).init({ runOnLoad: true });
-  });
+  // ------------------------------------------------------------
+  // 카드 초기화.
+  //
+  // 한 카드의 초기화가 예외를 던져도 다른 카드는 정상 동작하도록
+  // 각 forEach 콜백을 try/catch 로 감싼다. 또한 필수 클래스가
+  // window 에 없을 때(예: 옛 app.js 가 캐시된 경우) console.error 로
+  // 명확하게 알린다. 예전에는 캐시된 app.js 에 CountCard 가 없어
+  // ReferenceError 가 터지면서 inline 스크립트 전체가 중단됐고
+  // 그 결과 새로고침 버튼이 어떤 이벤트도 받지 못하는 증상이 있었다.
+  // ------------------------------------------------------------
+  (function initDashboardCards() {
+    const chartCards = document.querySelectorAll('.chart-card');
+    const countCards = document.querySelectorAll('.count-card');
 
-  // 카운트 카드
-  document.querySelectorAll('.count-card').forEach(el => {
-    new CountCard({
-      rootEl: el,
-      source: el.dataset.source,
-      queryId: el.dataset.queryId,
-      autoRefreshIntervalMs: 10000,
-    }).init({ runOnLoad: true });
-  });
+    if (chartCards.length && typeof window.ChartCard !== 'function') {
+      console.error('[home] ChartCard 가 정의되어 있지 않습니다. /static/js/app.js 캐시를 지우고 새로고침 해주세요.');
+    }
+    if (countCards.length && typeof window.CountCard !== 'function') {
+      console.error('[home] CountCard 가 정의되어 있지 않습니다. /static/js/app.js 캐시를 지우고 새로고침 해주세요.');
+    }
+
+    chartCards.forEach((el, i) => {
+      try {
+        const products = JSON.parse(el.dataset.products || '[]');
+        new ChartCard({
+          rootEl: el,
+          source: el.dataset.source,
+          queryId: el.dataset.queryId,
+          products: products,
+          autoRefreshIntervalMs: 10000,
+        }).init({ runOnLoad: true });
+      } catch (err) {
+        console.error('[home] chart-card #' + i + ' 초기화 실패:', err);
+      }
+    });
+
+    countCards.forEach((el, i) => {
+      try {
+        new CountCard({
+          rootEl: el,
+          source: el.dataset.source,
+          queryId: el.dataset.queryId,
+          autoRefreshIntervalMs: 10000,
+        }).init({ runOnLoad: true });
+      } catch (err) {
+        console.error('[home] count-card #' + i + ' 초기화 실패:', err);
+      }
+    });
+  })();
 </script>
 {% endblock %}
