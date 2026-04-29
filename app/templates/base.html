@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Recipe Advisor Site Reliability Dashboard{% endblock %}</title>
+  {# 모든 페이지의 <title> 앞에 "[RcpAdv] " 프리픽스가 자동으로 붙는다.
+     하위 템플릿은 그냥 {% block title %}통합 대시보드{% endblock %} 처럼만
+     작성하면 되고, 결과적으로 브라우저 탭에는 "[RcpAdv] 통합 대시보드" 가
+     나온다. 로그인 페이지처럼 프리픽스가 필요 없는 경우엔 하위 템플릿이
+     {% block title_full %} 를 직접 override 하면 된다. #}
+  <title>{% block title_full %}[RcpAdv] {% block title %}Recipe Advisor Site Reliability Dashboard{% endblock %}{% endblock %}</title>
 
   {# favicon - 외부 요청 막기 위한 1x1 투명 png #}
   <link rel="icon" href="data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
