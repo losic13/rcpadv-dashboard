@@ -21,6 +21,21 @@
     </div>
     <div class="card-controls">
       <span class="login-history-status" data-role="status" hidden></span>
+      {# 개발자 ID 보기 — 화면 한쪽 구석(카드 헤더 우측)에 작게 배치하고
+         hover 시 tooltip 으로 ID 목록을 보여 준다. 클릭으로도 토글 가능. #}
+      <button type="button" class="lh-dev-toggle"
+              id="lh-dev-toggle"
+              aria-label="제외 중인 개발자 ID 목록 보기"
+              aria-expanded="false"
+              aria-describedby="lh-dev-tip"
+              title="제외 중인 개발자 ID">
+        <span aria-hidden="true">👤</span>
+        <span class="lh-dev-toggle-label">개발자 ID</span>
+      </button>
+      <span class="lh-dev-tip" id="lh-dev-tip" role="tooltip" hidden>
+        <strong class="lh-dev-tip-title">제외 중인 개발자 ID</strong>
+        <span class="lh-dev-tip-body" data-role="dev-list">—</span>
+      </span>
     </div>
   </header>
 
@@ -55,9 +70,9 @@
 
     <p class="lh-hint">
       <code>action='login'</code> 행을 일자(KST)별로 집계해 누적 막대 차트로 보여줍니다.
-      막대 하단(짙은 색)이 <strong>중복 제거(고유 사용자 수)</strong>,
-      그 위에 쌓이는 부분이 <strong>같은 사용자의 추가 로그인(중복분)</strong>이며
-      막대 전체 길이가 곧 <strong>총 로그인 수</strong>입니다.
+      막대 하단(짙은 색)이 <strong>접속자</strong>(고유 사용자 수)이며,
+      그 위에 쌓이는 부분을 합쳐 막대 전체 길이가 곧
+      <strong>총 로그인</strong> 수입니다.
       막대에 마우스를 올리면 누가 접속했는지 상위
       <span data-role="topn">10</span>명이 함께 표시됩니다.
     </p>
@@ -105,6 +120,9 @@
     const statsCustEl = document.querySelector('[data-role="stats-customer"]');
     const canvasAll  = document.getElementById('lh-chart-all');
     const canvasCust = document.getElementById('lh-chart-customer');
+    const devToggleEl = document.getElementById('lh-dev-toggle');
+    const devTipEl    = document.getElementById('lh-dev-tip');
+    const devListEl   = devTipEl ? devTipEl.querySelector('[data-role="dev-list"]') : null;
 
     const TODAY = '{{ today }}';
 
@@ -168,12 +186,12 @@
     function buildTooltipFooter(tooltipItem) {
       // tooltipItem.dataIndex 로 days[i] 의 tooltip 객체 접근
       const ctx = tooltipItem[0];
-      const day = ctx.label;
       const meta = ctx.chart.$lhMeta;
       if (!meta) return '';
       const data = meta.tooltips[ctx.dataIndex] || {};
       const lines = [];
-      lines.push(`총 로그인: ${data.total ?? 0}회 / 고유 사용자: ${data.distinct ?? 0}명`);
+      // 사용자 요청 포맷: "접속자: N명 / 총 로그인: N회"
+      lines.push(`접속자: ${data.distinct ?? 0}명 / 총 로그인: ${data.total ?? 0}회`);
       const users = data.users || [];
       if (users.length === 0) {
         lines.push('(접속 없음)');
@@ -188,11 +206,16 @@
       return lines;
     }
 
-    function renderChart(canvas, title, days, series, meta) {
+    function renderChart(canvas, title, days, series, meta, yMax) {
       // 누적 막대 시각화:
-      //   - 하단(짙은 녹): 고유 사용자 수 (= distinct)
+      //   - 하단(짙은 녹): 고유 사용자 수 (= distinct)  → legend "접속자"
       //   - 상단(보라):    추가 중복분    (= total - distinct, 항상 ≥ 0)
-      // → 막대 전체 길이 = 총 로그인 수 (= total) 가 되어 두 지표를 한 막대에서 한눈에 비교 가능.
+      // → 막대 전체 길이 = 총 로그인 수 (= total)
+      // 사용자 요청에 따라 시리즈 라벨은 단순화:
+      //   하단 = '접속자', 상단 = '총 로그인' (막대 전체가 곧 총 로그인이라는
+      //   해석을 그대로 라벨에 사용). 단일 세그먼트의 수치만 보여주면 의미가
+      //   왜곡되므로 tooltip 의 per-dataset label 줄은 숨기고, afterBody 의
+      //   요약 한 줄로만 표기한다.
       const distinctData = (series.distinct || []).map((v) => v || 0);
       const totalData    = (series.total    || []).map((v) => v || 0);
       const extraData    = totalData.map((t, i) => Math.max(0, t - (distinctData[i] || 0)));
@@ -204,8 +227,8 @@
           labels: days,
           datasets: [
             {
-              // 하단 = 고유 사용자
-              label: '중복 제거 (고유 사용자)',
+              // 하단 = 고유 사용자 (라벨: 접속자)
+              label: '접속자',
               data: distinctData,
               backgroundColor: 'rgba(16, 185, 129, 0.75)',
               borderColor:    'rgba(5, 122, 85, 0.95)',
@@ -213,8 +236,8 @@
               stack: 'logins',
             },
             {
-              // 상단 = 추가 중복분 (= total - distinct)
-              label: '중복분 (같은 사용자 추가 로그인)',
+              // 상단 = 추가 중복분 (라벨: 총 로그인 — 막대 전체 길이 의미)
+              label: '총 로그인',
               data: extraData,
               backgroundColor: 'rgba(99, 102, 241, 0.55)',
               borderColor:    'rgba(67, 56, 202, 0.85)',
@@ -233,13 +256,9 @@
             tooltip: {
               callbacks: {
                 title: (items) => items && items[0] ? items[0].label : '',
-                // 누적 막대에서 라벨은 두 데이터셋이 각각 출력된다.
-                // 추가로 "총합" 한 줄을 footer 의 사용자 목록 위에 보여 주기 위해
-                // afterBody 에서 합산값과 사용자 카운트를 함께 반환한다.
-                label: (item) => {
-                  const v = item.parsed.y;
-                  return `${item.dataset.label}: ${v}`;
-                },
+                // per-dataset 줄을 숨긴다 (세그먼트 단독 수치는 의미 왜곡 위험).
+                // 요약은 afterBody 한 줄 ("접속자: N명 / 총 로그인: N회") 로 통일.
+                label: () => null,
                 afterBody: buildTooltipFooter,
               },
               padding: 10,
@@ -257,6 +276,9 @@
             y: {
               stacked: true,
               beginAtZero: true,
+              // 두 차트의 Y축 최대값을 동일하게 맞추기 위해 호출자가 계산한
+              // 공유 max 를 suggestedMax 로 전달. 0 이면 Chart.js 가 자동 결정.
+              suggestedMax: (yMax && yMax > 0) ? yMax : undefined,
               ticks: { precision: 0 },
             },
           },
@@ -273,29 +295,101 @@
       return `합계 ${total}회 / 일 최대 고유 사용자 ${distinct}명`;
     }
 
+    function computeSharedYMax(allTotals, custTotals) {
+      // 두 차트의 Y축을 큰 쪽 기준으로 통일하기 위한 공유 최대값.
+      // 누적 막대 전체 높이 = total 이므로 일별 total 의 max 만 보면 된다.
+      const arr = [].concat(allTotals || [], custTotals || []);
+      let m = 0;
+      for (const v of arr) {
+        const n = Number(v) || 0;
+        if (n > m) m = n;
+      }
+      if (m <= 0) return 0;
+      // 살짝 여유를 두어 막대 윗부분이 차트 천장에 닿지 않도록.
+      // (Chart.js 가 깔끔한 tick 으로 보정해 준다.)
+      return Math.ceil(m * 1.10);
+    }
+
     function renderAll(data) {
       const days = data.days || [];
 
       chartAll  = destroyChart(chartAll);
       chartCust = destroyChart(chartCust);
 
+      const yMax = computeSharedYMax(
+        (data.all && data.all.total) || [],
+        (data.customer && data.customer.total) || []
+      );
+
       chartAll = renderChart(
         canvasAll, '전체',
         days, data.all,
-        { tooltips: data.all.tooltip || [] }
+        { tooltips: data.all.tooltip || [] },
+        yMax
       );
       chartCust = renderChart(
         canvasCust, '고객',
         days, data.customer,
-        { tooltips: data.customer.tooltip || [] }
+        { tooltips: data.customer.tooltip || [] },
+        yMax
       );
 
       if (statsAllEl)  statsAllEl.textContent  = summaryText(data.all);
       if (statsCustEl) statsCustEl.textContent = summaryText(data.customer);
 
-      // 개발자 ID 목록은 의도적으로 화면에 노출하지 않는다.
-      // (관리자/운영자만 app/queries/developer_ids.py 에서 직접 관리)
+      // 개발자 ID 목록은 화면에 상시 노출하지 않고, 카드 헤더 우측의
+      // "개발자 ID" 버튼에 hover/click 시 tooltip 으로만 보여 준다.
+      updateDevList(data.developer_ids || []);
       if (topNEl && data.tooltip_top_n) topNEl.textContent = data.tooltip_top_n;
+    }
+
+    // ───── 개발자 ID 보기 (hover tooltip) ─────
+    function updateDevList(devs) {
+      if (!devListEl) return;
+      if (!devs || devs.length === 0) {
+        devListEl.innerHTML =
+          '<em class="lh-dev-empty">' +
+          '(개발자 ID 화이트리스트가 비어 있습니다. ' +
+          '<code>app/queries/developer_ids.py</code> 에서 추가)' +
+          '</em>';
+        return;
+      }
+      const items = devs.map((d) =>
+        '<span class="lh-dev-id">' + escapeHtml(d) + '</span>'
+      );
+      devListEl.innerHTML =
+        '<span class="lh-dev-count">총 ' + devs.length + '명</span>' +
+        '<span class="lh-dev-items">' + items.join('') + '</span>';
+    }
+
+    if (devToggleEl && devTipEl) {
+      const showTip = () => {
+        devTipEl.hidden = false;
+        devToggleEl.setAttribute('aria-expanded', 'true');
+      };
+      const hideTip = () => {
+        devTipEl.hidden = true;
+        devToggleEl.setAttribute('aria-expanded', 'false');
+      };
+      devToggleEl.addEventListener('mouseenter', showTip);
+      devToggleEl.addEventListener('focus',     showTip);
+      devTipEl.addEventListener('mouseenter',   showTip);
+      devToggleEl.addEventListener('mouseleave', () => {
+        // tooltip 위로 이동했을 수 있으니 살짝 늦춰서 닫음
+        setTimeout(() => {
+          if (!devTipEl.matches(':hover')) hideTip();
+        }, 80);
+      });
+      devToggleEl.addEventListener('blur',      hideTip);
+      devTipEl.addEventListener('mouseleave',   hideTip);
+      // click 토글 (모바일/접근성)
+      devToggleEl.addEventListener('click', () => {
+        if (devTipEl.hidden) showTip(); else hideTip();
+      });
+      // ESC 로 닫기
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !devTipEl.hidden) hideTip();
+      });
     }
 
     async function runSearch() {
