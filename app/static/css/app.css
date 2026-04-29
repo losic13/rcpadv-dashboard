@@ -1895,3 +1895,221 @@ table[data-role="table"].is-loading {
     font-size: 12px;
   }
 }
+
+/* ============================================================
+ * 15) Log Search 페이지
+ * ============================================================ */
+.log-search-page .card-body {
+  padding: 16px 18px 18px;
+}
+.log-search-hint {
+  margin: 0 0 14px;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.log-search-hint code {
+  background: rgba(99, 102, 241, 0.10);
+  color: var(--color-brand-700, #4338ca);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+.log-search-icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--color-brand-700, #4338ca);
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+/* ── 입력 폼 ── */
+.log-search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #fafbff 0%, var(--color-surface) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 14px;
+}
+.log-search-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+.log-search-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.log-search-input {
+  flex: 1 1 240px;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.log-search-input:focus {
+  outline: none;
+  border-color: var(--color-brand, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+.log-search-input:invalid:not(:placeholder-shown) {
+  border-color: #f87171;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
+}
+.log-search-rule {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.log-search-rule code {
+  background: rgba(0, 0, 0, 0.04);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.log-search-status {
+  font-size: 12px;
+  color: var(--color-muted);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+}
+.log-search-status[data-kind="loading"] {
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--color-brand-700, #4338ca);
+}
+.log-search-status[data-kind="ok"] {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+.log-search-status[data-kind="error"] {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b91c1c;
+}
+
+/* ── 테이블별 요약 pill ── */
+.log-search-tables-summary {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px dashed rgba(99, 102, 241, 0.28);
+  border-radius: 8px;
+}
+.ls-summary-line {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-bottom: 6px;
+}
+.ls-summary-line strong {
+  color: var(--color-text);
+  font-weight: 700;
+}
+.ls-summary-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ls-table-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  border: 1px solid transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.ls-table-pill.ls-ok {
+  background: rgba(16, 185, 129, 0.10);
+  color: #065f46;
+  border-color: rgba(16, 185, 129, 0.28);
+}
+.ls-table-pill.ls-err {
+  background: rgba(239, 68, 68, 0.10);
+  color: #991b1b;
+  border-color: rgba(239, 68, 68, 0.30);
+}
+.ls-table-name { font-weight: 600; }
+.ls-table-cnt {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ── 결과 테이블 ── */
+.log-search-result-wrap {
+  margin-top: 4px;
+}
+table.log-search-result {
+  width: 100%;
+}
+table.log-search-result td.log-search-dl-cell {
+  width: 44px;
+  text-align: center;
+  padding: 4px 6px;
+}
+table.log-search-result td.log-search-path-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--color-muted);
+  word-break: break-all;
+  max-width: 480px;
+}
+
+/* 다운로드 아이콘 버튼 (행마다) */
+.log-search-dl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-brand-700, #4338ca);
+  background: rgba(99, 102, 241, 0.10);
+  border: 1px solid rgba(99, 102, 241, 0.20);
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.log-search-dl:hover {
+  background: rgba(99, 102, 241, 0.20);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+.log-search-dl:active {
+  transform: translateY(0);
+}
+.log-search-dl-disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  color: var(--color-muted);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .log-search-input { width: 100%; flex-basis: 100%; }
+  .log-search-input-row { gap: 6px; }
+  table.log-search-result td.log-search-path-cell { max-width: 220px; }
+}

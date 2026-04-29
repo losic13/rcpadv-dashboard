@@ -1,0 +1,305 @@
+{#
+  Log Search 페이지.
+
+  - 입력 폼: 1~MAX_LEN 자, [A-Za-z0-9._@-] 만 허용
+  - 검색 버튼 → GET /log-search/run?param=...  (JSON)
+  - 결과는 통합 DataTable 1개로 표시
+  - 각 행 첫 컬럼은 다운로드 아이콘 버튼 (path 가 있으면 활성)
+    클릭 시 /files/download?path=... 로 이동 (브라우저 다운로드)
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card log-search-page" id="log-search-page">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">VNAND + DRAM</span>
+      <strong>로그 파일 검색</strong>
+      <span class="card-sub">{{ search_column }} 기준 화이트리스트 통합 검색</span>
+    </div>
+  </header>
+
+  <div class="card-body">
+    <p class="log-search-hint">
+      <code>{{ search_column }}</code> 값을 입력하면, 사전에 정의된 모든 테이블에서
+      해당 값과 일치하는 행을 한꺼번에 조회합니다. 각 행의
+      <span class="log-search-icon-inline">⬇</span> 버튼을 누르면 해당 경로의 파일이
+      다운로드됩니다.
+    </p>
+
+    <form id="log-search-form" class="log-search-form" autocomplete="off"
+          onsubmit="return false;">
+      <label for="log-search-input" class="log-search-label">{{ search_column }}</label>
+      <div class="log-search-input-row">
+        <input type="text"
+               id="log-search-input"
+               class="log-search-input"
+               placeholder="예) AB12C3D"
+               minlength="{{ min_len }}"
+               maxlength="{{ max_len }}"
+               pattern="[A-Za-z0-9._@\-]{ {{- min_len -}} ,{{ max_len }}}"
+               spellcheck="false"
+               autocapitalize="off"
+               autocorrect="off"
+               required>
+        <button type="submit" id="log-search-run" class="btn-primary">
+          <span class="btn-run-icon" aria-hidden="true">🔍</span>
+          <span>검색</span>
+        </button>
+        <span class="log-search-status" data-role="status" hidden></span>
+      </div>
+      <p class="log-search-rule">
+        길이 {{ min_len }}–{{ max_len }}자, 영문/숫자 및 <code>- _ @ .</code> 만 허용.
+      </p>
+    </form>
+
+    <!-- 테이블별 요약 (검색 후 채워짐) -->
+    <div id="log-search-tables-summary" class="log-search-tables-summary" hidden></div>
+
+    <!-- 검색 결과 통합 DataTable -->
+    <div class="log-search-result-wrap">
+      <table id="log-search-result" class="display compact log-search-result">
+        <thead><tr><th class="placeholder-cell">검색어를 입력해 주세요.</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="error-msg" id="log-search-error" hidden></div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    'use strict';
+
+    const SEARCH_COLUMN = {{ search_column | tojson }};
+    const MAX_LEN = {{ max_len }};
+    const MIN_LEN = {{ min_len }};
+    const ALLOWED_RE = /^[A-Za-z0-9._@\-]+$/;
+
+    const formEl    = document.getElementById('log-search-form');
+    const inputEl   = document.getElementById('log-search-input');
+    const runBtn    = document.getElementById('log-search-run');
+    const statusEl  = document.querySelector('#log-search-form [data-role="status"]');
+    const errorEl   = document.getElementById('log-search-error');
+    const summaryEl = document.getElementById('log-search-tables-summary');
+    const tableEl   = document.getElementById('log-search-result');
+
+    let dataTable = null;
+    let inFlight  = null;   // AbortController
+    let runToken  = 0;
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    function setStatus(msg, kind /* 'loading'|'ok'|'error'|null */) {
+      if (!statusEl) return;
+      if (!msg) { statusEl.hidden = true; statusEl.textContent = ''; return; }
+      statusEl.hidden = false;
+      statusEl.textContent = msg;
+      statusEl.dataset.kind = kind || '';
+    }
+
+    function setError(msg) {
+      if (!errorEl) return;
+      if (!msg) { errorEl.hidden = true; errorEl.textContent = ''; return; }
+      errorEl.hidden = false;
+      errorEl.textContent = msg;
+    }
+
+    function validateClient(raw) {
+      const s = (raw || '').trim();
+      if (s.length < MIN_LEN) return '검색어를 입력해 주세요.';
+      if (s.length > MAX_LEN) return `검색어가 너무 깁니다 (최대 ${MAX_LEN}자, 입력 ${s.length}자).`;
+      if (!ALLOWED_RE.test(s)) return '허용 문자만 입력 가능: 영문/숫자/하이픈(-)/언더바(_)/골뱅이(@)/마침표(.)';
+      return null;
+    }
+
+    // 다운로드 아이콘 (각 행 첫 컬럼). path 가 비어 있으면 비활성.
+    function renderDownloadCell(path) {
+      if (path == null || path === '') {
+        return '<span class="log-search-dl log-search-dl-disabled" title="path 없음">—</span>';
+      }
+      const href = '/files/download?path=' + encodeURIComponent(path);
+      return (
+        '<a class="log-search-dl" href="' + href + '" ' +
+        'title="다운로드: ' + escapeHtml(path) + '" ' +
+        'target="_blank" rel="noopener">⬇</a>'
+      );
+    }
+
+    function renderSummary(meta) {
+      if (!summaryEl) return;
+      if (!meta || meta.length === 0) {
+        summaryEl.hidden = true;
+        summaryEl.innerHTML = '';
+        return;
+      }
+      const total = meta.reduce((a, t) => a + (t.row_count || 0), 0);
+      const items = meta.map(t => {
+        const cls = t.ok ? 'ok' : 'err';
+        const cnt = t.ok ? `${t.row_count}행` : '실패';
+        const tip = t.ok
+          ? `${t.row_count}행 · ${t.elapsed_ms}ms`
+          : `오류: ${t.error || ''}`;
+        return (
+          `<span class="ls-table-pill ls-${cls}" title="${escapeHtml(tip)}">` +
+          `<span class="ls-table-name">${escapeHtml(t.label)}</span>` +
+          `<span class="ls-table-cnt">${escapeHtml(cnt)}</span>` +
+          '</span>'
+        );
+      }).join('');
+      summaryEl.innerHTML =
+        `<div class="ls-summary-line">총 <strong>${total}</strong>건 · 테이블별:</div>` +
+        `<div class="ls-summary-pills">${items}</div>`;
+      summaryEl.hidden = false;
+    }
+
+    function destroyDataTable() {
+      if (dataTable) {
+        try { dataTable.destroy(false); } catch (_) {}
+        dataTable = null;
+      }
+    }
+
+    function renderTable(columns, rows) {
+      destroyDataTable();
+      if (!tableEl || !tableEl.isConnected) return;
+
+      // columns: 서버가 넣어주는 순서 그대로. 첫 컬럼 자리에 다운로드 아이콘 컬럼 추가.
+      // DataTables 컬럼 정의:
+      //   - 첫 컬럼: 다운로드(렌더만, 정렬/검색 비활성)
+      //   - 그 외: 서버가 준 컬럼 그대로 (path 컬럼은 통째 표시하되 작은 폰트)
+      const dlCol = {
+        title: '',
+        data: 'path',
+        orderable: false,
+        searchable: false,
+        className: 'log-search-dl-cell',
+        render: function (data, type) {
+          if (type !== 'display') return data == null ? '' : String(data);
+          return renderDownloadCell(data);
+        },
+      };
+      const otherCols = columns.map(c => ({
+        title: c,
+        data: c,
+        defaultContent: '',
+        className: (c === 'path') ? 'log-search-path-cell' : '',
+        render: function (data, type) {
+          if (type !== 'display') return data == null ? '' : String(data);
+          if (data == null) return '';
+          return escapeHtml(String(data));
+        },
+      }));
+      const allCols = [dlCol, ...otherCols];
+
+      // thead 재구성
+      tableEl.innerHTML =
+        '<thead><tr>' +
+        allCols.map(c => `<th>${escapeHtml(c.title)}</th>`).join('') +
+        '</tr></thead><tbody></tbody>';
+
+      dataTable = $(tableEl).DataTable({
+        data: rows || [],
+        columns: allCols,
+        // QueryRunner 와 동일한 툴바 레이아웃
+        dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
+        buttons: [{
+          extend: 'csvHtml5',
+          text: 'CSV 내보내기',
+          titleAttr: 'CSV 파일로 내보내기',
+          filename: 'log_search_' + (inputEl.value || '').replace(/[^A-Za-z0-9._@\-]/g, '_'),
+        }],
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, '전체']],
+        order: [],
+        deferRender: true,
+        language: (window.DATATABLES_KO || {}),
+      });
+    }
+
+    async function runSearch() {
+      setError(null);
+
+      const raw = inputEl.value;
+      const errMsg = validateClient(raw);
+      if (errMsg) {
+        setError(errMsg);
+        inputEl.focus();
+        return;
+      }
+
+      // 진행 중이면 취소
+      if (inFlight) { try { inFlight.abort(); } catch (_) {} }
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      inFlight = ctrl;
+      const myToken = ++runToken;
+
+      setStatus('검색 중...', 'loading');
+      runBtn.disabled = true;
+
+      try {
+        const url = '/log-search/run?param=' + encodeURIComponent(raw.trim());
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (myToken !== runToken) return;
+
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const j = await res.json();
+            if (j && j.detail) detail = j.detail;
+          } catch (_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        if (myToken !== runToken) return;
+
+        renderSummary(data.tables || []);
+        renderTable(data.columns || [], data.rows || []);
+        setStatus(
+          `완료 · ${data.row_count || 0}행 · ${data.elapsed_ms || 0}ms`,
+          'ok'
+        );
+      } catch (e) {
+        if (e && (e.name === 'AbortError' || e.code === 20)) return;
+        if (myToken !== runToken) return;
+        setError(e && e.message ? e.message : String(e));
+        setStatus('실패', 'error');
+      } finally {
+        if (myToken === runToken) {
+          runBtn.disabled = false;
+          inFlight = null;
+        }
+      }
+    }
+
+    // 이벤트 바인딩
+    formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      runSearch();
+    });
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runSearch();
+      }
+    });
+
+    // 첫 진입 시 입력창 포커스
+    setTimeout(() => { try { inputEl.focus(); } catch (_) {} }, 50);
+  })();
+</script>
+{% endblock %}
