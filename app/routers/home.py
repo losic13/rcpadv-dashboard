@@ -76,7 +76,7 @@ DASHBOARD_CARDS = [
         "title": "AMAT 비정상 스텝 (미처리)",
         "query_id": "amat_abnormal_steps_no_treat",
         "unit": "건",
-        "description": "쿼리 결과 행 수를 표시합니다.",
+        "description": "사용자 조치가 필요한 이상 감지 로그 건 수 입니다.",
     },
 ]
 
