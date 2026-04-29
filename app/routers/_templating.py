@@ -46,7 +46,7 @@ templates.env.globals["asset_version"] = ASSET_VERSION
 
 # 사이드바 등에서 공유할 메뉴 정보
 NAV_ITEMS = [
-    {"key": "home",       "label": "RcpAdv 통합 대시보드",  "url": "/"},
+    {"key": "home",       "label": "통합 대시보드",  "url": "/"},
     {"key": "files",      "label": "File Download", "url": "/files"},
     {"key": "log_search", "label": "Log Search",    "url": "/log-search"},
     {"key": "vnand",      "label": "VNAND DB",      "url": "/vnand"},

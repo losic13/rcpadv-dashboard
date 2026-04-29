@@ -12,7 +12,9 @@
 :root {
   /* Layout */
   --sidebar-width: 260px;
-  --content-max-width: 1600px;
+  /* 본문 영역의 최대 폭. 'none' 으로 두면 화면 전체를 사용한다.
+     필요 시 px 값을 다시 지정해 제한을 둘 수 있다. (예: 1920px) */
+  --content-max-width: none;
   --log-panel-collapsed: 40px;
   --log-panel-expanded: 320px;
 
@@ -2128,6 +2130,45 @@ table.log-search-result td.log-search-path-cell {
 }
 .eqp-if-page .card-controls a.btn-run {
   text-decoration: none;
+}
+
+/* ── 카드 헤더: [좌: 제목 + (url) 결합] ── [우: 새 창 열기 버튼] ── */
+.eqp-if-header {
+  /* 기존 .card-header 가 wrap 을 허용해 작은 화면에서 버튼이 아래로
+     떨어지면 사용자가 "새 창" 버튼을 두 번 보게 된다. EQP 페이지는
+     항상 한 줄 양끝 정렬이 자연스러우므로 wrap 을 끈다. */
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+.eqp-if-title {
+  /* 제목 영역이 url 길이만큼 넘치지 않도록 */
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.eqp-if-title-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.eqp-if-title-url {
+  /* 괄호로 묶인 URL — 너무 길면 ellipsis 처리 */
+  font-weight: 500;
+  color: var(--color-muted, #6b7280);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.eqp-if-controls {
+  /* 카드 상단 우측 끝 고정 */
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .eqp-if-body {
   /* iframe 이 카드 본문 영역을 가득 채우도록 */

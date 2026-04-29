@@ -15,16 +15,18 @@
 
 {% block content %}
 <section class="card eqp-if-page">
-  <header class="card-header">
-    <div class="card-title">
+  <header class="card-header eqp-if-header">
+    {# 카드 헤더는 [좌: 제목+url 결합] ─ [우: 새 창에서 열기 버튼] 구조.
+       제목은 "EQP I/F Manager(<url>)" 처럼 한 줄로 합쳐서 보여주고,
+       버튼은 카드 상단 우측 끝에 배치된다. #}
+    <div class="card-title eqp-if-title">
       <span class="badge">External</span>
-      <strong>{{ page_title }}</strong>
-      {% if embed_url %}
-      <span class="card-sub">{{ embed_url }}</span>
-      {% endif %}
+      <strong class="eqp-if-title-text">
+        {{ page_title }}{% if embed_url %}<span class="eqp-if-title-url">({{ embed_url }})</span>{% endif %}
+      </strong>
     </div>
-    <div class="card-controls">
-      {% if embed_url %}
+    {% if embed_url %}
+    <div class="card-controls eqp-if-controls">
       <a class="btn-run btn-run-sm"
          href="{{ embed_url }}"
          target="_blank"
@@ -33,8 +35,8 @@
         <span class="btn-run-icon" aria-hidden="true">↗</span>
         <span class="btn-run-label">새 창에서 열기</span>
       </a>
-      {% endif %}
     </div>
+    {% endif %}
   </header>
 
   <div class="card-body eqp-if-body">
