@@ -1,20 +1,32 @@
-# 통합 대시보드 — 차트 카드
+# 통합 대시보드 — 카드 구성
 
 본 문서는 `/` 통합 대시보드 페이지의 시각화 설계, 데이터 변환 규칙, 그리고
 "어디를 고치면 어디가 바뀌는지" 를 정리합니다.
 
-## 1. 카드 구성
+## 1. 카드 구성 (현재 = PR #29 이후)
 
-대시보드는 **한 페이지에 두 개의 카드** 를 표시합니다 — 각 카드는 하나의 데이터 소스를
-담당합니다.
+대시보드는 **한 페이지에 4개의 카드** 를 위→아래 순서로 표시합니다.
 
-| 카드 | source | 표시할 PRODUCT | 데이터 쿼리 |
-|------|--------|---------------|-------------|
-| VNAND DB | `vnand` | `LAM`, `TEL` | `recent_parsing_results` |
-| DRAM DB | `dram` | `AMAT`, `LAM`, `TEL` | `recent_parsing_results` |
+| # | 카드 | type | source | 데이터 |
+|---|------|------|--------|--------|
+| 1 | VNAND 파싱 결과 | `chart` | `vnand` | `recent_parsing_results` (PRODUCT: `LAM`, `TEL`) |
+| 2 | DRAM 파싱 결과  | `chart` | `dram`  | `recent_parsing_results` (PRODUCT: `AMAT`, `LAM`, `TEL`) |
+| 3 | AMAT 비정상 스텝(미처리) | `count` | `dram` | `amat_abnormal_steps_no_treat` 결과 행 수 |
+| 4 | 오늘 접속자수 | `login_today` | `vnand` (logically) | `/login-history/today` |
 
 > 이 정의는 `app/routers/home.py` 의 `DASHBOARD_CARDS` 리스트에 그대로 들어 있습니다.
-> PRODUCT 추가/순서 변경/카드 추가는 이 리스트만 수정하면 됩니다.
+> 카드 추가/제거/순서 변경/PRODUCT 변경은 이 리스트만 수정하면 됩니다.
+
+### 1.1 카드 타입별 책임 분리
+
+| type | JS 클래스 | 마크업 골격 | 핵심 동작 |
+|------|----------|------------|---------|
+| `chart` | `ChartCard` | metric-section × 2 + canvas × 2 | bar + MA line, 일평균(마지막 제외) chip(차트 X축 아래) |
+| `count` | `CountCard` | 큰 숫자 + 단위 | `/run` 응답의 `row_count` 만 표시 |
+| `login_today` | `LoginTodayCard` | 좌(전체) + 가운데 divider + 우(고객), 각 컬럼: 1차 카운트 + 2차 총 로그인 + Top 10 hover | `/login-history/today` 단일 fetch 로 두 컬럼 동시 채움 |
+
+> JS 클래스 상세는 [FRONTEND.md](./FRONTEND.md), 오늘 접속자수 카드 데이터 흐름은
+> [LOGIN_HISTORY.md](./LOGIN_HISTORY.md) 참고.
 
 ## 2. 카드 내부 구조
 
@@ -228,16 +240,19 @@ Chart.js 기본 legend 는 `display: false` 로 끄고, `metric-section-legend` 
 
 각 메트릭 섹션 헤더 우측에 `일평균(마지막 제외) · LAM 123 / TEL 45` 형태로 표시합니다.
 
-### 9.1 규칙 (PR #13 이후)
+### 9.1 규칙 (PR #33 이후)
 
 - 시리즈에서 **마지막 인덱스 값 제외** 후, **`null` 도 제외** 하고 *유효 일자* 만으로 평균.
 - 유효 일자가 0 이면 `—` 로 표시.
-- 소수 1자리 반올림 (`Math.round(v * 10) / 10`) → `_fmtNum()` 한국식 천단위 콤마 포맷.
-- PRODUCT 마다 평균을 따로 계산해, 한 줄에 슬래시(`/`) 로 구분.
+- **정수 반올림** (`Math.round(v)`) → 소수점 표기 없음. (PR #33에서 변경: 이전엔 소수 1자리)
+- 한국식 천단위 콤마 포맷.
+- PRODUCT 마다 평균을 따로 계산해, **PRODUCT 칩**(이름 + 큰 값) 단위로 분리 노출 (REGULAR=인디고, COMPLETE=시안).
+- **위치**: 차트 X축 *아래* 의 `<footer class="metric-section-foot">` 안. (PR #33 에서 헤더 우측 → X축 아래로 이동 — 가독성 + 헤더 혼잡 해소)
 
 ### 9.2 코드
 
 ```javascript
+// PR #33: 정수만, 차트 X축 아래(.metric-section-foot)에 chip 형태로 렌더
 const dailyAvgByProduct = series.map(s => {
   const head = s.values.slice(0, Math.max(0, s.values.length - 1));   // ← 마지막 제외
   const valid = head.filter(v => v != null);
@@ -246,9 +261,8 @@ const dailyAvgByProduct = series.map(s => {
     : null;
   return { product: s.product, avg };
 });
-slot.statEl.textContent =
-  '일평균(마지막 제외) · ' +
-  dailyAvgByProduct.map(d => `${d.product} ${fmtAvg(d.avg)}`).join(' / ');
+const fmtAvg = v => v == null ? '—' : Math.round(v).toLocaleString('ko-KR');  // ← 정수
+// chip DOM: <span class="metric-section-stat-chip"><b>LAM</b><span>123</span></span>
 ```
 
 ### 9.3 왜 "합계" → "일평균" 으로?

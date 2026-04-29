@@ -7,15 +7,19 @@
 ## 1. 파일 한눈에 보기
 
 ```
-app/static/js/app.js  (~1140 lines)
+app/static/js/app.js  (~1700+ lines)
 ├── 공용 유틸: fmtElapsed, buildQueryString, escapeHtml, PLACEHOLDER_HTML
 ├── Toast               ← 우측 상단 알림 (race / 일반 메시지)
 ├── class QueryRunner   ← 쿼리 실행 + DataTables + 자동갱신 + race UI
 ├── DATATABLES_KO       ← 한국어 번역 상수
 ├── LogPanel            ← 하단 로그 패널 폴링/렌더 (DOMContentLoaded 시 init)
 ├── MOVING_AVG_WINDOW = 4   (PR #13 에서 7→4 로 변경)
-└── class ChartCard     ← 통합 대시보드 차트 카드 + 이동평균선 + race UI
+├── class ChartCard     ← 통합 대시보드 차트 카드 + 이동평균선 + race UI
+├── class CountCard     ← 단일 숫자 카드 (PR #17 신규: AMAT 비정상 스텝 등)
+└── class LoginTodayCard ← 오늘 접속자수 카드 (PR #27→#29 한 장 통합, #32 hover panel)
 ```
+
+> 외부 노출(window.\*): `Toast`, `QueryRunner`, `ChartCard`, `CountCard`, `LoginTodayCard`.
 
 ## 2. 공용 유틸
 
@@ -298,10 +302,104 @@ appendLogs(logs) :
 
 | 페이지 | 템플릿 | 사용 클래스 |
 |--------|-------|-----------|
-| `/` 통합 대시보드 | `home.html` | `ChartCard` × N (카드마다) + LogPanel |
+| `/` 통합 대시보드 | `home.html` | `ChartCard` × 2 + `CountCard` × 1 + `LoginTodayCard` × 1 + LogPanel |
 | `/vnand`, `/dram`, `/es` | `source_page.html` | `QueryRunner` × 1 (탭 전환 시 destroy + 재생성) + LogPanel |
-| `/files` | `files.html` | (자체 인라인 스크립트) + LogPanel |
+| `/files`, `/log-search` | `files.html`, `log_search.html` | (자체 인라인 스크립트) + LogPanel |
+| `/login-history` | `login_history.html` | (페이지 자체 차트 init 스크립트) + LogPanel |
+| `/eqp-if` | `eqp_if.html` | (없음 — iframe 임베드) + LogPanel |
 | `/login` | `login.html` | (없음 — base.html 미상속) |
+
+## 8.1. `class CountCard` (PR #17 신규)
+
+단일 카운트(결과 행 수 등)를 큰 숫자로 표시하는 카드. `ChartCard` 와 동일한
+race-UI 4종 세트를 사용하지만 차트/캔버스 없음.
+
+```javascript
+new CountCard({
+  rootEl: HTMLElement,           // <section class="card count-card" data-source="dram" data-query-id="amat_abnormal_steps_no_treat">
+  source: 'dram',
+  queryId: 'amat_abnormal_steps_no_treat',
+  unit: '건',
+  autoRefreshIntervalMs: 10000,
+});
+```
+
+- 응답: `/{source}/query/{query_id}` 의 `row_count` 만 사용.
+- DOM: `<span data-role="count-value">` 에 `toLocaleString('ko-KR')` 한 값 주입.
+- 카드 부제 (PR #33): `결과 행 수` 만 표시 (`{query_id} ·` 부분 제거).
+- 에러 시 빨강 status-badge + `<div data-role="error">` 메시지.
+
+## 8.2. `class LoginTodayCard` (PR #27 → #29 통합 → #32 hover → #33 라벨 정렬)
+
+오늘 접속자수 카드. **단일 fetch** (`/login-history/today`) 로 두 컬럼 (전체 / 고객) 동시 채움.
+
+### 8.2.1 생성
+
+```javascript
+new LoginTodayCard({
+  rootEl: HTMLElement,
+  endpoint: '/login-history/today',
+  autoRefreshIntervalMs: 10000,
+});
+```
+
+내부적으로 두 scope 컬럼을 보관:
+
+```javascript
+this.cols = {
+  all:      { primary, distinctValueEl, totalValueEl, usersTip, usersList, topnEl },
+  customer: { primary, distinctValueEl, totalValueEl, usersTip, usersList, topnEl },
+};
+```
+
+### 8.2.2 데이터 → DOM 매핑
+
+```
+응답.all.distinct      → cols.all.distinctValueEl   (1차 큰 숫자, 라벨 "총")
+응답.all.total         → cols.all.totalValueEl       (2차 작은 글씨, "총 로그인 N 회")
+응답.all.users[]       → cols.all.usersList chips    (Top N hover panel)
+응답.all.extra_users   → "+N명" chip (Top N 초과시)
+응답.tooltip_top_n     → cols.all.topnEl.textContent (hover panel 헤더의 "10")
+(같은 매핑이 customer 에도 적용)
+```
+
+핵심 메서드:
+
+- `_setValuesForScope(scope, distinct, total)` — 1차/2차 숫자 갱신.
+- `_setUsersForScope(scope, users, extra, topN)` — hover panel 칩 갱신.
+  XSS 방어: `textContent` 만 사용. innerHTML 금지.
+
+### 8.2.3 hover/focus 핸들링 (PR #32)
+
+```javascript
+this._hoverHandlers = [];   // destroy 시 정리용
+const show = () => col.usersTip.style.display = 'block';
+const hide = () => col.usersTip.style.display = 'none';
+col.primary.addEventListener('mouseenter', show);
+col.primary.addEventListener('mouseleave', hide);
+col.primary.addEventListener('focusin',   show);  // 키보드 접근성
+col.primary.addEventListener('focusout',  hide);
+this._hoverHandlers.push({ el: col.primary, show, hide });
+```
+
+CSS `:hover .login-today-tip { display: block }` 도 함께 두어, JS 가 늦게 로드돼도
+hover 동작은 보장 (safety net).
+
+### 8.2.4 1차 라벨 폭 정렬 (PR #33)
+
+전체 컬럼은 "총" (1글자), 고객 컬럼은 "고객" (2글자) — 글자 수가 다르지만 시각
+폭은 동일하게 보이도록:
+
+```css
+.login-today-label {
+  min-width: 3.4em;
+  text-align: center;
+}
+```
+
+→ pill 배경/패딩/폰트는 동일하면서 좌우 균형이 맞음.
+
+> 카드 데이터 흐름과 서버 응답 스키마 상세는 [LOGIN_HISTORY.md](./LOGIN_HISTORY.md) 참고.
 
 ## 9. 트러블슈팅
 
