@@ -1,9 +1,11 @@
-"""Log File Download 페이지/API.
+"""File Download 페이지/API.
 
 서버(=백엔드 호스트) 로컬 디스크의 임의 경로를 입력받아
 - 파일이 존재하면 다운로드(Content-Disposition: attachment) 응답
 - 존재하지 않으면 404 + 한국어 안내 메시지
 - 디렉토리이거나 일반 파일이 아니면 400
+
+(Log Search 페이지에서도 /files/download 엔드포인트를 그대로 재사용한다.)
 
 인하우스 도구이므로 인증/권한은 두지 않는다는 전제에 따라
 경로 화이트리스트도 별도로 강제하지 않는다(요청 사양 그대로).
@@ -36,7 +38,7 @@ def page(request: Request):
         {
             "nav_items": NAV_ITEMS,
             "active_nav": "files",
-            "page_title": "Log File Download",
+            "page_title": "File Download",
         },
     )
 
