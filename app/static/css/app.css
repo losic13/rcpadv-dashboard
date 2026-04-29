@@ -1593,7 +1593,8 @@ table[data-role="table"].is-loading {
   color: var(--color-muted);
 }
 
-/* 단 아래 줄: 총 로그인 — 일부러 작고 흐릿하게 구성. */
+/* 단 아래 줄: 총 로그인 — 일부러 작고 흐릿하게 구성. 마우스 hover 시 ?커서가
+   뜨는 cursor:help 와 title 속성 모두 제거 (사용자 요청). */
 .login-today-secondary {
   display: inline-flex;
   align-items: baseline;
@@ -1606,7 +1607,6 @@ table[data-role="table"].is-loading {
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 500;
-  cursor: help;          /* title 툴팁 힌트 */
   transition: opacity 160ms ease, filter 160ms ease;
 }
 .login-today-secondary.is-loading {
@@ -1638,6 +1638,116 @@ table[data-role="table"].is-loading {
   color: var(--color-muted);
   text-align: center;
   line-height: 1.5;
+}
+
+/* ── 접속자 ID Top N hover 툴팁 ────────────────────────────
+   .login-today-hover (= .login-today-primary) 위에 마우스를 올리면
+   .login-today-tip 이 나타나 오늘 접속한 사용자 ID 상위 N명을 보여준다.
+   기존의 title="..." 브라우저 기본 툴팁(?커서 동반) 을 대체한다.
+   ───────────────────────────────────────────────────────── */
+.login-today-hover {
+  position: relative;        /* tip 의 absolute 기준 */
+  cursor: default;            /* ?커서 방지 */
+}
+.login-today-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: block;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 8px 10px;
+  background: #1e293b;       /* 어두운 배경 — 일반 tooltip 룩 */
+  color: #f8fafc;
+  border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.25);
+  font-size: 12px;
+  line-height: 1.55;
+  pointer-events: auto;       /* tooltip 위로 마우스 이동 가능 */
+  white-space: normal;
+  text-align: left;
+}
+.login-today-tip[hidden] { display: none; }
+/* 작은 화살표 (북쪽 방향, 가운데 정렬) */
+.login-today-tip::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  margin-left: -5px;
+  width: 10px;
+  height: 10px;
+  background: #1e293b;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+.login-today-tip-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #c7d2fe;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+  text-transform: none;
+}
+.login-today-tip-topn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  background: rgba(99, 102, 241, 0.30);
+  color: #e0e7ff;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.login-today-tip-body {
+  display: block;
+  word-break: break-all;
+}
+.login-today-tip .login-today-tip-user {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 1px 4px 1px 0;
+  padding: 1px 7px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
+  color: #e2e8f0;
+}
+.login-today-tip .login-today-tip-user-cnt {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+.login-today-tip-extra {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11px;
+  color: #cbd5e1;
+  font-style: italic;
+}
+.login-today-tip-empty {
+  display: inline-block;
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+/* hover/focus-within 시 표시. JS 가 [hidden] 을 직접 토글하므로
+   CSS 만으로 띄우지는 않지만, 시각 안전망으로도 hover 시 노출되게 한다. */
+.login-today-hover:hover .login-today-tip,
+.login-today-hover:focus-within .login-today-tip {
+  display: block;
+}
+
+@media (max-width: 760px) {
+  /* 좁은 화면에서는 가운데 정렬 유지하되 max-width 만 줄임 */
+  .login-today-tip { max-width: 280px; }
 }
 
 /* ── 통합형(전체+고객 한 카드) 레이아웃 ──────────────────────

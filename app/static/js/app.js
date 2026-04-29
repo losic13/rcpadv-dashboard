@@ -1216,6 +1216,17 @@
       }
       if (this.refreshBtn) this.refreshBtn.removeEventListener('click', this._onRefreshClick);
       if (this.autoCheck) this.autoCheck.removeEventListener('change', this._onAutoChange);
+      // hover 핸들러 해제 (LoginTodayCard 만 있고 CountCard 에는 없음 — 안전 조건)
+      if (Array.isArray(this._hoverHandlers)) {
+        this._hoverHandlers.forEach(({ el, show, hide }) => {
+          if (!el) return;
+          el.removeEventListener('mouseenter', show);
+          el.removeEventListener('mouseleave', hide);
+          el.removeEventListener('focusin',    show);
+          el.removeEventListener('focusout',   hide);
+        });
+        this._hoverHandlers = [];
+      }
       if (this.elapsedEl) this.elapsedEl.textContent = '';
       if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
       if (this.spinner) this.spinner.hidden = true;
@@ -1409,18 +1420,26 @@
         : null;
 
       // 두 컬럼(scope) 별 DOM 참조를 dict 로 보관.
+      // usersTip / usersList / topnEl 은 hover 시 보여줄 "접속자 ID Top N"
+      // tooltip 의 DOM. (이전 title="..." 기본 툴팁을 대체.)
       this.cols = {
         all: {
-          primary:  this.root.querySelector('[data-role="primary-all"]'),
-          secondary:this.root.querySelector('[data-role="secondary-all"]'),
-          distinct: this.root.querySelector('[data-role="distinct-value-all"]'),
-          total:    this.root.querySelector('[data-role="total-value-all"]'),
+          primary:   this.root.querySelector('[data-role="primary-all"]'),
+          secondary: this.root.querySelector('[data-role="secondary-all"]'),
+          distinct:  this.root.querySelector('[data-role="distinct-value-all"]'),
+          total:     this.root.querySelector('[data-role="total-value-all"]'),
+          usersTip:  this.root.querySelector('[data-role="users-tip-all"]'),
+          usersList: this.root.querySelector('[data-role="users-list-all"]'),
+          topnEl:    this.root.querySelector('[data-role="topn-all"]'),
         },
         customer: {
-          primary:  this.root.querySelector('[data-role="primary-customer"]'),
-          secondary:this.root.querySelector('[data-role="secondary-customer"]'),
-          distinct: this.root.querySelector('[data-role="distinct-value-customer"]'),
-          total:    this.root.querySelector('[data-role="total-value-customer"]'),
+          primary:   this.root.querySelector('[data-role="primary-customer"]'),
+          secondary: this.root.querySelector('[data-role="secondary-customer"]'),
+          distinct:  this.root.querySelector('[data-role="distinct-value-customer"]'),
+          total:     this.root.querySelector('[data-role="total-value-customer"]'),
+          usersTip:  this.root.querySelector('[data-role="users-tip-customer"]'),
+          usersList: this.root.querySelector('[data-role="users-list-customer"]'),
+          topnEl:    this.root.querySelector('[data-role="topn-customer"]'),
         },
       };
 
@@ -1434,6 +1453,22 @@
 
       this._onRefreshClick = () => this.run();
       this._onAutoChange   = () => this._applyAutoRefresh();
+
+      // 접속자 ID Top N tooltip — primary 영역 hover/focus 시 표시,
+      // 떠날 때 숨김. CSS 만으로도 :hover 안전망이 있지만, JS 로 명시 토글
+      // 하면 keyboard focus 와 모바일 터치(focus-within) 에도 견고하다.
+      this._hoverHandlers = [];
+      ['all', 'customer'].forEach((scope) => {
+        const col = this.cols[scope];
+        if (!col || !col.primary || !col.usersTip) return;
+        const show = () => { if (col.usersTip) col.usersTip.hidden = false; };
+        const hide = () => { if (col.usersTip) col.usersTip.hidden = true;  };
+        col.primary.addEventListener('mouseenter', show);
+        col.primary.addEventListener('mouseleave', hide);
+        col.primary.addEventListener('focusin',    show);
+        col.primary.addEventListener('focusout',   hide);
+        this._hoverHandlers.push({ el: col.primary, show, hide });
+      });
     }
 
     init({ runOnLoad = true } = {}) {
@@ -1458,6 +1493,17 @@
       }
       if (this.refreshBtn) this.refreshBtn.removeEventListener('click', this._onRefreshClick);
       if (this.autoCheck) this.autoCheck.removeEventListener('change', this._onAutoChange);
+      // hover 핸들러 해제 (LoginTodayCard 만 있고 CountCard 에는 없음 — 안전 조건)
+      if (Array.isArray(this._hoverHandlers)) {
+        this._hoverHandlers.forEach(({ el, show, hide }) => {
+          if (!el) return;
+          el.removeEventListener('mouseenter', show);
+          el.removeEventListener('mouseleave', hide);
+          el.removeEventListener('focusin',    show);
+          el.removeEventListener('focusout',   hide);
+        });
+        this._hoverHandlers = [];
+      }
       if (this.elapsedEl) this.elapsedEl.textContent = '';
       if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
       if (this.spinner) this.spinner.hidden = true;
@@ -1540,6 +1586,54 @@
       if (col.total)    col.total.textContent    = this._fmtNum(total);
     }
 
+    /**
+     * scope 별 hover 툴팁의 "접속자 ID Top N" 리스트를 채운다.
+     * @param {"all"|"customer"} scope
+     * @param {Array<{user_id:string,count:number}>} users  count 내림차순 정렬된 상위 N명
+     * @param {number} extra  Top N 을 초과한 추가 인원 수
+     * @param {number} topN   현재 적용 중인 Top N (서버 설정값)
+     */
+    _setUsersForScope(scope, users, extra, topN) {
+      const col = this.cols[scope];
+      if (!col || !col.usersList) return;
+      // Top N 배지 숫자 갱신
+      if (col.topnEl && typeof topN === 'number' && topN > 0) {
+        col.topnEl.textContent = String(topN);
+      }
+      // 비어있으면 "접속 기록 없음" 안내
+      const list = Array.isArray(users) ? users : [];
+      if (list.length === 0) {
+        col.usersList.innerHTML = '<span class="login-today-tip-empty">아직 접속 기록이 없습니다.</span>';
+        return;
+      }
+      // user_id 칩 + 옆에 작은 회수. user_id 는 텍스트 노드로만 넣어 XSS 방지.
+      const frag = document.createDocumentFragment();
+      list.forEach((u) => {
+        if (!u || !u.user_id) return;
+        const chip = document.createElement('span');
+        chip.className = 'login-today-tip-user';
+        const idSpan = document.createElement('span');
+        idSpan.className = 'login-today-tip-user-id';
+        idSpan.textContent = String(u.user_id);
+        const cntSpan = document.createElement('span');
+        cntSpan.className = 'login-today-tip-user-cnt';
+        const cnt = (typeof u.count === 'number') ? u.count : Number(u.count) || 0;
+        cntSpan.textContent = '×' + this._fmtNum(cnt);
+        chip.appendChild(idSpan);
+        chip.appendChild(cntSpan);
+        frag.appendChild(chip);
+      });
+      col.usersList.innerHTML = '';
+      col.usersList.appendChild(frag);
+      // Top N 초과 인원 표기
+      if (typeof extra === 'number' && extra > 0) {
+        const more = document.createElement('span');
+        more.className = 'login-today-tip-extra';
+        more.textContent = '외 ' + this._fmtNum(extra) + '명';
+        col.usersList.appendChild(more);
+      }
+    }
+
     async run() {
       if (this._destroyed) return;
 
@@ -1593,11 +1687,18 @@
         if (this._destroyed || token !== this._runToken) return;
 
         // 양쪽 컬럼을 동시에 채운다 (한 응답에 all/customer 모두 포함).
+        // 추가로 hover 툴팁용 "접속자 ID Top N" 리스트도 함께 채운다.
+        const topN = (typeof data.tooltip_top_n === 'number' && data.tooltip_top_n > 0)
+          ? data.tooltip_top_n
+          : 10;
         ['all', 'customer'].forEach((scope) => {
           const side = (data && data[scope]) || {};
           const distinct = (typeof side.distinct === 'number') ? side.distinct : 0;
           const total    = (typeof side.total    === 'number') ? side.total    : 0;
           this._setValuesForScope(scope, distinct, total);
+          const users = Array.isArray(side.users) ? side.users : [];
+          const extra = (typeof side.extra_users === 'number') ? side.extra_users : 0;
+          this._setUsersForScope(scope, users, extra, topN);
         });
 
         const elapsed = (typeof data.elapsed_ms === 'number')
