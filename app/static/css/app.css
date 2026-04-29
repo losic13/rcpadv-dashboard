@@ -2359,3 +2359,134 @@ body.ls-dl-modal-open { overflow: hidden; }
   line-height: 1.55;
   overflow-x: auto;
 }
+
+/* ============================================================
+ * 17) 사용자 접속 이력 (/login-history)
+ * ============================================================ */
+.login-history-page .login-history-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.login-history-page .lh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.login-history-page .lh-field-label {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+.login-history-page .lh-field input[type="date"] {
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  border-radius: 6px;
+  background: #fff;
+  min-width: 160px;
+}
+.login-history-page .lh-quick {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.login-history-page .lh-quick .btn-ghost {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border, #cbd5e1);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.login-history-page .lh-quick .btn-ghost:hover {
+  background: rgba(99, 102, 241, 0.10);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: var(--color-brand-700, #4338ca);
+}
+.login-history-page .lh-hint {
+  font-size: 12.5px;
+  color: var(--color-muted);
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.login-history-page .lh-hint code {
+  background: rgba(15, 23, 42, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11.5px;
+}
+.login-history-page .lh-dev-info {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* status pill (헤더 우측) */
+.login-history-page .login-history-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(99, 102, 241, 0.10);
+  color: var(--color-brand-700, #4338ca);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+.login-history-page .login-history-status[data-kind="error"] {
+  background: rgba(239, 68, 68, 0.10);
+  color: #991b1b;
+  border-color: rgba(239, 68, 68, 0.30);
+}
+.login-history-page .login-history-status[data-kind="ok"] {
+  background: rgba(16, 185, 129, 0.10);
+  color: #065f46;
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+/* 차트 블록 */
+.login-history-page .lh-chart-block {
+  margin-top: 18px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.login-history-page .lh-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  background: rgba(99, 102, 241, 0.04);
+}
+.login-history-page .lh-chart-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.login-history-page .lh-chart-stats {
+  font-size: 12px;
+  color: var(--color-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.login-history-page .lh-chart-wrap {
+  position: relative;
+  /* 일자 수에 따라 자동 늘어나지 않도록 고정 높이 — Chart.js maintainAspectRatio:false 와 함께 */
+  height: 320px;
+  padding: 12px 14px;
+}
+
+@media (max-width: 760px) {
+  .login-history-page .lh-chart-wrap { height: 260px; }
+  .login-history-page .lh-field input[type="date"] { min-width: 130px; }
+}

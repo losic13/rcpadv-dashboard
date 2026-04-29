@@ -55,12 +55,24 @@ ASSET_VERSION = _compute_asset_version()
 templates.env.globals["asset_version"] = ASSET_VERSION
 
 # 사이드바 등에서 공유할 메뉴 정보
+#
+# 메뉴 정렬 규칙:
+#   - 통합 대시보드 → 사용자 접속 이력 → Log Search → File Download
+#     → VNAND DB → DRAM DB → EQP I/F Manager
+#   - Elasticsearch 는 임시로 숨김 (라우터/페이지는 유지). 다시 노출하려면
+#     아래 NAV_ITEMS_HIDDEN 의 "es" 항목을 NAV_ITEMS 로 옮기면 된다.
 NAV_ITEMS = [
-    {"key": "home",       "label": "통합 대시보드",  "url": "/"},
-    {"key": "files",      "label": "File Download", "url": "/files"},
-    {"key": "log_search", "label": "Log Search",    "url": "/log-search"},
-    {"key": "vnand",      "label": "VNAND DB",      "url": "/vnand"},
-    {"key": "dram",       "label": "DRAM DB",       "url": "/dram"},
-    {"key": "es",         "label": "Elasticsearch", "url": "/es"},
-    {"key": "eqp_if",     "label": "EQP I/F Manager", "url": "/eqp-if"},
+    {"key": "home",          "label": "통합 대시보드",     "url": "/"},
+    {"key": "login_history", "label": "사용자 접속 이력",   "url": "/login-history"},
+    {"key": "log_search",    "label": "Log Search",       "url": "/log-search"},
+    {"key": "files",         "label": "File Download",    "url": "/files"},
+    {"key": "vnand",         "label": "VNAND DB",         "url": "/vnand"},
+    {"key": "dram",          "label": "DRAM DB",          "url": "/dram"},
+    {"key": "eqp_if",        "label": "EQP I/F Manager",  "url": "/eqp-if"},
+]
+
+# 라우터/페이지는 살려두지만 사이드바에는 노출하지 않는 메뉴.
+# 직접 URL 로 접근하면 동작하며, 다시 보이게 하려면 NAV_ITEMS 로 옮긴다.
+NAV_ITEMS_HIDDEN = [
+    {"key": "es", "label": "Elasticsearch", "url": "/es"},
 ]
