@@ -138,7 +138,7 @@ app.include_router(files.router)
 app.include_router(disk_usage.router)  # /disk-usage
 app.include_router(vnand.router)
 app.include_router(dram.router)
-app.include_router(es.router)     # 사이드바에는 숨김 (NAV_ITEMS_HIDDEN), 라우트는 유지
+app.include_router(es.router)          # /es + /es/overview + /es/targets 등 전용 페이지 포함
 app.include_router(eqp_if.router)
 app.include_router(logs.router)
 

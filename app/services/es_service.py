@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime
 from typing import Any
 
 from app.config import settings
@@ -65,6 +66,125 @@ async def run(query_id: str, params: dict[str, Any] | None = None) -> dict[str, 
     }
 
 
+# ============================================================
+# Overview 전용 — Section A: index-1 vs index-2 날짜별 비교
+# ============================================================
+
+async def run_overview_comparison() -> dict[str, Any]:
+    """parsing-index-1-* / parsing-index-2-* 날짜별 건수 비교.
+
+    반환:
+        {
+          "ok": bool,
+          "rows": [
+              {"date": "2024-01-01", "index1": 1000, "index2": 950, "pct": 95.0},
+              ...
+          ],
+          "elapsed_ms": int,
+          "error": str | None,
+        }
+    """
+    qdef1 = es_queries.OVERVIEW_INDEX1_AGG
+    qdef2 = es_queries.OVERVIEW_INDEX2_AGG
+
+    log.info("[es/overview] index-1 vs index-2 비교 쿼리 시작")
+    start = time.perf_counter()
+    try:
+        resp1, resp2 = await asyncio.wait_for(
+            asyncio.gather(
+                asyncio.to_thread(es_client.search, qdef1.index, qdef1.body),
+                asyncio.to_thread(es_client.search, qdef2.index, qdef2.body),
+            ),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error("[es/overview] 비교 쿼리 타임아웃")
+        return {"ok": False, "rows": [], "elapsed_ms": 0, "error": "쿼리 타임아웃"}
+    except Exception as e:
+        log.error("[es/overview] 비교 쿼리 실패: %s", e)
+        return {"ok": False, "rows": [], "elapsed_ms": 0, "error": str(e)}
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    # date_histogram buckets → dict[date_str -> count]
+    def _buckets_to_map(resp: dict) -> dict[str, int]:
+        buckets = (
+            resp.get("aggregations", {})
+                .get("by_date", {})
+                .get("buckets", [])
+        )
+        return {b["key_as_string"]: b["doc_count"] for b in buckets}
+
+    map1 = _buckets_to_map(resp1)
+    map2 = _buckets_to_map(resp2)
+
+    # index-1 기준으로 날짜 목록 정렬, index-2 건수 매칭
+    all_dates = sorted(set(map1) | set(map2))
+    rows = []
+    for date in all_dates:
+        cnt1 = map1.get(date, 0)
+        cnt2 = map2.get(date, 0)
+        pct = round(cnt2 / cnt1 * 100, 2) if cnt1 > 0 else None
+        rows.append({"date": date, "index1": cnt1, "index2": cnt2, "pct": pct})
+
+    log.info("[es/overview] 비교 완료: %d 날짜, %dms", len(rows), elapsed_ms)
+    return {"ok": True, "rows": rows, "elapsed_ms": elapsed_ms, "error": None}
+
+
+# ============================================================
+# Overview 전용 — Section B: index-2 tkin_time 최근 2주 카운트
+# ============================================================
+
+async def run_overview_tkin() -> dict[str, Any]:
+    """parsing-index-2-* 에서 meta.tkin_time 기준 최근 2주 날짜별 카운트.
+
+    반환:
+        {
+          "ok": bool,
+          "rows": [
+              {"date": "2024-01-01", "count": 1234},
+              ...
+          ],
+          "elapsed_ms": int,
+          "error": str | None,
+        }
+    """
+    qdef = es_queries.OVERVIEW_TKIN_AGG
+
+    log.info("[es/overview] tkin_time 최근 2주 집계 시작")
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.search, qdef.index, qdef.body),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error("[es/overview] tkin_time 쿼리 타임아웃")
+        return {"ok": False, "rows": [], "elapsed_ms": 0, "error": "쿼리 타임아웃"}
+    except Exception as e:
+        log.error("[es/overview] tkin_time 쿼리 실패: %s", e)
+        return {"ok": False, "rows": [], "elapsed_ms": 0, "error": str(e)}
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    buckets = (
+        resp.get("aggregations", {})
+            .get("by_date", {})
+            .get("buckets", [])
+    )
+    rows = [
+        {"date": b["key_as_string"], "count": b["doc_count"]}
+        for b in buckets
+    ]
+
+    log.info("[es/overview] tkin_time 완료: %d 날짜, %dms", len(rows), elapsed_ms)
+    return {"ok": True, "rows": rows, "elapsed_ms": elapsed_ms, "error": None}
+
+
+# ============================================================
+# 공통 내부 유틸
+# ============================================================
+
 def _normalize(resp: dict[str, Any]) -> tuple[list[str], list[dict]]:
     """ES 응답을 테이블 포맷으로 변환.
 
@@ -86,7 +206,6 @@ def _normalize(resp: dict[str, Any]) -> tuple[list[str], list[dict]]:
                     all_keys.append(k)
             rows.append(row)
         columns = ["_id"] + all_keys
-        # 누락된 키 보정
         for r in rows:
             for c in columns:
                 r.setdefault(c, None)
@@ -94,7 +213,6 @@ def _normalize(resp: dict[str, Any]) -> tuple[list[str], list[dict]]:
 
     aggs = resp.get("aggregations") or {}
     if aggs:
-        # 첫 번째 agg 만 표로 변환 (키, doc_count)
         first_name = next(iter(aggs.keys()))
         agg = aggs[first_name]
         buckets = agg.get("buckets")
@@ -109,7 +227,6 @@ def _stringify(v: Any) -> Any:
     if v is None or isinstance(v, (str, int, float, bool)):
         return v
     if isinstance(v, (list, dict)):
-        # 복합 타입은 그대로 (DataTables 에서 stringify 해서 표시)
         return v
     try:
         return str(v)

@@ -3460,3 +3460,182 @@ body.ls-dl-modal-open { overflow: hidden; }
   width: 0;
   box-shadow: none;
 }
+
+/* ============================================================
+ * ES 대상 로그 개요 (/es/overview)
+ * ============================================================ */
+
+/* ── 차트 영역 ── */
+.ov-chart-wrap {
+  margin-bottom: 28px;
+}
+.ov-chart-header {
+  margin-bottom: 10px;
+}
+.ov-chart-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-right: 10px;
+}
+.ov-chart-sub {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov-chart-container {
+  position: relative;
+  height: 320px;
+}
+.ov-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.ov-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov-legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ── 숫자 표 ── */
+.ov-table-wrap {
+  overflow-x: auto;
+}
+.ov-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.ov-table th {
+  background: var(--color-surface, #f8fafc);
+  border-bottom: 2px solid var(--color-border, #e2e8f0);
+  padding: 9px 14px;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+.ov-table td {
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+.ov-table tbody tr:hover {
+  background: rgba(99, 102, 241, 0.04);
+}
+.ov-table .text-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ov-table-empty {
+  text-align: center;
+  color: var(--color-muted);
+  padding: 24px 0 !important;
+}
+.ov-td-date {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+
+/* ── 상태 배지 ── */
+.ov-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ov-badge-ok      { background: #d1fae5; color: #065f46; }
+.ov-badge-warn    { background: #fef3c7; color: #92400e; }
+.ov-badge-err     { background: #fee2e2; color: #991b1b; }
+.ov-badge-unknown { background: #f1f5f9; color: #64748b; }
+
+/* ── ov-card (섹션 카드 헤더/컨트롤) ── */
+.ov-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+.ov-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ov-card-title strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.ov-card-sub {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov-card-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── 차트 캔버스 높이 ── */
+.ov-chart-wrap canvas {
+  max-height: 320px;
+}
+
+/* ── 에러 영역 ── */
+.ov-error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* ── placeholder 셀 ── */
+.ov-placeholder {
+  text-align: center;
+  color: var(--color-muted);
+  padding: 24px 0 !important;
+  font-size: 13px;
+}
+
+/* ── DataTables 커스텀 레이아웃 ── */
+.ov-dt-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ov-dt-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── 달성률 컬러 (JS createdCell 보조) ── */
+.pct-high   { color: #10b981; font-weight: 600; }
+.pct-mid    { color: #4f6df5; font-weight: 600; }
+.pct-warn   { color: #f59e0b; font-weight: 600; }
+.pct-danger { color: #ef4444; font-weight: 600; }
