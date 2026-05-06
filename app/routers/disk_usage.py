@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -51,7 +51,7 @@ def _run_df(path: str = DF_TARGET) -> dict:
 
         {"ok": False, "error": "...", "raw": "..."}
     """
-    queried_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    queried_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     cmd = ["df", "-h", path]
     log.info("df 실행: %s", shlex.join(cmd))
