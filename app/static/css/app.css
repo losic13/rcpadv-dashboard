@@ -3394,3 +3394,69 @@ body.ls-dl-modal-open { overflow: hidden; }
 .nav-category.open > .nav-category-btn {
   color: #e2e8f0;
 }
+
+/* ============================================================
+ * 2Tier 사이드바 — 카테고리 그룹 묶음 스타일
+ * ============================================================ */
+
+/* 카테고리 전체를 박스로 묶기 */
+.nav-category {
+  margin: 6px 0;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+}
+
+/* 펼쳐진 카테고리는 테두리를 좀 더 밝게 */
+.nav-category.open {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* 현재 페이지가 속한 카테고리(has-active)는 왼쪽 강조 바 표시 */
+.nav-category.has-active {
+  border-color: rgba(79, 109, 245, 0.35);
+  background: rgba(79, 109, 245, 0.06);
+  border-left: 3px solid var(--color-brand-500, #4f6df5);
+}
+
+/* 카테고리 헤더 버튼 — 그룹 박스 안에 맞게 상단 radius 제거 */
+.nav-category > .nav-category-btn {
+  border-radius: 0;
+  margin-top: 0;
+  padding: 10px 14px;
+}
+
+/* 자식 목록 — 구분선 추가 */
+.nav-category > .nav-children {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 4px 0 6px 0;
+}
+
+/* 카테고리 헤더 — has-active 강조 텍스트 */
+.nav-category.has-active > .nav-category-btn {
+  color: #c7d2fe;
+}
+
+/* 단독 링크(.nav-item) 도 카테고리와 시각적 일관성 유지 */
+.nav-item {
+  margin: 6px 0;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid transparent;
+  overflow: hidden;
+}
+.nav-item.active {
+  border-color: rgba(79, 109, 245, 0.35);
+  background: rgba(79, 109, 245, 0.06);
+  border-left: 3px solid var(--color-brand-500, #4f6df5);
+}
+.nav-item a {
+  border-radius: 0;
+}
+.nav-item.active a::before {
+  left: -3px;      /* 이미 border-left 가 있으므로 숨김 */
+  width: 0;
+  box-shadow: none;
+}

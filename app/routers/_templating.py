@@ -77,6 +77,7 @@ NAV_ITEMS = [
     # ── 2) UI Client ──────────────────────────────────────
     {
         "type":  "category",
+        "key":   "cat_ui_client",
         "label": "UI Client",
         "icon":  "👤",
         "children": [
@@ -87,6 +88,7 @@ NAV_ITEMS = [
     # ── 3) 파일 시스템 ────────────────────────────────────
     {
         "type":  "category",
+        "key":   "cat_filesystem",
         "label": "파일 시스템",
         "icon":  "🗂",
         "children": [
@@ -98,6 +100,7 @@ NAV_ITEMS = [
     # ── 4) Maria DB ───────────────────────────────────────
     {
         "type":  "category",
+        "key":   "cat_mariadb",
         "label": "Maria DB",
         "icon":  "🗄",
         "children": [
@@ -109,6 +112,7 @@ NAV_ITEMS = [
     # ── 5) Elastic Search ────────────────────────────────
     {
         "type":  "category",
+        "key":   "cat_elasticsearch",
         "label": "Elastic Search",
         "icon":  "🔍",
         "children": [
@@ -123,6 +127,7 @@ NAV_ITEMS = [
     # ── 6) Infra ──────────────────────────────────────────
     {
         "type":  "category",
+        "key":   "cat_infra",
         "label": "Infra",
         "icon":  "🖥",
         "children": [
