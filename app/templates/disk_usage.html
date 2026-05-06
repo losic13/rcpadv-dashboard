@@ -1,0 +1,364 @@
+{#
+  Disk 용량 확인 페이지
+  - df -h /M_ADVISOR 결과를 가져와 파이차트 + 숫자 표로 표시
+  - 새로고침 버튼 / 10초 자동갱신 토글 지원
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card disk-usage-page" id="disk-usage-page">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">Server FS</span>
+      <strong>df -h /M_ADVISOR</strong>
+    </div>
+    <div class="card-controls">
+      <!-- 자동갱신 토글 -->
+      <label class="auto-refresh-label" title="10초마다 자동 새로고침">
+        <input type="checkbox" id="auto-refresh-toggle" class="auto-refresh-checkbox">
+        <span class="auto-refresh-text">자동갱신</span>
+      </label>
+      <!-- 수동 새로고침 버튼 -->
+      <button class="btn btn-run" id="btn-refresh" title="새로고침">
+        <span class="btn-run-icon" aria-hidden="true" id="refresh-spinner">↻</span>
+        <span class="btn-run-label">새로고침</span>
+      </button>
+      <!-- 상태 배지 -->
+      <span class="status-badge" id="status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+
+    <!-- ── 오류 표시 영역 ─────────────────────────────────── -->
+    <div id="disk-error" class="disk-error" hidden></div>
+
+    <!-- ── 경로 / 파일시스템 정보 ────────────────────────── -->
+    <div class="disk-meta" id="disk-meta">
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">경로</span>
+        <code id="meta-path">—</code>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">Filesystem</span>
+        <code id="meta-fs">—</code>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">Mounted on</span>
+        <code id="meta-mount">—</code>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item disk-meta-elapsed" id="meta-elapsed"></span>
+    </div>
+
+    <!-- ── 메인 콘텐츠: 차트 + 표 ────────────────────────── -->
+    <div class="disk-main" id="disk-main">
+
+      <!-- 파이차트 영역 -->
+      <div class="disk-chart-wrap">
+        <div class="disk-chart-container">
+          <canvas id="disk-chart" width="260" height="260"></canvas>
+          <!-- 도넛 중앙 Use% 텍스트 -->
+          <div class="disk-chart-center" id="chart-center-text">
+            <span class="disk-use-pct" id="center-pct">—</span>
+            <span class="disk-use-label">사용 중</span>
+          </div>
+        </div>
+        <!-- 범례 -->
+        <div class="disk-legend" id="disk-legend">
+          <span class="disk-legend-item">
+            <span class="disk-legend-dot" style="background:#ef4444;"></span>Used
+          </span>
+          <span class="disk-legend-item">
+            <span class="disk-legend-dot" style="background:#10b981;"></span>Available
+          </span>
+          <span class="disk-legend-item">
+            <span class="disk-legend-dot" style="background:#e5e7eb;"></span>Total
+          </span>
+        </div>
+      </div>
+
+      <!-- 숫자 표 영역 -->
+      <div class="disk-table-wrap">
+        <table class="disk-table" id="disk-table">
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>용량 (human)</th>
+              <th>용량 (bytes)</th>
+              <th>비율</th>
+            </tr>
+          </thead>
+          <tbody id="disk-table-body">
+            <tr>
+              <td colspan="4" class="disk-table-placeholder">
+                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                데이터를 불러오는 중입니다…
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- raw 출력 -->
+        <details class="disk-raw-details" id="disk-raw-wrap">
+          <summary class="disk-raw-summary">원본 출력 보기</summary>
+          <pre class="disk-raw-pre" id="disk-raw-output"></pre>
+        </details>
+      </div>
+
+    </div><!-- /.disk-main -->
+
+  </div><!-- /.card-body -->
+</section>
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+
+  /* ──────────────────────────────────────────────
+   * DOM refs
+   * ────────────────────────────────────────────── */
+  const btnRefresh      = document.getElementById('btn-refresh');
+  const autoToggle      = document.getElementById('auto-refresh-toggle');
+  const statusBadge     = document.getElementById('status-badge');
+  const errorEl         = document.getElementById('disk-error');
+  const metaPath        = document.getElementById('meta-path');
+  const metaFs          = document.getElementById('meta-fs');
+  const metaMount       = document.getElementById('meta-mount');
+  const metaElapsed     = document.getElementById('meta-elapsed');
+  const centerPct       = document.getElementById('center-pct');
+  const tableBody       = document.getElementById('disk-table-body');
+  const rawOutput       = document.getElementById('disk-raw-output');
+  const rawWrap         = document.getElementById('disk-raw-wrap');
+  const refreshSpinner  = document.getElementById('refresh-spinner');
+
+  const AUTO_INTERVAL_MS = 10_000;
+  let   _autoTimer       = null;
+  let   _chart           = null;   // Chart.js 인스턴스
+
+  /* ──────────────────────────────────────────────
+   * 유틸
+   * ────────────────────────────────────────────── */
+  function escHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
+  function fmtBytes(n) {
+    if (n == null) return '—';
+    return Number(n).toLocaleString('ko-KR') + ' B';
+  }
+
+  function fmtPct(used, total) {
+    if (!total) return '—';
+    return (used / total * 100).toFixed(1) + '%';
+  }
+
+  function setBadge(state, text) {
+    statusBadge.dataset.state = state;
+    const labels = {
+      idle:      '',
+      loading:   '실행 중',
+      ok:        '완료',
+      error:     '오류',
+    };
+    statusBadge.textContent = text ?? labels[state] ?? state;
+  }
+
+  function setSpinning(on) {
+    refreshSpinner.style.animationName = on ? 'disk-spin' : 'none';
+  }
+
+  /* ──────────────────────────────────────────────
+   * 차트 초기화 / 갱신
+   * ────────────────────────────────────────────── */
+  function buildChart(usedBytes, availBytes) {
+    const ctx = document.getElementById('disk-chart').getContext('2d');
+
+    const chartData = {
+      labels:   ['Used', 'Available'],
+      datasets: [{
+        data:            [usedBytes || 0, availBytes || 0],
+        backgroundColor: ['#ef4444', '#10b981'],
+        hoverBackgroundColor: ['#dc2626', '#059669'],
+        borderWidth:     0,
+        hoverOffset:     6,
+      }],
+    };
+
+    const chartOpts = {
+      type: 'doughnut',
+      data: chartData,
+      options: {
+        cutout:    '72%',
+        animation: { duration: 600 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                const pct   = total ? (ctx.parsed / total * 100).toFixed(1) : 0;
+                return ` ${ctx.label}: ${pct}%`;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    if (_chart) {
+      _chart.data.datasets[0].data = [usedBytes || 0, availBytes || 0];
+      _chart.update('active');
+    } else {
+      _chart = new Chart(ctx, chartOpts);
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+   * 표 갱신
+   * ────────────────────────────────────────────── */
+  function buildTable(d) {
+    const rows = [
+      {
+        label:  'Total (Size)',
+        human:  d.size,
+        bytes:  d.size_bytes,
+        pct:    '100%',
+        cls:    'disk-row-total',
+        dot:    '#e5e7eb',
+      },
+      {
+        label:  'Used',
+        human:  d.used,
+        bytes:  d.used_bytes,
+        pct:    d.use_pct != null ? d.use_pct + '%' : fmtPct(d.used_bytes, d.size_bytes),
+        cls:    'disk-row-used',
+        dot:    '#ef4444',
+      },
+      {
+        label:  'Available',
+        human:  d.available,
+        bytes:  d.avail_bytes,
+        pct:    d.avail_bytes != null && d.size_bytes
+                  ? fmtPct(d.avail_bytes, d.size_bytes)
+                  : '—',
+        cls:    'disk-row-avail',
+        dot:    '#10b981',
+      },
+    ];
+
+    tableBody.innerHTML = rows.map(r => `
+      <tr class="${escHtml(r.cls)}">
+        <td>
+          <span class="disk-dot" style="background:${r.dot};"></span>
+          ${escHtml(r.label)}
+        </td>
+        <td class="disk-td-human"><strong>${escHtml(r.human)}</strong></td>
+        <td class="disk-td-bytes">${fmtBytes(r.bytes)}</td>
+        <td class="disk-td-pct">
+          <span class="disk-pct-badge" data-cls="${escHtml(r.cls)}">${escHtml(r.pct)}</span>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  /* ──────────────────────────────────────────────
+   * 데이터 fetch & 렌더
+   * ────────────────────────────────────────────── */
+  async function fetchAndRender() {
+    setBadge('loading');
+    setSpinning(true);
+    btnRefresh.disabled = true;
+    errorEl.hidden = true;
+
+    const t0 = performance.now();
+
+    try {
+      const res  = await fetch('/disk-usage/data', {
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await res.json();
+      const elapsed = Math.round(performance.now() - t0);
+
+      if (!data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      /* ── 메타 ── */
+      metaPath.textContent  = data.path       || '—';
+      metaFs.textContent    = data.filesystem || '—';
+      metaMount.textContent = data.mounted_on || '—';
+      metaElapsed.textContent = `${elapsed} ms`;
+
+      /* ── 중앙 %% ── */
+      centerPct.textContent = data.use_pct != null ? data.use_pct + '%' : '—';
+
+      /* ── 차트 ── */
+      buildChart(data.used_bytes, data.avail_bytes);
+
+      /* ── 표 ── */
+      buildTable(data);
+
+      /* ── raw ── */
+      rawOutput.textContent = data.raw || '';
+      rawWrap.hidden = !data.raw;
+
+      setBadge('ok');
+      if (window.Toast) {
+        Toast.show('디스크 정보 갱신 완료', { level: 'info', icon: '💾', durationMs: 1800 });
+      }
+
+    } catch (err) {
+      setBadge('error');
+      errorEl.innerHTML =
+        `<span class="disk-error-icon">✗</span>` +
+        `<strong>조회 실패:</strong> ${escHtml(err.message || String(err))}`;
+      errorEl.hidden = false;
+      tableBody.innerHTML = `<tr><td colspan="4" class="disk-table-placeholder text-danger">데이터를 불러오지 못했습니다.</td></tr>`;
+      if (window.Toast) {
+        Toast.show('디스크 정보 조회 실패', { level: 'error', icon: '✗', durationMs: 3000 });
+      }
+    } finally {
+      setSpinning(false);
+      btnRefresh.disabled = false;
+      setTimeout(() => setBadge('idle'), 2500);
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+   * 자동갱신
+   * ────────────────────────────────────────────── */
+  function startAuto() {
+    stopAuto();
+    _autoTimer = setInterval(fetchAndRender, AUTO_INTERVAL_MS);
+  }
+  function stopAuto() {
+    if (_autoTimer) { clearInterval(_autoTimer); _autoTimer = null; }
+  }
+
+  autoToggle.addEventListener('change', () => {
+    if (autoToggle.checked) startAuto();
+    else stopAuto();
+  });
+
+  btnRefresh.addEventListener('click', fetchAndRender);
+
+  /* ──────────────────────────────────────────────
+   * 최초 로드
+   * ────────────────────────────────────────────── */
+  fetchAndRender();
+
+})();
+</script>
+{% endblock %}
