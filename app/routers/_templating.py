@@ -66,9 +66,9 @@ NAV_ITEMS = [
     {"key": "login_history", "label": "Client 접속 이력",   "url": "/login-history"},
     {"key": "log_search",    "label": "Log Search",       "url": "/log-search"},
     {"key": "files",         "label": "File Download",    "url": "/files"},
-    {"key": "disk_usage",    "label": "Disk 용량 확인",    "url": "/disk-usage"},
     {"key": "vnand",         "label": "VNAND DB",         "url": "/vnand"},
     {"key": "dram",          "label": "DRAM DB",          "url": "/dram"},
+    {"key": "disk_usage",    "label": "Disk 용량 확인",    "url": "/disk-usage"},
     {"key": "eqp_if",        "label": "EQP I/F Manager",  "url": "/eqp-if"},
 ]
 
