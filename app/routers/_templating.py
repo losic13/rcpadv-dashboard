@@ -54,26 +54,80 @@ ASSET_VERSION = _compute_asset_version()
 # 모든 템플릿에서 {{ asset_version }} 으로 참조 가능
 templates.env.globals["asset_version"] = ASSET_VERSION
 
-# 사이드바 등에서 공유할 메뉴 정보
+# ============================================================
+# 사이드바 2Tier 메뉴 구조
 #
-# 메뉴 정렬 규칙:
-#   - 통합 대시보드 → Client 접속 이력 → Log Search → File Download
-#     → VNAND DB → DRAM DB → EQP I/F Manager
-#   - Elasticsearch 는 임시로 숨김 (라우터/페이지는 유지). 다시 노출하려면
-#     아래 NAV_ITEMS_HIDDEN 의 "es" 항목을 NAV_ITEMS 로 옮기면 된다.
+# 각 항목은 두 가지 타입:
+#   - 단독 링크:  {"type": "link",     "key": ..., "label": ..., "url": ...}
+#   - 카테고리:   {"type": "category", "label": ..., "icon": ..., "children": [...]}
+#       children 각 항목: {"key": ..., "label": ..., "url": ..., "disabled": bool(선택)}
+#
+# disabled=True  인 항목은 클릭 불가 (준비 중 상태).
+# active_nav 에 매칭되는 key 를 가진 항목이 속한 카테고리는 자동으로 열린 상태.
+# ============================================================
 NAV_ITEMS = [
-    {"key": "home",          "label": "통합 대시보드",     "url": "/"},
-    {"key": "login_history", "label": "Client 접속 이력",   "url": "/login-history"},
-    {"key": "log_search",    "label": "Log Search",       "url": "/log-search"},
-    {"key": "files",         "label": "File Download",    "url": "/files"},
-    {"key": "vnand",         "label": "VNAND DB",         "url": "/vnand"},
-    {"key": "dram",          "label": "DRAM DB",          "url": "/dram"},
-    {"key": "disk_usage",    "label": "Disk 용량 확인",    "url": "/disk-usage"},
-    {"key": "eqp_if",        "label": "EQP I/F Manager",  "url": "/eqp-if"},
-]
+    # ── 1) 단독 링크 ──────────────────────────────────────
+    {
+        "type":  "link",
+        "key":   "home",
+        "label": "통합 대시보드",
+        "url":   "/",
+    },
 
-# 라우터/페이지는 살려두지만 사이드바에는 노출하지 않는 메뉴.
-# 직접 URL 로 접근하면 동작하며, 다시 보이게 하려면 NAV_ITEMS 로 옮긴다.
-NAV_ITEMS_HIDDEN = [
-    {"key": "es", "label": "Elasticsearch", "url": "/es"},
+    # ── 2) UI Client ──────────────────────────────────────
+    {
+        "type":  "category",
+        "label": "UI Client",
+        "icon":  "👤",
+        "children": [
+            {"key": "login_history", "label": "사용자 접속 이력", "url": "/login-history"},
+        ],
+    },
+
+    # ── 3) 파일 시스템 ────────────────────────────────────
+    {
+        "type":  "category",
+        "label": "파일 시스템",
+        "icon":  "🗂",
+        "children": [
+            {"key": "log_search", "label": "Log Search",   "url": "/log-search"},
+            {"key": "files",      "label": "File Download", "url": "/files"},
+        ],
+    },
+
+    # ── 4) Maria DB ───────────────────────────────────────
+    {
+        "type":  "category",
+        "label": "Maria DB",
+        "icon":  "🗄",
+        "children": [
+            {"key": "vnand", "label": "VNAND", "url": "/vnand"},
+            {"key": "dram",  "label": "DRAM",  "url": "/dram"},
+        ],
+    },
+
+    # ── 5) Elastic Search ────────────────────────────────
+    {
+        "type":  "category",
+        "label": "Elastic Search",
+        "icon":  "🔍",
+        "children": [
+            {"key": "es_targets",  "label": "대상 설비",      "url": "/es/targets",  "disabled": True},
+            {"key": "es_overview", "label": "대상 로그 개요",  "url": "/es/overview", "disabled": True},
+            {"key": "es_history",  "label": "종합 처리 이력",  "url": "/es/history",  "disabled": True},
+            {"key": "es_delay",    "label": "처리 지연 상태",  "url": "/es/delay",    "disabled": True},
+            {"key": "es_anomaly",  "label": "이상 발생 현황",  "url": "/es/anomaly",  "disabled": True},
+        ],
+    },
+
+    # ── 6) Infra ──────────────────────────────────────────
+    {
+        "type":  "category",
+        "label": "Infra",
+        "icon":  "🖥",
+        "children": [
+            {"key": "disk_usage", "label": "Disk 용량 확인",  "url": "/disk-usage"},
+            {"key": "eqp_if",     "label": "EQP I/F Manager", "url": "/eqp-if"},
+        ],
+    },
 ]
