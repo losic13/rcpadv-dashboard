@@ -1,0 +1,470 @@
+{#
+  대상 로그 개요 (/es/overview)
+  ──────────────────────────────────────────────────────────────
+  [Section A] parsing-index-1-* (기준 100%) vs parsing-index-2-* 날짜별 수신 비교
+              → 막대차트 (수신율 %) + 숫자 표
+  [Section B] parsing-index-2-* · meta.tkin_time 기준 최근 2주 날짜별 카운트
+              → 막대차트 + 숫자 표
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+
+{# ═══════════════════════════════════════════════════════════
+   Section A — index-1 vs index-2 수신율 비교
+   ═══════════════════════════════════════════════════════════ #}
+<section class="card es-overview-page" id="ov-section-a">
+
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES</span>
+      <strong>인덱스 수신 비교</strong>
+      <span class="card-sub">parsing-index-1-* (기준 100%) vs parsing-index-2-*</span>
+    </div>
+    <div class="card-controls">
+      <label class="auto-refresh toggle-switch" title="60초마다 자동 새로고침">
+        <input type="checkbox" id="a-auto-toggle">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">자동갱신 <span class="toggle-suffix">60s</span></span>
+      </label>
+      <button class="btn btn-run" id="a-btn-refresh" title="새로고침">
+        <span class="btn-run-icon" aria-hidden="true">↻</span>
+        <span class="btn-run-label">새로고침</span>
+      </button>
+      <span class="status-badge" id="a-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+    {# 메타 바 #}
+    <div class="disk-meta" id="a-meta">
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="a-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="a-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">집계 일수</span>
+        <span id="a-days">—</span>
+      </span>
+    </div>
+
+    <div id="a-error" class="disk-error" hidden></div>
+
+    <div id="a-main">
+      {# 막대 차트 #}
+      <div class="ov-chart-wrap">
+        <div class="ov-chart-header">
+          <span class="ov-chart-title">index-2 수신율 (%)</span>
+          <span class="ov-chart-sub">index-1 대비 index-2 메시지 비율 · 날짜별 · kafka.FILE_LAST_TIME 기준</span>
+        </div>
+        <div class="ov-chart-container">
+          <canvas id="a-chart"></canvas>
+        </div>
+        <div class="ov-legend">
+          <span class="ov-legend-item">
+            <span class="ov-legend-dot" style="background:#6366f1;"></span>index-2 수신율
+          </span>
+          <span class="ov-legend-item">
+            <span class="ov-legend-dot" style="background:transparent; border:2px dashed #9ca3af;"></span>100% 기준선
+          </span>
+        </div>
+      </div>
+
+      {# 숫자 표 #}
+      <div class="ov-table-wrap">
+        <table class="ov-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th class="text-right">index-1 건수</th>
+              <th class="text-right">index-2 건수</th>
+              <th class="text-right">수신율</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody id="a-tbody">
+            <tr><td colspan="5" class="ov-table-empty">데이터 로딩 중…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+{# ═══════════════════════════════════════════════════════════
+   Section B — index-2 tkin_time 최근 2주 카운트
+   ═══════════════════════════════════════════════════════════ #}
+<section class="card es-overview-page" id="ov-section-b" style="margin-top:20px;">
+
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES</span>
+      <strong>index-2 TKIN 수신 이력</strong>
+      <span class="card-sub">parsing-index-2-* · meta.tkin_time 기준 최근 2주</span>
+    </div>
+    <div class="card-controls">
+      <label class="auto-refresh toggle-switch" title="60초마다 자동 새로고침">
+        <input type="checkbox" id="b-auto-toggle">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">자동갱신 <span class="toggle-suffix">60s</span></span>
+      </label>
+      <button class="btn btn-run" id="b-btn-refresh" title="새로고침">
+        <span class="btn-run-icon" aria-hidden="true">↻</span>
+        <span class="btn-run-label">새로고침</span>
+      </button>
+      <span class="status-badge" id="b-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+    <div class="disk-meta" id="b-meta">
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="b-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="b-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">집계 일수</span>
+        <span id="b-days">—</span>
+      </span>
+    </div>
+
+    <div id="b-error" class="disk-error" hidden></div>
+
+    <div id="b-main">
+      <div class="ov-chart-wrap">
+        <div class="ov-chart-header">
+          <span class="ov-chart-title">일별 메시지 수신 건수</span>
+          <span class="ov-chart-sub">meta.tkin_time 기준 · 최근 14일</span>
+        </div>
+        <div class="ov-chart-container">
+          <canvas id="b-chart"></canvas>
+        </div>
+        <div class="ov-legend">
+          <span class="ov-legend-item">
+            <span class="ov-legend-dot" style="background:#10b981;"></span>수신 건수
+          </span>
+        </div>
+      </div>
+
+      <div class="ov-table-wrap">
+        <table class="ov-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th class="text-right">메시지 건수</th>
+            </tr>
+          </thead>
+          <tbody id="b-tbody">
+            <tr><td colspan="2" class="ov-table-empty">데이터 로딩 중…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+
+  /* ── 공통 유틸 ─────────────────────────────────────────── */
+  function fmtNum(n) {
+    if (n == null) return '—';
+    return Number(n).toLocaleString('ko-KR');
+  }
+
+  function setStatus(el, state, text) {
+    el.dataset.state = state;
+    el.textContent = text || '';
+    el.hidden = !text;
+  }
+
+  function ratioColor(v) {
+    if (v == null) return '#9ca3af';
+    if (v >= 95)  return '#10b981';
+    if (v >= 80)  return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function barColor(v) {
+    if (v == null) return '#e5e7eb';
+    if (v >= 95)  return 'rgba(99,102,241,0.75)';
+    if (v >= 80)  return 'rgba(245,158,11,0.75)';
+    return 'rgba(239,68,68,0.75)';
+  }
+
+  /* ══════════════════════════════════════════════════════
+     Section A — index-1 vs index-2 비교
+     ══════════════════════════════════════════════════════ */
+  var aChart = null;
+
+  function renderAChart(rows) {
+    var labels  = rows.map(function (r) { return r.date; });
+    var ratios  = rows.map(function (r) { return r.pct; });
+    var colors  = ratios.map(barColor);
+    var ctx = document.getElementById('a-chart').getContext('2d');
+    if (aChart) { aChart.destroy(); }
+    aChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'index-2 수신율 (%)',
+            data: ratios,
+            backgroundColor: colors,
+            borderRadius: 4,
+            borderSkipped: false,
+          },
+          {
+            label: '100% 기준',
+            data: labels.map(function () { return 100; }),
+            type: 'line',
+            borderColor: 'rgba(156,163,175,0.6)',
+            borderDash: [4, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                if (ctx.dataset.label === '100% 기준') return null;
+                var v = ctx.parsed.y;
+                return v == null ? ' 데이터 없음' : ' ' + v.toFixed(1) + '%';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { maxRotation: 45, minRotation: 30, font: { size: 11 } },
+            grid:  { display: false }
+          },
+          y: {
+            min: 0, max: 110,
+            ticks: { callback: function (v) { return v + '%'; }, stepSize: 20 },
+            grid:  { color: 'rgba(0,0,0,0.05)' }
+          }
+        }
+      }
+    });
+  }
+
+  function renderATable(rows) {
+    var tbody = document.getElementById('a-tbody');
+    if (!rows || !rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="ov-table-empty">데이터가 없습니다.</td></tr>';
+      return;
+    }
+    var html = rows.slice().reverse().map(function (r) {
+      var pct   = r.pct;
+      var color = ratioColor(pct);
+      var pctTx = pct == null ? '—' : pct.toFixed(1) + '%';
+      var badge = pct == null
+        ? '<span class="ov-badge ov-badge-unknown">—</span>'
+        : pct >= 95
+          ? '<span class="ov-badge ov-badge-ok">정상</span>'
+          : pct >= 80
+            ? '<span class="ov-badge ov-badge-warn">주의</span>'
+            : '<span class="ov-badge ov-badge-err">불량</span>';
+      return '<tr>'
+        + '<td class="ov-td-date">' + r.date + '</td>'
+        + '<td class="text-right">' + fmtNum(r.index1) + '</td>'
+        + '<td class="text-right">' + fmtNum(r.index2) + '</td>'
+        + '<td class="text-right" style="color:' + color + '; font-weight:600;">' + pctTx + '</td>'
+        + '<td>' + badge + '</td>'
+        + '</tr>';
+    }).join('');
+    tbody.innerHTML = html;
+  }
+
+  function fetchA() {
+    var badge   = document.getElementById('a-status-badge');
+    var btnRef  = document.getElementById('a-btn-refresh');
+    var errDiv  = document.getElementById('a-error');
+    var mainDiv = document.getElementById('a-main');
+    setStatus(badge, 'loading', '조회 중…');
+    btnRef.disabled = true;
+
+    fetch('/es/overview/data/comparison')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btnRef.disabled = false;
+        document.getElementById('a-queried-at').textContent = d.queried_at || '—';
+        document.getElementById('a-elapsed').textContent    = d.elapsed_ms != null ? d.elapsed_ms + ' ms' : '—';
+        document.getElementById('a-days').textContent       = d.rows ? d.rows.length + '일' : '—';
+
+        if (!d.ok) {
+          errDiv.textContent = '오류: ' + (d.error || '알 수 없는 오류');
+          errDiv.hidden = false; mainDiv.hidden = true;
+          setStatus(badge, 'error', '오류'); return;
+        }
+        errDiv.hidden = true; mainDiv.hidden = false;
+        renderAChart(d.rows);
+        renderATable(d.rows);
+        setStatus(badge, 'ok', '완료');
+      })
+      .catch(function (e) {
+        btnRef.disabled = false;
+        errDiv.textContent = '네트워크 오류: ' + e.message;
+        errDiv.hidden = false; mainDiv.hidden = true;
+        setStatus(badge, 'error', '오류');
+      });
+  }
+
+  document.getElementById('a-btn-refresh').addEventListener('click', fetchA);
+  (function () {
+    var timer = null;
+    document.getElementById('a-auto-toggle').addEventListener('change', function (e) {
+      clearInterval(timer);
+      if (e.target.checked) { timer = setInterval(fetchA, 60000); }
+    });
+  })();
+
+  /* ══════════════════════════════════════════════════════
+     Section B — index-2 tkin_time 최근 2주
+     ══════════════════════════════════════════════════════ */
+  var bChart = null;
+
+  function renderBChart(rows) {
+    var labels = rows.map(function (r) { return r.date; });
+    var counts = rows.map(function (r) { return r.count; });
+    var ctx = document.getElementById('b-chart').getContext('2d');
+    if (bChart) { bChart.destroy(); }
+    bChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: '메시지 건수',
+          data: counts,
+          backgroundColor: 'rgba(16,185,129,0.7)',
+          borderRadius: 4,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                return ' ' + fmtNum(ctx.parsed.y) + '건';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { maxRotation: 45, minRotation: 30, font: { size: 11 } },
+            grid:  { display: false }
+          },
+          y: {
+            ticks: {
+              callback: function (v) {
+                return v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v;
+              }
+            },
+            grid: { color: 'rgba(0,0,0,0.05)' }
+          }
+        }
+      }
+    });
+  }
+
+  function renderBTable(rows) {
+    var tbody = document.getElementById('b-tbody');
+    if (!rows || !rows.length) {
+      tbody.innerHTML = '<tr><td colspan="2" class="ov-table-empty">데이터가 없습니다.</td></tr>';
+      return;
+    }
+    var html = rows.slice().reverse().map(function (r) {
+      return '<tr>'
+        + '<td class="ov-td-date">' + r.date + '</td>'
+        + '<td class="text-right" style="font-variant-numeric:tabular-nums;">' + fmtNum(r.count) + '</td>'
+        + '</tr>';
+    }).join('');
+    tbody.innerHTML = html;
+  }
+
+  function fetchB() {
+    var badge   = document.getElementById('b-status-badge');
+    var btnRef  = document.getElementById('b-btn-refresh');
+    var errDiv  = document.getElementById('b-error');
+    var mainDiv = document.getElementById('b-main');
+    setStatus(badge, 'loading', '조회 중…');
+    btnRef.disabled = true;
+
+    fetch('/es/overview/data/tkin')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btnRef.disabled = false;
+        document.getElementById('b-queried-at').textContent = d.queried_at || '—';
+        document.getElementById('b-elapsed').textContent    = d.elapsed_ms != null ? d.elapsed_ms + ' ms' : '—';
+        document.getElementById('b-days').textContent       = d.rows ? d.rows.length + '일' : '—';
+
+        if (!d.ok) {
+          errDiv.textContent = '오류: ' + (d.error || '알 수 없는 오류');
+          errDiv.hidden = false; mainDiv.hidden = true;
+          setStatus(badge, 'error', '오류'); return;
+        }
+        errDiv.hidden = true; mainDiv.hidden = false;
+        renderBChart(d.rows);
+        renderBTable(d.rows);
+        setStatus(badge, 'ok', '완료');
+      })
+      .catch(function (e) {
+        btnRef.disabled = false;
+        errDiv.textContent = '네트워크 오류: ' + e.message;
+        errDiv.hidden = false; mainDiv.hidden = true;
+        setStatus(badge, 'error', '오류');
+      });
+  }
+
+  document.getElementById('b-btn-refresh').addEventListener('click', fetchB);
+  (function () {
+    var timer = null;
+    document.getElementById('b-auto-toggle').addEventListener('change', function (e) {
+      clearInterval(timer);
+      if (e.target.checked) { timer = setInterval(fetchB, 60000); }
+    });
+  })();
+
+  /* ── 초기 로드 ─────────────────────────────────────────── */
+  fetchA();
+  fetchB();
+
+})();
+</script>
+{% endblock %}

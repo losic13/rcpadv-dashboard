@@ -117,7 +117,7 @@ NAV_ITEMS = [
         "icon":  "🔍",
         "children": [
             {"key": "es_targets",  "label": "대상 설비",      "url": "/es/targets",  "disabled": True},
-            {"key": "es_overview", "label": "대상 로그 개요",  "url": "/es/overview", "disabled": True},
+            {"key": "es_overview", "label": "대상 로그 개요",  "url": "/es/overview"},
             {"key": "es_history",  "label": "종합 처리 이력",  "url": "/es/history",  "disabled": True},
             {"key": "es_delay",    "label": "처리 지연 상태",  "url": "/es/delay",    "disabled": True},
             {"key": "es_anomaly",  "label": "이상 발생 현황",  "url": "/es/anomaly",  "disabled": True},
