@@ -20,15 +20,21 @@
         {# ── 카테고리 (2Tier) ── #}
         {% elif item.type == "category" %}
           {# 이 카테고리 안에 active_nav 가 있는지 확인 #}
-          {% set is_open = namespace(v=false) %}
+          {% set has_active = namespace(v=false) %}
           {% for child in item.children %}
-            {% if child.key == active_nav %}{% set is_open.v = true %}{% endif %}
+            {% if child.key == active_nav %}{% set has_active.v = true %}{% endif %}
           {% endfor %}
 
-        <li class="nav-category {% if is_open.v %}open{% endif %}">
+        {#
+          기본값: 항상 open.
+          - has_active 가 true 이면 반드시 open (JS도 강제 유지)
+          - 나머지는 open을 기본으로 하되 localStorage에서 "닫힘" 기록이 있으면 JS가 close
+        #}
+        <li class="nav-category open{% if has_active.v %} has-active{% endif %}"
+            data-cat-key="{{ item.key }}">
           {# 카테고리 헤더 (클릭 시 토글) #}
           <button class="nav-category-btn" type="button"
-                  aria-expanded="{{ 'true' if is_open.v else 'false' }}">
+                  aria-expanded="true">
             <span class="nav-category-icon" aria-hidden="true">{{ item.icon }}</span>
             <span class="nav-category-label">{{ item.label }}</span>
             <span class="nav-category-arrow" aria-hidden="true">›</span>
@@ -67,12 +73,61 @@
 <script>
 (function () {
   'use strict';
-  /* 카테고리 토글 — 클릭 시 open 클래스 + aria-expanded 전환 */
-  document.querySelectorAll('.nav-category-btn').forEach(function (btn) {
+
+  /**
+   * 사이드바 카테고리 토글 — localStorage 기반 상태 유지
+   *
+   * 규칙:
+   *   - 기본: 모든 카테고리는 펼침(open)
+   *   - 사용자가 직접 접으면 해당 key를 localStorage "sidebar_closed_cats" Set에 저장
+   *   - 다시 펼치면 Set에서 제거
+   *   - has-active 카테고리(현재 페이지가 속한 카테고리)는 항상 펼침 유지
+   *   - 페이지 로드 시 localStorage를 읽어 닫힌 상태 복원 (단, has-active 는 제외)
+   */
+
+  var STORAGE_KEY = 'rcpadv_sidebar_closed_cats';
+
+  /* localStorage 유틸 */
+  function loadClosed() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+  function saveClosed(arr) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+
+  /* 초기화 — 페이지 로드 시 닫힌 이력 복원 */
+  var closedKeys = loadClosed();
+
+  document.querySelectorAll('.nav-category').forEach(function (li) {
+    var key = li.dataset.catKey;
+    var btn = li.querySelector('.nav-category-btn');
+    var hasActive = li.classList.contains('has-active');
+
+    if (!hasActive && closedKeys.indexOf(key) !== -1) {
+      /* 이전에 사용자가 닫았던 카테고리 → 닫힘 복원 */
+      li.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+
+    /* 클릭 토글 */
     btn.addEventListener('click', function () {
-      var li = btn.closest('.nav-category');
-      var expanded = li.classList.toggle('open');
-      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      var isActive = li.classList.contains('has-active');
+
+      if (isActive) {
+        /* has-active 카테고리는 닫기 불가 — 시각적 피드백만 */
+        return;
+      }
+
+      var nowOpen = li.classList.toggle('open');
+      btn.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+
+      /* localStorage 갱신 */
+      var updated = loadClosed().filter(function (k) { return k !== key; });
+      if (!nowOpen) { updated.push(key); }
+      saveClosed(updated);
     });
   });
 })();
