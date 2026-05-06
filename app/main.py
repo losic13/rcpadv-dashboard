@@ -41,6 +41,7 @@ from app.logger import get_logger, setup_logging
 from app.repositories import es_client, mariadb
 from app.routers import (
     auth,
+    disk_usage,
     dram,
     eqp_if,
     es,
@@ -134,6 +135,7 @@ app.include_router(home.router)
 app.include_router(login_history.router)
 app.include_router(log_search.router)
 app.include_router(files.router)
+app.include_router(disk_usage.router)  # /disk-usage
 app.include_router(vnand.router)
 app.include_router(dram.router)
 app.include_router(es.router)     # 사이드바에는 숨김 (NAV_ITEMS_HIDDEN), 라우트는 유지

@@ -3023,3 +3023,257 @@ body.ls-dl-modal-open { overflow: hidden; }
   .login-history-page .lh-dev-tip { right: auto; left: 0; }
   .login-history-page .lh-dev-tip::before { right: auto; left: 18px; }
 }
+
+/* ============================================================
+ * Disk 용량 확인 페이지  (/disk-usage)
+ * ============================================================ */
+
+/* ── 카드 controls 영역 (새로고침 버튼 + 자동갱신) ── */
+.disk-usage-page .card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.disk-usage-page .card-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 자동갱신 토글 */
+.auto-refresh-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-muted);
+  user-select: none;
+}
+.auto-refresh-checkbox {
+  accent-color: var(--color-brand);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.auto-refresh-text { font-size: 12.5px; }
+
+/* 새로고침 아이콘 스핀 */
+@keyframes disk-spin {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── 메타 정보 한 줄 ── */
+.disk-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.disk-meta-key {
+  font-weight: 600;
+  color: var(--color-text-2);
+  margin-right: 4px;
+}
+.disk-meta-sep  { color: var(--color-border-strong); }
+.disk-meta-elapsed { color: var(--color-muted-2); font-size: 12px; }
+
+/* ── 오류 박스 ── */
+.disk-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  color: var(--color-error);
+  font-size: 13px;
+}
+.disk-error-icon { font-size: 16px; flex-shrink: 0; }
+
+/* ── 메인 레이아웃: 차트 왼쪽 + 표 오른쪽 ── */
+.disk-main {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* ── 차트 영역 ── */
+.disk-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.disk-chart-container {
+  position: relative;
+  width: 220px;
+  height: 220px;
+}
+.disk-chart-container canvas {
+  display: block;
+}
+
+/* 도넛 중앙 오버레이 */
+.disk-chart-center {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+.disk-use-pct {
+  display: block;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--color-text);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+.disk-use-label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--color-muted);
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+/* 범례 */
+.disk-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.disk-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+.disk-legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ── 표 영역 ── */
+.disk-table-wrap {
+  flex: 1;
+  min-width: 280px;
+}
+
+.disk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.disk-table th {
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+.disk-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+.disk-table tbody tr:last-child td { border-bottom: none; }
+.disk-table tbody tr:hover { background: var(--color-surface-2); }
+
+/* 색상 구분 행 */
+.disk-row-total  { }
+.disk-row-used   td:first-child { font-weight: 600; color: #dc2626; }
+.disk-row-avail  td:first-child { font-weight: 600; color: #059669; }
+
+/* 컬럼별 정렬 */
+.disk-td-human  { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; }
+.disk-td-bytes  { font-family: var(--font-mono); font-size: 12.5px; color: var(--color-muted); }
+.disk-td-pct    { }
+
+/* 색상 원형 점 */
+.disk-dot {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* 비율 배지 */
+.disk-pct-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--color-surface-3);
+  color: var(--color-text-2);
+  border: 1px solid var(--color-border);
+}
+.disk-row-used  .disk-pct-badge { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+.disk-row-avail .disk-pct-badge { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+
+/* placeholder */
+.disk-table-placeholder {
+  text-align: center;
+  color: var(--color-muted);
+  padding: 28px;
+  font-size: 13px;
+}
+
+/* ── raw 출력 ── */
+.disk-raw-details {
+  margin-top: 20px;
+}
+.disk-raw-summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--color-muted);
+  padding: 4px 2px;
+  user-select: none;
+}
+.disk-raw-summary:hover { color: var(--color-text-2); }
+.disk-raw-pre {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--color-text);
+  white-space: pre;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+
+/* ── 반응형 ── */
+@media (max-width: 640px) {
+  .disk-main { flex-direction: column; align-items: center; }
+  .disk-table-wrap { min-width: 0; width: 100%; }
+}
