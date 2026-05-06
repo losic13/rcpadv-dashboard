@@ -53,6 +53,11 @@
         <code id="meta-mount">—</code>
       </span>
       <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="meta-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
       <span class="disk-meta-item disk-meta-elapsed" id="meta-elapsed"></span>
     </div>
 
@@ -134,6 +139,7 @@
   const metaFs          = document.getElementById('meta-fs');
   const metaMount       = document.getElementById('meta-mount');
   const metaElapsed     = document.getElementById('meta-elapsed');
+  const metaQueriedAt   = document.getElementById('meta-queried-at');
   const centerPct       = document.getElementById('center-pct');
   const tableBody       = document.getElementById('disk-table-body');
   const rawOutput       = document.getElementById('disk-raw-output');
@@ -296,10 +302,11 @@
       }
 
       /* ── 메타 ── */
-      metaPath.textContent  = data.path       || '—';
-      metaFs.textContent    = data.filesystem || '—';
-      metaMount.textContent = data.mounted_on || '—';
-      metaElapsed.textContent = `${elapsed} ms`;
+      metaPath.textContent      = data.path        || '—';
+      metaFs.textContent        = data.filesystem  || '—';
+      metaMount.textContent     = data.mounted_on  || '—';
+      metaQueriedAt.textContent = data.queried_at  || '—';
+      metaElapsed.textContent   = `${elapsed} ms`;
 
       /* ── 중앙 %% ── */
       centerPct.textContent = data.use_pct != null ? data.use_pct + '%' : '—';

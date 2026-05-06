@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -50,6 +51,8 @@ def _run_df(path: str = DF_TARGET) -> dict:
 
         {"ok": False, "error": "...", "raw": "..."}
     """
+    queried_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
     cmd = ["df", "-h", path]
     log.info("df 실행: %s", shlex.join(cmd))
 
@@ -63,14 +66,14 @@ def _run_df(path: str = DF_TARGET) -> dict:
         raw = result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         log.error("df 타임아웃: %s", path)
-        return {"ok": False, "error": "df 명령 타임아웃(10초)", "raw": ""}
+        return {"ok": False, "error": "df 명령 타임아웃(10초)", "raw": "", "queried_at": queried_at}
     except Exception as exc:  # noqa: BLE001
         log.error("df 실행 오류: %s", exc)
-        return {"ok": False, "error": str(exc), "raw": ""}
+        return {"ok": False, "error": str(exc), "raw": "", "queried_at": queried_at}
 
     if result.returncode != 0:
         log.warning("df 비정상 종료 (rc=%d): %s", result.returncode, raw.strip())
-        return {"ok": False, "error": raw.strip(), "raw": raw}
+        return {"ok": False, "error": raw.strip(), "raw": raw, "queried_at": queried_at}
 
     # ── 파싱 ────────────────────────────────────────────────
     lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
@@ -127,6 +130,7 @@ def _run_df(path: str = DF_TARGET) -> dict:
         "size_bytes":  size_bytes,
         "used_bytes":  used_bytes,
         "avail_bytes": avail_bytes,
+        "queried_at":  queried_at,
     }
 
 
