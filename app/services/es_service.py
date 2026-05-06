@@ -128,7 +128,13 @@ async def run_overview_comparison() -> dict[str, Any]:
         rows.append({"date": date, "index1": cnt1, "index2": cnt2, "pct": pct})
 
     log.info("[es/overview] 비교 완료: %d 날짜, %dms", len(rows), elapsed_ms)
-    return {"ok": True, "rows": rows, "elapsed_ms": elapsed_ms, "error": None}
+    return {
+        "ok": True,
+        "rows": rows,
+        "elapsed_ms": elapsed_ms,
+        "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "error": None,
+    }
 
 
 # ============================================================
@@ -178,7 +184,13 @@ async def run_overview_tkin() -> dict[str, Any]:
     ]
 
     log.info("[es/overview] tkin_time 완료: %d 날짜, %dms", len(rows), elapsed_ms)
-    return {"ok": True, "rows": rows, "elapsed_ms": elapsed_ms, "error": None}
+    return {
+        "ok": True,
+        "rows": rows,
+        "elapsed_ms": elapsed_ms,
+        "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "error": None,
+    }
 
 
 # ============================================================
