@@ -6,12 +6,50 @@
       <div class="brand-line-2">Site Reliability Dashboard</div>
     </div>
   </a>
-  <nav>
+
+  <nav class="sidebar-nav">
     <ul class="nav-list">
       {% for item in nav_items %}
-      <li class="nav-item {% if item.key == active_nav %}active{% endif %}">
-        <a href="{{ item.url }}">{{ item.label }}</a>
-      </li>
+
+        {# ── 단독 링크 ── #}
+        {% if item.type == "link" %}
+        <li class="nav-item {% if item.key == active_nav %}active{% endif %}">
+          <a href="{{ item.url }}">{{ item.label }}</a>
+        </li>
+
+        {# ── 카테고리 (2Tier) ── #}
+        {% elif item.type == "category" %}
+          {# 이 카테고리 안에 active_nav 가 있는지 확인 #}
+          {% set is_open = namespace(v=false) %}
+          {% for child in item.children %}
+            {% if child.key == active_nav %}{% set is_open.v = true %}{% endif %}
+          {% endfor %}
+
+        <li class="nav-category {% if is_open.v %}open{% endif %}">
+          {# 카테고리 헤더 (클릭 시 토글) #}
+          <button class="nav-category-btn" type="button"
+                  aria-expanded="{{ 'true' if is_open.v else 'false' }}">
+            <span class="nav-category-icon" aria-hidden="true">{{ item.icon }}</span>
+            <span class="nav-category-label">{{ item.label }}</span>
+            <span class="nav-category-arrow" aria-hidden="true">›</span>
+          </button>
+
+          {# 자식 메뉴 #}
+          <ul class="nav-children">
+            {% for child in item.children %}
+            <li class="nav-child-item {% if child.key == active_nav %}active{% endif %} {% if child.disabled %}disabled{% endif %}">
+              {% if child.disabled %}
+              <span class="nav-child-link nav-child-disabled"
+                    title="준비 중">{{ child.label }}</span>
+              {% else %}
+              <a class="nav-child-link" href="{{ child.url }}">{{ child.label }}</a>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </li>
+        {% endif %}
+
       {% endfor %}
     </ul>
   </nav>
@@ -25,3 +63,17 @@
     </form>
   </div>
 </aside>
+
+<script>
+(function () {
+  'use strict';
+  /* 카테고리 토글 — 클릭 시 open 클래스 + aria-expanded 전환 */
+  document.querySelectorAll('.nav-category-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var li = btn.closest('.nav-category');
+      var expanded = li.classList.toggle('open');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    });
+  });
+})();
+</script>
