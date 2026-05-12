@@ -4162,62 +4162,92 @@ body.ls-dl-modal-open { overflow: hidden; }
    (DataTables 기반 표 렌더링 대체)
    ──────────────────────────────────────────────────────────── */
 
-/* ── 결과 컨트롤 바 (필터 + 일괄 펼치기/접기) ─────────── */
+/* ── 결과 컨트롤 바 (인라인 변환기 + 일괄 펼치기/접기) ─── */
 .es-document-page .doc-result-controls {
   display: flex;
   align-items: center;
   gap: 12px;
   margin: 14px 0 10px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   background: #f9fafb;
   border: 1px solid var(--color-border, #e5e7eb);
   border-radius: 6px;
   flex-wrap: wrap;
 }
-.es-document-page .doc-filter-wrap {
+
+/* 인라인 변환기 묶음 (timestamp / bytes) — 회색 톤 + 컴팩트, 페이지 분위기에 묻히도록. */
+.es-document-page .doc-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.es-document-page .doc-tool {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: 1 1 280px;
-  min-width: 240px;
-  padding: 4px 10px;
-  background: #fff;
-  border: 1px solid var(--color-border, #d1d5db);
-  border-radius: 6px;
-  cursor: text;
-  transition: border-color 0.12s, box-shadow 0.12s;
-}
-.es-document-page .doc-filter-wrap:focus-within {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-}
-.es-document-page .doc-filter-icon {
-  font-size: 13px;
-  color: var(--color-muted, #6b7280);
-  user-select: none;
-}
-.es-document-page .doc-filter-input {
-  flex: 1;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font-size: 13px;
-  padding: 4px 0;
-  color: var(--color-text, #1f2937);
-}
-.es-document-page .doc-filter-count {
   font-size: 11.5px;
   color: var(--color-muted, #6b7280);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  padding: 1px 8px;
-  background: #eef2ff;
-  border-radius: 999px;
   min-width: 0;
 }
-.es-document-page .doc-filter-count:empty {
-  display: none;
+.es-document-page .doc-tool-icon {
+  font-size: 12px;
+  opacity: 0.7;
+  user-select: none;
 }
+.es-document-page .doc-tool-input {
+  width: 170px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 4px;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #374151;
+  outline: 0;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.es-document-page .doc-tool-input:focus {
+  border-color: #9ca3af;
+  box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.18);
+}
+.es-document-page .doc-tool-arrow {
+  color: #cbd5e1;
+  font-size: 11px;
+  user-select: none;
+}
+.es-document-page .doc-tool-out {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+  min-width: 0;
+  white-space: nowrap;
+  user-select: text;
+}
+.es-document-page .doc-tool-out:not(.is-empty):not(.is-warn):hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.es-document-page .doc-tool-out.is-empty {
+  cursor: default;
+  color: #cbd5e1;
+}
+.es-document-page .doc-tool-out.is-empty::before {
+  content: attr(data-empty);
+  font-style: italic;
+}
+.es-document-page .doc-tool-out.is-warn {
+  color: #c2410c;
+  cursor: default;
+}
+
 .es-document-page .doc-result-actions {
   display: inline-flex;
   gap: 6px;

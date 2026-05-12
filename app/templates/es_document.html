@@ -104,20 +104,40 @@
       </span>
     </div>
 
-    {# ── 결과 컨트롤 바 (필터 + 일괄 펼치기) ──────────────── #}
-    <div class="doc-result-controls" id="doc-result-controls" hidden>
-      <label class="doc-filter-wrap">
-        <span class="doc-filter-icon" aria-hidden="true">🔎</span>
-        <input
-          type="text"
-          id="doc-filter-input"
-          class="doc-filter-input"
-          placeholder="필터: _id 또는 필드값 (대소문자 무관)"
-          autocomplete="off"
-          spellcheck="false">
-        <span class="doc-filter-count" id="doc-filter-count"></span>
-      </label>
-      <div class="doc-result-actions">
+    {# ── 결과 컨트롤 바 (변환기 + 일괄 펼치기) ────────────── #}
+    {#  · 변환기 2종(타임스탬프 / 바이트) — 결과 유무와 무관하게 항상 표시.
+        · 펼치기/접기 버튼 — 결과 있을 때만 표시(id=doc-result-actions).
+        · '검색 필터' 는 제거됨(2026-05). 변환기 자리로 대체. #}
+    <div class="doc-result-controls" id="doc-result-controls">
+      <div class="doc-tools">
+        <span class="doc-tool" data-tool="ts">
+          <span class="doc-tool-icon" aria-hidden="true">🕐</span>
+          <input
+            type="text"
+            id="doc-tool-ts-input"
+            class="doc-tool-input"
+            inputmode="numeric"
+            placeholder="long → datetime (ms / s / µs / ns)"
+            autocomplete="off"
+            spellcheck="false">
+          <span class="doc-tool-arrow" aria-hidden="true">→</span>
+          <span class="doc-tool-out" id="doc-tool-ts-out" data-empty="결과"></span>
+        </span>
+        <span class="doc-tool" data-tool="size">
+          <span class="doc-tool-icon" aria-hidden="true">📦</span>
+          <input
+            type="text"
+            id="doc-tool-size-input"
+            class="doc-tool-input"
+            inputmode="numeric"
+            placeholder="bytes → KB / MB / GB"
+            autocomplete="off"
+            spellcheck="false">
+          <span class="doc-tool-arrow" aria-hidden="true">→</span>
+          <span class="doc-tool-out" id="doc-tool-size-out" data-empty="결과"></span>
+        </span>
+      </div>
+      <div class="doc-result-actions" id="doc-result-actions" hidden>
         <button class="btn btn-run btn-run-sm" id="doc-btn-expand-all" type="button" title="모두 펼치기">
           <span class="btn-run-label">모두 펼치기</span>
         </button>
@@ -191,8 +211,11 @@
   const $found         = document.getElementById('doc-found');
   const $missingCount  = document.getElementById('doc-missing-count');
   const $resultControls = document.getElementById('doc-result-controls');
-  const $filterInput   = document.getElementById('doc-filter-input');
-  const $filterCount   = document.getElementById('doc-filter-count');
+  const $resultActions = document.getElementById('doc-result-actions');
+  const $tsIn          = document.getElementById('doc-tool-ts-input');
+  const $tsOut         = document.getElementById('doc-tool-ts-out');
+  const $sizeIn        = document.getElementById('doc-tool-size-input');
+  const $sizeOut       = document.getElementById('doc-tool-size-out');
   const $btnExpandAll  = document.getElementById('doc-btn-expand-all');
   const $btnCollapseAll = document.getElementById('doc-btn-collapse-all');
   const $cardsWrap     = document.getElementById('doc-cards-wrap');
@@ -498,37 +521,78 @@
     if (!rows || !rows.length) {
       $cards.innerHTML = '';
       $cardsWrap.hidden = true;
-      $resultControls.hidden = true;
+      // 컨트롤 바는 변환기 때문에 항상 표시 — 펼치기/접기만 숨김.
+      if ($resultActions) $resultActions.hidden = true;
       return;
     }
     $cards.innerHTML = rows.map((r, i) => renderCard(r, i)).join('');
     $cardsWrap.hidden = false;
-    $resultControls.hidden = false;
-    applyFilter(); // 필터가 입력되어 있으면 즉시 적용
+    if ($resultActions) $resultActions.hidden = false;
   }
 
-  // ── 필터링 ───────────────────────────────────────────────
-  //   카드 전체 텍스트(_id + 필드 키/값) 를 토대로 대소문자 무관 매칭.
-  function applyFilter() {
-    const q = ($filterInput.value || '').trim().toLowerCase();
-    const cards = $cards.querySelectorAll('.doc-card');
-    if (!q) {
-      cards.forEach(c => { c.style.display = ''; });
-      $filterCount.textContent = '';
-      return;
-    }
-    let shown = 0;
-    cards.forEach(c => {
-      // textContent 는 details 가 닫혀 있어도 안의 내용을 다 반환함
-      const txt = c.textContent.toLowerCase();
-      if (txt.indexOf(q) >= 0) {
-        c.style.display = '';
-        shown++;
-      } else {
-        c.style.display = 'none';
-      }
-    });
-    $filterCount.textContent = `${shown} / ${cards.length}`;
+  // ── 인라인 변환 도구 ─────────────────────────────────────
+  //   1) 타임스탬프(long) → datetime   자릿수로 단위 자동 감지
+  //        10자리 → 초(s) / 13자리 → 밀리초(ms)
+  //        16자리 → 마이크로초(µs) / 19자리 → 나노초(ns)
+  //   2) 바이트(int) → 사람이 읽기 좋은 단위   1024 기반(KB / MB / GB / TB / PB)
+  //
+  //   결과 자체를 클릭하면 결과 텍스트를 클립보드에 복사 (토스트 알림 공용).
+
+  function _pad2(n) { return String(n).padStart(2, '0'); }
+
+  function _formatLocalDateTime(d) {
+    // 'YYYY-MM-DD HH:mm:ss' 로컬 시간
+    return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())} ` +
+           `${_pad2(d.getHours())}:${_pad2(d.getMinutes())}:${_pad2(d.getSeconds())}`;
+  }
+
+  function convertTimestamp(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim().replace(/[_,]/g, '');     // 1,778,510,204,817 / 1_778_... 도 허용
+    if (!/^-?\d+$/.test(s)) return '⚠ 숫자만';
+    const n = Number(s);
+    if (!Number.isFinite(n)) return '⚠ 범위 초과';
+    const len = s.replace(/^-/, '').length;
+    let ms, unit;
+    if (len <= 10) { ms = n * 1000;        unit = 's';  }
+    else if (len <= 13) { ms = n;          unit = 'ms'; }
+    else if (len <= 16) { ms = n / 1000;   unit = 'µs'; }
+    else                { ms = n / 1e6;    unit = 'ns'; }
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return '⚠ 잘못된 시각';
+    return `${_formatLocalDateTime(d)} (${unit})`;
+  }
+
+  function convertBytes(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim().replace(/[_,]/g, '');
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return '⚠ 숫자만';
+    let n = Number(s);
+    if (!Number.isFinite(n)) return '⚠ 범위 초과';
+    const sign = n < 0 ? '-' : '';
+    n = Math.abs(n);
+    if (n < 1024) return `${sign}${n} B`;
+    const units = ['KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+    let v = n / 1024;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${sign}${v.toFixed(v >= 100 ? 1 : 2)} ${units[i]}`;
+  }
+
+  function updateTsTool() {
+    const raw = $tsIn.value;
+    const out = convertTimestamp(raw);
+    $tsOut.textContent = out;
+    $tsOut.classList.toggle('is-empty', !out);
+    $tsOut.classList.toggle('is-warn', out.startsWith('⚠'));
+  }
+
+  function updateSizeTool() {
+    const raw = $sizeIn.value;
+    const out = convertBytes(raw);
+    $sizeOut.textContent = out;
+    $sizeOut.classList.toggle('is-empty', !out);
+    $sizeOut.classList.toggle('is-warn', out.startsWith('⚠'));
   }
 
   // ── 모두 펼치기 / 접기 ───────────────────────────────────
@@ -698,9 +762,8 @@
     _lastRows = [];
     $cards.innerHTML = '';
     $cardsWrap.hidden = true;
-    $resultControls.hidden = true;
-    $filterInput.value = '';
-    $filterCount.textContent = '';
+    // 결과 컨트롤 바는 변환기 때문에 항상 표시. 펼치기/접기만 숨김.
+    if ($resultActions) $resultActions.hidden = true;
     $missingBox.hidden = true;
     $resultMeta.hidden = true;
     setBadge('idle', '');
@@ -712,9 +775,22 @@
   $textarea.addEventListener('input', updateInputCount);
   $btnRun.addEventListener('click', runLookup);
   $btnClear.addEventListener('click', clearAll);
-  $filterInput.addEventListener('input', applyFilter);
   $btnExpandAll.addEventListener('click', expandAll);
   $btnCollapseAll.addEventListener('click', collapseAll);
+
+  // 인라인 변환기 — 입력 즉시 변환(순수 계산이라 debounce 불필요).
+  // 결과 영역 클릭 시 결과 텍스트 복사 (토스트 공용).
+  $tsIn.addEventListener('input', updateTsTool);
+  $sizeIn.addEventListener('input', updateSizeTool);
+  function _bindToolOutCopy($out, label) {
+    $out.addEventListener('click', () => {
+      const txt = $out.textContent.trim();
+      if (!txt || $out.classList.contains('is-warn') || $out.classList.contains('is-empty')) return;
+      copyToClipboard(txt, `${label} 복사됨`);
+    });
+  }
+  _bindToolOutCopy($tsOut, 'datetime');
+  _bindToolOutCopy($sizeOut, '용량');
 
   // Ctrl+Enter / Cmd+Enter 로 즉시 조회
   $textarea.addEventListener('keydown', (e) => {
