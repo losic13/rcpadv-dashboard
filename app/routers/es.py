@@ -133,6 +133,29 @@ async def document_lookup(body: DocumentLookupBody):
     return JSONResponse(result)
 
 
+# ── 신규: /es/eqp-status (설비별 처리현황) ───────────────────────────────
+@router.get("/eqp-status")
+def eqp_status_page(request: Request):
+    """설비별 처리현황 페이지 — product × maker × eqp_id × 날짜 매트릭스."""
+    return templates.TemplateResponse(
+        request,
+        "es_eqp_status.html",
+        {
+            "nav_items": NAV_ITEMS,
+            "active_nav": "es_eqp_status",
+            "page_title": "설비별 처리현황",
+        },
+    )
+
+
+@router.get("/eqp-status/data")
+async def eqp_status_data(request: Request):
+    """설비별 처리현황 데이터 API."""
+    result = await es_service.run_eqp_log_count_per_day()
+    status = 200 if result["ok"] else 500
+    return JSONResponse(result, status_code=status)
+
+
 # ── 준비 중 페이지들 (나중에 구현) ───────────────────────────────────────
 @router.get("/targets")
 def targets_page(request: Request):

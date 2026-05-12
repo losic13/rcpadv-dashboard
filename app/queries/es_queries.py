@@ -83,6 +83,78 @@ OVERVIEW_INDEX2_AGG = EsQueryDef(
 #   집계 단위: 날짜(day), 최근 14일(2주)
 # ──────────────────────────────────────────────────────────────
 
+# ──────────────────────────────────────────────────────────────
+# 설비별 처리현황 — product / maker / eqp_id × 날짜 매트릭스
+#   페이지: /es/eqp-status
+#   서비스: es_service.run_eqp_log_count_per_day()
+#
+#   ※ 아래 body 는 더미 템플릿이다. 사용자가 실제 운영 환경에 맞춰
+#     인덱스 / 필드명 / 날짜 범위 / size 등을 직접 수정해 사용한다.
+#
+#   서비스 코드는 다음 4-Tier 중첩 aggregation 구조를 가정하고
+#   flatten 한다 (이름은 반드시 그대로 유지):
+#
+#       aggregations
+#         └ by_product       (terms)
+#             └ by_maker     (terms)
+#                 └ by_eqp_id  (terms)
+#                     └ by_day   (date_histogram, format=yyyy-MM-dd,
+#                                 min_doc_count=0)
+#
+#   min_doc_count: 0 으로 두면 데이터가 없는 날짜도 0 으로 채워진다.
+# ──────────────────────────────────────────────────────────────
+
+EQP_LOG_COUNT_PER_DAY = EsQueryDef(
+    id="eqp_log_count_per_day",
+    title="설비별 일자별 처리 건수",
+    description="product × maker × eqp_id × 날짜 매트릭스 (더미 DSL — 운영 환경에 맞게 덮어쓸 것)",
+    index="parsing-index-2-*",
+    body={
+        # ── ⚠️ 아래 DSL 은 더미. 실제 필드명/범위/사이즈는 수정 필요 ──
+        "size": 0,
+        "query": {
+            "range": {
+                "meta.tkin_time": {
+                    "gte": "now-7d/d",
+                    "lte": "now/d",
+                    "format": "epoch_millis",
+                }
+            }
+        },
+        "aggs": {
+            "by_product": {
+                "terms": {"field": "product.keyword", "size": 100},
+                "aggs": {
+                    "by_maker": {
+                        "terms": {"field": "maker.keyword", "size": 100},
+                        "aggs": {
+                            "by_eqp_id": {
+                                "terms": {"field": "eqp_id.keyword", "size": 500},
+                                "aggs": {
+                                    "by_day": {
+                                        "date_histogram": {
+                                            "field": "meta.tkin_time",
+                                            "calendar_interval": "day",
+                                            "format": "yyyy-MM-dd",
+                                            "min_doc_count": 0,
+                                            "extended_bounds": {
+                                                "min": "now-7d/d",
+                                                "max": "now/d",
+                                            },
+                                            "order": {"_key": "asc"},
+                                        }
+                                    }
+                                },
+                            }
+                        },
+                    }
+                },
+            }
+        },
+    },
+)
+
+
 OVERVIEW_TKIN_AGG = EsQueryDef(
     id="overview_tkin_agg",
     title="index-2 tkin_time 날짜별 집계",

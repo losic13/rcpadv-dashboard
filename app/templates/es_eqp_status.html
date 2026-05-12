@@ -1,0 +1,229 @@
+{#
+  설비별 처리현황 (/es/eqp-status)
+  ──────────────────────────────────────────────────────────────
+  product × maker × eqp_id × 날짜 매트릭스.
+    - 좌측 3열(product/maker/eqp_id) sticky
+    - 날짜 컬럼은 오름차순 (과거 → 최근)
+    - doc_count = 0 셀은 회색 처리
+    - 천단위 콤마
+    - 우측에 행 합계 컬럼, 하단에 열 합계 footer
+
+  데이터: GET /es/eqp-status/data
+    서비스: es_service.run_eqp_log_count_per_day()
+    쿼리:   es_queries.EQP_LOG_COUNT_PER_DAY  (더미 — 운영 환경에 맞게 사용자가 수정)
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+
+<section class="card eqp-status-page" id="eqp-status">
+
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES</span>
+      <strong>설비별 일자별 처리 건수</strong>
+      <span class="card-sub">product × maker × eqp_id × 날짜 매트릭스</span>
+    </div>
+    <div class="card-controls">
+      <button class="btn btn-run" id="eqp-btn-refresh" title="새로고침">
+        <span class="btn-run-icon" aria-hidden="true">↻</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+      <span class="status-badge" id="eqp-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+
+    {# 메타 바 #}
+    <div class="disk-meta" id="eqp-meta">
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="eqp-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="eqp-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">설비 수</span>
+        <span id="eqp-rowcount">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">집계 일수</span>
+        <span id="eqp-days">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">전체 합계</span>
+        <span id="eqp-total">—</span>
+      </span>
+    </div>
+
+    <div id="eqp-error" class="disk-error" hidden></div>
+
+    {# 매트릭스 표 #}
+    <div id="eqp-table-wrap" class="eqp-table-wrap">
+      <table class="eqp-table" id="eqp-table">
+        <thead id="eqp-thead">
+          {# 동적 생성 #}
+        </thead>
+        <tbody id="eqp-tbody">
+          <tr><td class="eqp-empty">데이터를 조회하려면 우측 상단 [조회] 버튼을 누르세요.</td></tr>
+        </tbody>
+        <tfoot id="eqp-tfoot">
+          {# 동적 생성 — 열 합계 #}
+        </tfoot>
+      </table>
+    </div>
+
+  </div>
+</section>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+
+  /* ── 유틸 ──────────────────────────────────────────────── */
+  function fmtNum(n) {
+    if (n == null) return '—';
+    return Number(n).toLocaleString('ko-KR');
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function setStatus(el, state, text) {
+    el.dataset.state = state;
+    el.textContent = text || '';
+    el.hidden = !text;
+  }
+
+  /* ── 표 렌더링 ─────────────────────────────────────────── */
+  function renderTable(data) {
+    var thead = document.getElementById('eqp-thead');
+    var tbody = document.getElementById('eqp-tbody');
+    var tfoot = document.getElementById('eqp-tfoot');
+
+    var dateCols = data.date_columns || [];
+    var rows     = data.rows || [];
+    var totals   = data.totals_by_date || {};
+
+    if (!rows.length) {
+      thead.innerHTML = '';
+      tfoot.innerHTML = '';
+      tbody.innerHTML = '<tr><td class="eqp-empty">데이터가 없습니다.</td></tr>';
+      return;
+    }
+
+    /* ── thead ─────────────────────────────────────── */
+    var th = '<tr>'
+      + '<th class="eqp-col-fixed eqp-col-product">product</th>'
+      + '<th class="eqp-col-fixed eqp-col-maker">maker</th>'
+      + '<th class="eqp-col-fixed eqp-col-eqp">eqp_id</th>';
+    for (var i = 0; i < dateCols.length; i++) {
+      th += '<th class="eqp-col-date">' + esc(dateCols[i]) + '</th>';
+    }
+    th += '<th class="eqp-col-total">합계</th>';
+    th += '</tr>';
+    thead.innerHTML = th;
+
+    /* ── tbody ─────────────────────────────────────── */
+    var bodyHtml = '';
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      bodyHtml += '<tr>';
+      bodyHtml += '<td class="eqp-col-fixed eqp-col-product" title="' + esc(row.product) + '">' + esc(row.product) + '</td>';
+      bodyHtml += '<td class="eqp-col-fixed eqp-col-maker"   title="' + esc(row.maker)   + '">' + esc(row.maker)   + '</td>';
+      bodyHtml += '<td class="eqp-col-fixed eqp-col-eqp"     title="' + esc(row.eqp_id)  + '">' + esc(row.eqp_id)  + '</td>';
+      for (var c = 0; c < dateCols.length; c++) {
+        var key = dateCols[c];
+        var v   = row[key];
+        var cls = (v == null || v === 0) ? 'eqp-cell-zero' : 'eqp-cell';
+        bodyHtml += '<td class="' + cls + '">' + (v == null ? '0' : fmtNum(v)) + '</td>';
+      }
+      bodyHtml += '<td class="eqp-col-total"><strong>' + fmtNum(row['합계']) + '</strong></td>';
+      bodyHtml += '</tr>';
+    }
+    tbody.innerHTML = bodyHtml;
+
+    /* ── tfoot (열 합계) ───────────────────────────── */
+    var foot = '<tr class="eqp-foot-total">';
+    foot += '<td class="eqp-col-fixed eqp-col-product"><strong>합계</strong></td>';
+    foot += '<td class="eqp-col-fixed eqp-col-maker"></td>';
+    foot += '<td class="eqp-col-fixed eqp-col-eqp"></td>';
+    var grand = 0;
+    for (var k = 0; k < dateCols.length; k++) {
+      var dk = dateCols[k];
+      var tv = totals[dk] || 0;
+      grand += tv;
+      foot += '<td class="eqp-cell-total">' + fmtNum(tv) + '</td>';
+    }
+    foot += '<td class="eqp-cell-total eqp-cell-grand">' + fmtNum(grand) + '</td>';
+    foot += '</tr>';
+    tfoot.innerHTML = foot;
+  }
+
+  /* ── fetch ─────────────────────────────────────────────── */
+  function fetchData() {
+    var badge   = document.getElementById('eqp-status-badge');
+    var btnRef  = document.getElementById('eqp-btn-refresh');
+    var errDiv  = document.getElementById('eqp-error');
+
+    setStatus(badge, 'loading', '조회 중…');
+    btnRef.disabled = true;
+
+    fetch('/es/eqp-status/data')
+      .then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      })
+      .then(function (res) {
+        btnRef.disabled = false;
+        var d = res.body || {};
+        document.getElementById('eqp-queried-at').textContent = d.queried_at || '—';
+        document.getElementById('eqp-elapsed').textContent    = d.elapsed_ms != null ? d.elapsed_ms + ' ms' : '—';
+        document.getElementById('eqp-rowcount').textContent   = d.row_count != null ? fmtNum(d.row_count) : '—';
+        document.getElementById('eqp-days').textContent       = (d.date_columns ? d.date_columns.length : 0) + '일';
+        document.getElementById('eqp-total').textContent      = d.total != null ? fmtNum(d.total) : '—';
+
+        if (!d.ok) {
+          errDiv.textContent = '오류: ' + (d.error || '알 수 없는 오류');
+          errDiv.hidden = false;
+          setStatus(badge, 'error', '오류');
+          // 표는 비우기
+          document.getElementById('eqp-thead').innerHTML = '';
+          document.getElementById('eqp-tfoot').innerHTML = '';
+          document.getElementById('eqp-tbody').innerHTML = '<tr><td class="eqp-empty">조회 실패</td></tr>';
+          return;
+        }
+        errDiv.hidden = true;
+        renderTable(d);
+        setStatus(badge, 'ok', '완료');
+      })
+      .catch(function (e) {
+        btnRef.disabled = false;
+        errDiv.textContent = '네트워크 오류: ' + e.message;
+        errDiv.hidden = false;
+        setStatus(badge, 'error', '오류');
+      });
+  }
+
+  document.getElementById('eqp-btn-refresh').addEventListener('click', fetchData);
+
+  /* 초기 자동 조회 */
+  fetchData();
+})();
+</script>
+{% endblock %}

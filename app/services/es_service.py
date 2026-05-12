@@ -351,6 +351,143 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
 
 
 # ============================================================
+# 설비별 처리현황 — product × maker × eqp_id × 날짜 매트릭스
+# ============================================================
+
+async def run_eqp_log_count_per_day() -> dict[str, Any]:
+    """es_queries.EQP_LOG_COUNT_PER_DAY 실행 후 4-Tier 버킷을 flat 테이블로.
+
+    응답 변환:
+        by_product → by_maker → by_eqp_id → by_day 의 중첩 buckets 를
+        product/maker/eqp_id 별 한 행 + 날짜 컬럼들로 펼친다.
+        min_doc_count=0 이므로 모든 (eqp,날짜) 조합은 최소 0 으로 채워짐.
+
+    반환:
+        {
+          "ok": bool,
+          "columns": ["product", "maker", "eqp_id", "YYYY-MM-DD", ..., "합계"],
+          "rows": [
+              {"product": "...", "maker": "...", "eqp_id": "...",
+               "YYYY-MM-DD": 123, ..., "합계": 1234},
+              ...
+          ],
+          "date_columns": ["YYYY-MM-DD", ...],   # 날짜만 분리해 클라이언트 sticky 처리 등에 활용
+          "totals_by_date": {"YYYY-MM-DD": 12345, ...},  # 열 합계 (footer)
+          "total": 99999,                         # 전체 합계
+          "row_count": int,
+          "elapsed_ms": int,
+          "queried_at": str,
+          "index": str,
+          "error": str | None,
+        }
+    """
+    qdef = es_queries.EQP_LOG_COUNT_PER_DAY
+    log.info("[es/eqp-status] 쿼리 시작: index=%s", qdef.index)
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.search, qdef.index, qdef.body),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error("[es/eqp-status] 쿼리 타임아웃 (>%ds)", settings.QUERY_TIMEOUT_SECONDS)
+        return {
+            "ok": False,
+            "columns": [], "rows": [], "date_columns": [],
+            "totals_by_date": {}, "total": 0, "row_count": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": qdef.index,
+            "error": "쿼리 타임아웃",
+        }
+    except Exception as e:
+        log.error("[es/eqp-status] 쿼리 실패: %s", e)
+        return {
+            "ok": False,
+            "columns": [], "rows": [], "date_columns": [],
+            "totals_by_date": {}, "total": 0, "row_count": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": qdef.index,
+            "error": str(e),
+        }
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    # ── 버킷 walk ──────────────────────────────────────────
+    # 모든 (product, maker, eqp_id) 행을 펼치면서, 그 안의 by_day buckets 를
+    # 펼친 행 dict 에 채워넣는다. 날짜 컬럼 집합은 처음 등장 순서로 유지.
+    rows: list[dict[str, Any]] = []
+    all_dates: list[str] = []
+    seen_dates: set[str] = set()
+    totals_by_date: dict[str, int] = {}
+    grand_total = 0
+
+    product_buckets = (
+        resp.get("aggregations", {})
+            .get("by_product", {})
+            .get("buckets", [])
+    )
+    for pb in product_buckets:
+        product_key = pb.get("key")
+        maker_buckets = (pb.get("by_maker") or {}).get("buckets", [])
+        for mb in maker_buckets:
+            maker_key = mb.get("key")
+            eqp_buckets = (mb.get("by_eqp_id") or {}).get("buckets", [])
+            for eb in eqp_buckets:
+                eqp_key = eb.get("key")
+                row: dict[str, Any] = {
+                    "product": product_key,
+                    "maker":   maker_key,
+                    "eqp_id":  eqp_key,
+                }
+                row_sum = 0
+                day_buckets = (eb.get("by_day") or {}).get("buckets", [])
+                for db in day_buckets:
+                    # date_histogram 은 key_as_string 이 yyyy-MM-dd
+                    date_key = db.get("key_as_string") or str(db.get("key"))
+                    cnt = int(db.get("doc_count") or 0)
+                    if date_key not in seen_dates:
+                        seen_dates.add(date_key)
+                        all_dates.append(date_key)
+                    row[date_key] = cnt
+                    row_sum += cnt
+                    totals_by_date[date_key] = totals_by_date.get(date_key, 0) + cnt
+                row["합계"] = row_sum
+                grand_total += row_sum
+                rows.append(row)
+
+    # 날짜 컬럼은 오름차순(과거 → 최근) 정렬
+    date_columns = sorted(all_dates)
+
+    # 모든 행에 모든 날짜 키 채우기 (min_doc_count=0 가정이지만 안전망)
+    for r in rows:
+        for d in date_columns:
+            r.setdefault(d, 0)
+
+    columns: list[str] = ["product", "maker", "eqp_id"] + date_columns + ["합계"]
+
+    log.info(
+        "[es/eqp-status] 완료: %d행 × %d일, total=%d, %dms",
+        len(rows), len(date_columns), grand_total, elapsed_ms,
+    )
+
+    return {
+        "ok": True,
+        "columns": columns,
+        "rows": rows,
+        "date_columns": date_columns,
+        "totals_by_date": totals_by_date,
+        "total": grand_total,
+        "row_count": len(rows),
+        "elapsed_ms": elapsed_ms,
+        "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "index": qdef.index,
+        "error": None,
+    }
+
+
+# ============================================================
 # 공통 내부 유틸
 # ============================================================
 
