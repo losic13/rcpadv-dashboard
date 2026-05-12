@@ -82,6 +82,19 @@ def execute_dml(source: str, sql: str, params: dict[str, Any] | None = None) -> 
         return result.rowcount
 
 
+def execute_dml_many(source: str, sql: str, params_list: list[dict[str, Any]]) -> int:
+    """동일한 DML을 여러 파라미터 세트로 일괄 실행 후 커밋. 총 영향받은 행 수를 반환."""
+    if not params_list:
+        return 0
+    engine = _get_engine(source)
+    with engine.begin() as conn:
+        total = 0
+        for params in params_list:
+            result = conn.execute(text(sql), params)
+            total += result.rowcount
+        return total
+
+
 def dispose_all() -> None:
     """앱 종료 시 호출."""
     for eng in _engines.values():

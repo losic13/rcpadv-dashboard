@@ -69,6 +69,14 @@
         <span class="toggle-label">자동갱신 <span class="toggle-suffix">10s</span></span>
       </label>
 
+      {# STATUS 저장 버튼 — saveEndpoint 가 있는 탭에서만 활성 #}
+      <button type="button" class="btn btn-save" data-role="save"
+              title="변경된 STATUS 저장" disabled>
+        <span class="btn-save-icon" aria-hidden="true">💾</span>
+        <span class="btn-save-label">SAVE</span>
+        <span class="btn-save-count"></span>
+      </button>
+
       <span class="status-area">
         <span class="spinner" data-role="spinner" hidden>
           <span class="spinner-dot"></span>
@@ -168,6 +176,12 @@
     let runner    = null;
     let activeTab = null;
 
+    // ── 탭별 saveEndpoint 매핑 (STATUS 편집 지원 탭) ────────
+    const SAVE_ENDPOINT_MAP = {
+      'amat_abnormal_step_new': '/dram/abnormal-step/save',
+      'amat_abnormal_step_all': '/dram/abnormal-step/save',
+    };
+
     // ── 패널 전환 헬퍼 ──────────────────────────────────────
     function showQueryPanel() {
       if (queryControls) queryControls.hidden = false;
@@ -208,14 +222,35 @@
         // 일반 탭: 결과 패널 표시 + QueryRunner 기동
         showQueryPanel();
         if (runner) runner.destroy();
+
+        const queryId      = tabBtn.dataset.queryId;
+        const saveEndpoint = SAVE_ENDPOINT_MAP[queryId] || null;
+
         runner = new QueryRunner({
-          rootEl: root,
-          source: root.dataset.source,
-          queryId: tabBtn.dataset.queryId,
+          rootEl:               root,
+          source:               root.dataset.source,
+          queryId:              queryId,
           autoRefreshIntervalMs: 10000,
-          pageLength: 25,
+          pageLength:           25,
+          saveEndpoint,
+          pkColumn:             'idx',
         });
         runner.init({ runOnLoad: true });
+
+        // SAVE 버튼 — saveEndpoint 없는 탭은 숨김 처리
+        const saveBtn = root.querySelector('[data-role="save"]');
+        if (saveBtn) {
+          saveBtn.hidden = !saveEndpoint;
+          if (!saveEndpoint) saveBtn.disabled = true;
+        }
+
+        // SAVE 버튼 클릭 이벤트 (탭 전환 시 재등록)
+        if (saveEndpoint && saveBtn && !saveBtn._saveListenerAttached) {
+          saveBtn._saveListenerAttached = true;
+          saveBtn.addEventListener('click', () => {
+            if (runner) runner._doSave();
+          });
+        }
       }
     }
 

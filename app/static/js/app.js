@@ -85,6 +85,9 @@
   // ============================================================
   // QueryRunner
   // ============================================================
+  // STATUS 컬럼 허용 값 (서버 화이트리스트와 동일하게 유지)
+  const STATUS_OPTIONS = ['ERROR', 'CHECKED', 'SUCCESS'];
+
   class QueryRunner {
     /**
      * @param {Object} opts
@@ -95,11 +98,15 @@
      * @param {Function} [opts.paramsCollector] - () => {param: value, ...}
      * @param {number} [opts.pageLength=25]
      * @param {boolean} [opts.showRaceToast=true] - race 발생 시 토스트 표시 여부
+     * @param {string}  [opts.saveEndpoint]  - STATUS 저장 API 경로 (있으면 SAVE 버튼 활성화)
+     * @param {string}  [opts.pkColumn]      - PK 컬럼명 (saveEndpoint 사용 시 필수, 기본 'idx')
      */
     constructor(opts) {
       this.root = opts.rootEl;
       this.source = opts.source;
       this.queryId = opts.queryId;
+      this.saveEndpoint = opts.saveEndpoint || null;
+      this.pkColumn     = opts.pkColumn     || 'idx';
       this.intervalMs = opts.autoRefreshIntervalMs || 10000;
       this.paramsCollector = opts.paramsCollector || (() => ({}));
       this.pageLength = opts.pageLength || 25;
@@ -126,6 +133,9 @@
       this._abortCtrl = null;       // 현재 in-flight fetch 의 AbortController
       this._cancelledCount = 0;     // 사용자에게 표시되는 누적 race 횟수
       this._supersedeTimer = null;  // "이전 요청 취소됨" 배지 자동 해제 타이머
+
+      // STATUS 편집 추적: Map<pkValue, newStatus>
+      this._statusChanges = new Map();
 
       this._onRefreshClick = () => this.run();
       this._onAutoChange = () => this._applyAutoRefresh();
@@ -179,6 +189,10 @@
       if (this.spinner) this.spinner.hidden = true;
       this._setLoadingDim(false);
       this._setStatusBadge('idle');
+
+      // 7) STATUS 변경 내역 초기화 + SAVE 버튼 비활성화
+      this._statusChanges.clear();
+      this._updateSaveBtn();
     }
 
     _applyAutoRefresh() {
@@ -370,12 +384,22 @@
         c => c.toUpperCase() === 'FILE_PATH'
       );
 
+      // STATUS 컬럼 감지 (saveEndpoint 가 설정된 경우에만 드롭다운으로 렌더링)
+      const STATUS_COL = this.saveEndpoint
+        ? (data.columns || []).find(c => c.toUpperCase() === 'STATUS')
+        : null;
+
+      // PK 컬럼 감지 (STATUS 드롭다운의 data-pk 에 사용)
+      const PK_COL = STATUS_COL
+        ? (data.columns || []).find(c => c === this.pkColumn)
+        : null;
+
       const columns = (data.columns || []).map(c => {
         const isFilePath = FILE_PATH_COL && c === FILE_PATH_COL;
+        const isStatus   = STATUS_COL    && c === STATUS_COL;
         return {
           title: c,
           data: c,
-          // FILE_PATH 컬럼은 경로 텍스트 + [확인] + [⬇] 버튼으로 렌더링
           render: isFilePath
             ? (val) => {
                 if (val == null || val === '') return '';
@@ -391,6 +415,22 @@
                               'data-path="' + attr + '" title="파일 다운로드">⬇ 다운로드</button>' +
                     '</span>' +
                   '</span>'
+                );
+              }
+            : isStatus
+            ? (val, _type, row) => {
+                // STATUS 드롭다운 렌더링
+                const cur   = val != null ? String(val) : '';
+                const pkVal = PK_COL && row[PK_COL] != null ? String(row[PK_COL]) : '';
+                const opts  = STATUS_OPTIONS.map(s =>
+                  '<option value="' + s + '"' + (s === cur ? ' selected' : '') + '>' + s + '</option>'
+                ).join('');
+                return (
+                  '<select class="st-select st-select--' + cur.toLowerCase() + '"' +
+                          ' data-original="' + escapeHtml(cur) + '"' +
+                          ' data-pk="' + escapeHtml(pkVal) + '">' +
+                    opts +
+                  '</select>'
                 );
               }
             : (val) => {
@@ -481,6 +521,92 @@
             FilePathActions.download(path);
           }
         });
+      }
+
+      // STATUS 드롭다운 변경 이벤트 위임
+      // (이미 등록됐으면 재등록하지 않도록 플래그 사용)
+      if (STATUS_COL && !this._stHandlerAttached) {
+        this._stHandlerAttached = true;
+        this.tableEl.addEventListener('change', (e) => {
+          const sel = e.target.closest('.st-select');
+          if (!sel) return;
+
+          const pk       = sel.dataset.pk;
+          const original = sel.dataset.original;
+          const newVal   = sel.value;
+
+          if (!pk) return;
+
+          // className 갱신 (색상 반영)
+          sel.className = 'st-select st-select--' + newVal.toLowerCase();
+
+          if (newVal !== original) {
+            this._statusChanges.set(pk, newVal);
+          } else {
+            // 원래 값으로 되돌린 경우 변경 목록에서 제거
+            this._statusChanges.delete(pk);
+          }
+          this._updateSaveBtn();
+        });
+      }
+    }
+
+    // SAVE 버튼 활성/비활성 갱신
+    _updateSaveBtn() {
+      const btn = this.root ? this.root.querySelector('[data-role="save"]') : null;
+      if (!btn) return;
+      const hasChanges = this._statusChanges.size > 0;
+      btn.disabled = !hasChanges;
+      btn.classList.toggle('btn-save--active', hasChanges);
+      // 변경 건수 표시
+      const countEl = btn.querySelector('.btn-save-count');
+      if (countEl) countEl.textContent = hasChanges ? ` (${this._statusChanges.size})` : '';
+    }
+
+    // SAVE 실행
+    async _doSave() {
+      if (!this.saveEndpoint || this._statusChanges.size === 0) return;
+
+      const btn = this.root ? this.root.querySelector('[data-role="save"]') : null;
+      if (btn) { btn.disabled = true; btn.textContent = '저장 중…'; }
+
+      const changes = Array.from(this._statusChanges.entries()).map(([pk, status]) => ({
+        [this.pkColumn]: Number(pk),
+        status,
+      }));
+
+      try {
+        const res  = await fetch(this.saveEndpoint, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ changes }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+
+        Toast.show(`STATUS ${data.updated}건 저장 완료.`, 'success');
+        this._statusChanges.clear();
+        // 드롭다운 original 값 갱신 (저장 완료 기준점 이동)
+        this.tableEl.querySelectorAll('.st-select').forEach(sel => {
+          sel.dataset.original = sel.value;
+        });
+      } catch (err) {
+        Toast.show('저장 실패: ' + err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.textContent = '';
+          // count span 복원
+          const icon  = document.createElement('span');
+          icon.className = 'btn-save-icon';
+          icon.textContent = '💾';
+          const label = document.createElement('span');
+          label.className = 'btn-save-label';
+          label.textContent = 'SAVE';
+          const count = document.createElement('span');
+          count.className = 'btn-save-count';
+          btn.replaceChildren(icon, label, count);
+        }
+        this._updateSaveBtn();
       }
     }
 
