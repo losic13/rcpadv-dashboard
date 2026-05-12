@@ -1,0 +1,404 @@
+{#
+  Document 조회 (/es/document)
+  ──────────────────────────────────────────────────────────────
+  · 입력  : textarea 에 _id 목록 (개행/콤마/공백/세미콜론 무관)
+  · 동작  : POST /es/document/lookup  { ids: [...] }
+            → 서버가 parsing-index-2-* 에 terms 쿼리 1회 실행
+            → 입력 순서대로 정렬된 hits 와 미발견 _id 목록을 반환
+  · 결과  : DataTables 로 표시 (_id + _source 의 모든 필드를 동적 컬럼으로)
+
+  최대 입력 한도 / 인덱스 이름은 백엔드 상수
+    (es_service.DOCUMENT_LOOKUP_MAX_IDS / DOCUMENT_LOOKUP_INDEX)
+  를 그대로 페이지에 노출.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+
+<section class="card es-document-page">
+
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES</span>
+      <strong>_id Document 조회</strong>
+      <span class="card-sub">index: <code>{{ lookup_index }}</code> · 최대 {{ lookup_max_ids }} 건</span>
+    </div>
+    <div class="card-controls">
+      <button class="btn btn-run" id="doc-btn-run" type="button" title="조회">
+        <span class="btn-run-icon" aria-hidden="true">▶</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+      <button class="btn btn-run btn-run-sm" id="doc-btn-clear" type="button" title="입력 비우기">
+        <span class="btn-run-label">비우기</span>
+      </button>
+      <span class="status-badge" id="doc-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+
+    {# ── 입력 영역 ────────────────────────────────────────── #}
+    <div class="doc-input-wrap">
+      <label for="doc-ids-input" class="doc-input-label">
+        _id 목록
+        <span class="doc-input-hint">개행 / 콤마 / 공백 / 세미콜론 어떻게 구분해도 됨</span>
+      </label>
+      <textarea
+        id="doc-ids-input"
+        class="doc-ids-textarea"
+        rows="6"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="ABC123&#10;DEF456, GHI789&#10;JKL012"
+      ></textarea>
+      <div class="doc-input-meta">
+        <span class="disk-meta-item">
+          <span class="disk-meta-key">입력</span>
+          <span id="doc-input-count">0</span> 개
+        </span>
+        <span class="disk-meta-sep">·</span>
+        <span class="disk-meta-item">
+          <span class="disk-meta-key">한도</span>
+          {{ lookup_max_ids }} 개
+        </span>
+      </div>
+    </div>
+
+    {# ── 에러 / 안내 배너 ─────────────────────────────────── #}
+    <div id="doc-error" class="disk-error" hidden></div>
+
+    {# ── 결과 메타 ────────────────────────────────────────── #}
+    <div class="disk-meta" id="doc-result-meta" hidden>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="doc-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="doc-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">입력</span>
+        <span id="doc-requested">0</span> 개
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회</span>
+        <span id="doc-found">0</span> 개
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">미발견</span>
+        <span id="doc-missing-count">0</span> 개
+      </span>
+    </div>
+
+    {# ── 결과 테이블 ──────────────────────────────────────── #}
+    <div class="doc-table-wrap" id="doc-table-wrap" hidden>
+      <table id="doc-table" class="display compact" style="width:100%;">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    {# ── 미발견 _id 영역 (옵션) ──────────────────────────── #}
+    <details class="doc-missing-box" id="doc-missing-box" hidden>
+      <summary>
+        미발견 _id <span id="doc-missing-summary-count">0</span> 개 보기
+      </summary>
+      <pre id="doc-missing-list" class="doc-missing-list"></pre>
+    </details>
+
+    {# ── 비어있을 때 안내 ────────────────────────────────── #}
+    <div class="doc-empty" id="doc-empty">
+      _id 를 입력하고 <strong>조회</strong> 버튼을 눌러주세요.
+    </div>
+
+  </div>
+</section>
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+(() => {
+  'use strict';
+
+  // ── 입력 파싱 ────────────────────────────────────────────
+  // 개행/콤마/공백/세미콜론/탭 어떻게 들어와도 분리.
+  function parseIds(raw) {
+    if (!raw) return [];
+    const parts = raw.split(/[\s,;]+/);
+    const seen = new Set();
+    const out = [];
+    for (const p of parts) {
+      const s = p.trim();
+      if (!s) continue;
+      if (seen.has(s)) continue;   // 클라이언트에서도 중복 제거
+      seen.add(s);
+      out.push(s);
+    }
+    return out;
+  }
+
+  // ── DOM ──────────────────────────────────────────────────
+  const $textarea     = document.getElementById('doc-ids-input');
+  const $btnRun       = document.getElementById('doc-btn-run');
+  const $btnClear     = document.getElementById('doc-btn-clear');
+  const $badge        = document.getElementById('doc-status-badge');
+  const $inputCount   = document.getElementById('doc-input-count');
+  const $error        = document.getElementById('doc-error');
+  const $resultMeta   = document.getElementById('doc-result-meta');
+  const $queriedAt    = document.getElementById('doc-queried-at');
+  const $elapsed      = document.getElementById('doc-elapsed');
+  const $requested    = document.getElementById('doc-requested');
+  const $found        = document.getElementById('doc-found');
+  const $missingCount = document.getElementById('doc-missing-count');
+  const $tableWrap    = document.getElementById('doc-table-wrap');
+  const $tableEl      = document.getElementById('doc-table');
+  const $missingBox   = document.getElementById('doc-missing-box');
+  const $missingSum   = document.getElementById('doc-missing-summary-count');
+  const $missingList  = document.getElementById('doc-missing-list');
+  const $empty        = document.getElementById('doc-empty');
+
+  const MAX_IDS = {{ lookup_max_ids|int }};
+
+  // ── 상태 관리 ────────────────────────────────────────────
+  let _dataTable = null;
+  let _runToken = 0;          // 가장 최근 실행만 결과 반영
+  let _abortCtl = null;
+
+  function setBadge(state, label) {
+    $badge.dataset.state = state;
+    $badge.textContent = label || '';
+  }
+
+  function showError(msg) {
+    $error.textContent = msg;
+    $error.hidden = false;
+  }
+  function hideError() {
+    $error.hidden = true;
+    $error.textContent = '';
+  }
+
+  function updateInputCount() {
+    const ids = parseIds($textarea.value);
+    $inputCount.textContent = ids.length;
+    // 한도 초과 시 시각적 경고
+    if (ids.length > MAX_IDS) {
+      $inputCount.style.color = '#dc2626';
+    } else {
+      $inputCount.style.color = '';
+    }
+  }
+
+  // ── 결과 렌더링 ──────────────────────────────────────────
+  function renderTable(columns, rows) {
+    // 기존 DataTable 인스턴스 정리
+    if (_dataTable) {
+      try { _dataTable.destroy(); } catch (_) {}
+      _dataTable = null;
+    }
+    // thead / tbody 클리어
+    const $thead = $tableEl.querySelector('thead');
+    const $tbody = $tableEl.querySelector('tbody');
+    $thead.innerHTML = '';
+    $tbody.innerHTML = '';
+
+    if (!columns.length || !rows.length) {
+      $tableWrap.hidden = true;
+      return;
+    }
+
+    // thead
+    const trHead = document.createElement('tr');
+    for (const c of columns) {
+      const th = document.createElement('th');
+      th.textContent = c;
+      trHead.appendChild(th);
+    }
+    $thead.appendChild(trHead);
+
+    // DataTables 데이터 (columns 순서대로)
+    const tableData = rows.map(r => columns.map(c => {
+      const v = r[c];
+      if (v == null) return '';
+      if (typeof v === 'object') {
+        try { return JSON.stringify(v); } catch { return String(v); }
+      }
+      return v;
+    }));
+
+    $tableWrap.hidden = false;
+
+    // jQuery DataTables
+    _dataTable = $($tableEl).DataTable({
+      data: tableData,
+      columns: columns.map(c => ({ title: c })),
+      destroy: true,
+      pageLength: 25,
+      lengthMenu: [10, 25, 50, 100, 250],
+      order: [],   // 서버에서 입력순서로 정렬해 보냈으므로 그대로 둠
+      deferRender: true,
+      autoWidth: false,
+      language: {
+        emptyTable: '결과가 없습니다',
+        info: '총 _TOTAL_ 건 (_START_ ~ _END_)',
+        infoEmpty: '0 건',
+        infoFiltered: ' / 필터 적용 _MAX_ 건 중',
+        lengthMenu: '_MENU_ 건씩 보기',
+        search: '검색:',
+        paginate: { previous: '이전', next: '다음', first: '처음', last: '마지막' },
+        zeroRecords: '일치하는 행이 없습니다',
+      },
+    });
+  }
+
+  function renderMissing(missingIds) {
+    if (!missingIds || !missingIds.length) {
+      $missingBox.hidden = true;
+      $missingList.textContent = '';
+      $missingSum.textContent = '0';
+      return;
+    }
+    $missingSum.textContent = missingIds.length;
+    $missingList.textContent = missingIds.join('\n');
+    $missingBox.hidden = false;
+  }
+
+  // ── 조회 실행 ────────────────────────────────────────────
+  async function runLookup() {
+    hideError();
+    const ids = parseIds($textarea.value);
+
+    if (!ids.length) {
+      showError('조회할 _id 를 한 개 이상 입력해주세요.');
+      return;
+    }
+    if (ids.length > MAX_IDS) {
+      showError(`최대 ${MAX_IDS} 건까지 조회 가능합니다 (현재 ${ids.length} 건).`);
+      return;
+    }
+
+    // 이전 요청 cancel + 토큰 갱신
+    if (_abortCtl) {
+      try { _abortCtl.abort(); } catch (_) {}
+    }
+    _abortCtl = new AbortController();
+    const myToken = ++_runToken;
+
+    // UI: 로딩 상태
+    $btnRun.disabled = true;
+    setBadge('loading', '조회 중…');
+    $empty.style.display = 'none';
+
+    let resp, json;
+    try {
+      resp = await fetch('/es/document/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+        signal: _abortCtl.signal,
+      });
+    } catch (e) {
+      // abort 는 의도된 취소이므로 조용히 무시 (단, 가장 최근 토큰이면 idle)
+      if (e.name === 'AbortError') {
+        if (myToken === _runToken) {
+          setBadge('superseded', '취소됨');
+          $btnRun.disabled = false;
+        }
+        return;
+      }
+      if (myToken !== _runToken) return;
+      showError(`네트워크 오류: ${e.message || e}`);
+      setBadge('error', '오류');
+      $btnRun.disabled = false;
+      return;
+    }
+
+    if (myToken !== _runToken) return;   // 더 새 요청이 있으면 폐기
+
+    try {
+      json = await resp.json();
+    } catch (_) {
+      json = null;
+    }
+
+    if (!resp.ok) {
+      const detail = (json && (json.detail || json.error)) || `HTTP ${resp.status}`;
+      showError(`조회 실패: ${detail}`);
+      setBadge('error', '오류');
+      $btnRun.disabled = false;
+      return;
+    }
+
+    // 정상 응답
+    const columns = json.columns || [];
+    const rows    = json.rows    || [];
+
+    $resultMeta.hidden = false;
+    $queriedAt.textContent     = json.queried_at || '—';
+    $elapsed.textContent       = (json.elapsed_ms ?? 0) + 'ms';
+    $requested.textContent     = json.requested ?? 0;
+    $found.textContent         = json.found ?? 0;
+    $missingCount.textContent  = json.missing_count ?? 0;
+
+    renderTable(columns, rows);
+    renderMissing(json.missing_ids || []);
+
+    if (!rows.length) {
+      $empty.style.display = '';
+      $empty.innerHTML = '입력한 _id 에 해당하는 문서가 없습니다.';
+    } else {
+      $empty.style.display = 'none';
+    }
+
+    setBadge('ok', `완료 · ${json.found ?? 0}건`);
+    $btnRun.disabled = false;
+  }
+
+  // ── 입력 비우기 ──────────────────────────────────────────
+  function clearAll() {
+    $textarea.value = '';
+    updateInputCount();
+    hideError();
+
+    if (_dataTable) {
+      try { _dataTable.destroy(); } catch (_) {}
+      _dataTable = null;
+    }
+    $tableEl.querySelector('thead').innerHTML = '';
+    $tableEl.querySelector('tbody').innerHTML = '';
+    $tableWrap.hidden = true;
+    $missingBox.hidden = true;
+    $resultMeta.hidden = true;
+    setBadge('idle', '');
+    $empty.style.display = '';
+    $empty.innerHTML = '_id 를 입력하고 <strong>조회</strong> 버튼을 눌러주세요.';
+  }
+
+  // ── 이벤트 바인딩 ────────────────────────────────────────
+  $textarea.addEventListener('input', updateInputCount);
+  $btnRun.addEventListener('click', runLookup);
+  $btnClear.addEventListener('click', clearAll);
+
+  // Ctrl+Enter / Cmd+Enter 로 즉시 조회
+  $textarea.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      runLookup();
+    }
+  });
+
+  // 초기 카운트
+  updateInputCount();
+})();
+</script>
+{% endblock %}
