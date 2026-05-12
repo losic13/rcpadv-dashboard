@@ -2,6 +2,23 @@
 from app.queries._base import ParamDef, SqlQueryDef
 
 QUERIES: dict[str, SqlQueryDef] = {
+    "amat_abnormal_step_new": SqlQueryDef(
+        id="amat_abnormal_step_new",
+        title="AMAT 설비 Abnormal Step List (New)",
+        description="AMAT 설비 Abnormal Step 신규 목록. FILE_PATH 컬럼 옆 [확인]/[⬇] 버튼으로 파일 다운로드 가능.",
+        sql="""
+            SELECT
+                idx,
+                es_id,
+                file_path,
+                reason,
+                insert_datetime,
+                status
+            FROM amat_abnormal_step
+            ORDER BY insert_datetime DESC
+            LIMIT 1000
+        """,
+    ),
     "recent_test_results": SqlQueryDef(
         id="recent_test_results",
         title="최근 테스트 결과 (24h)",

@@ -365,17 +365,42 @@
       if (this._destroyed) return;
       if (!this.tableEl || !this.tableEl.isConnected) return;
 
-      const columns = (data.columns || []).map(c => ({
-        title: c,
-        data: c,
-        // 객체/배열은 JSON 으로 직렬화하여 표시 (ES 응답 대응)
-        render: (val) => {
-          if (val == null) return '';
-          if (typeof val === 'object') return escapeHtml(JSON.stringify(val));
-          return escapeHtml(val);
-        },
-        defaultContent: '',
-      }));
+      // FILE_PATH 컬럼 감지 (대소문자 무관)
+      const FILE_PATH_COL = (data.columns || []).find(
+        c => c.toUpperCase() === 'FILE_PATH'
+      );
+
+      const columns = (data.columns || []).map(c => {
+        const isFilePath = FILE_PATH_COL && c === FILE_PATH_COL;
+        return {
+          title: c,
+          data: c,
+          // FILE_PATH 컬럼은 경로 텍스트 + [확인] + [⬇] 버튼으로 렌더링
+          render: isFilePath
+            ? (val) => {
+                if (val == null || val === '') return '';
+                const escaped = escapeHtml(String(val));
+                const attr    = escaped.replace(/"/g, '&quot;');
+                return (
+                  '<span class="fp-cell">' +
+                    '<span class="fp-path" title="' + attr + '">' + escaped + '</span>' +
+                    '<span class="fp-actions">' +
+                      '<button type="button" class="fp-btn fp-btn-check" ' +
+                              'data-path="' + attr + '" title="파일 존재 여부 확인">🔍 확인</button>' +
+                      '<button type="button" class="fp-btn fp-btn-dl" ' +
+                              'data-path="' + attr + '" title="파일 다운로드">⬇ 다운로드</button>' +
+                    '</span>' +
+                  '</span>'
+                );
+              }
+            : (val) => {
+                if (val == null) return '';
+                if (typeof val === 'object') return escapeHtml(JSON.stringify(val));
+                return escapeHtml(val);
+              },
+          defaultContent: '',
+        };
+      });
 
       // 결과가 0행이고 컬럼도 없는 케이스
       if (columns.length === 0) {
@@ -436,6 +461,27 @@
       });
 
       this._cachedColumns = columns.map(c => c.data);
+
+      // FILE_PATH 컬럼이 있을 때만 이벤트 위임 등록
+      // (이미 등록됐으면 재등록하지 않도록 플래그 사용)
+      if (FILE_PATH_COL && !this._fpHandlerAttached) {
+        this._fpHandlerAttached = true;
+        this.tableEl.addEventListener('click', (e) => {
+          const btnCheck = e.target.closest('.fp-btn-check');
+          const btnDl    = e.target.closest('.fp-btn-dl');
+          if (!btnCheck && !btnDl) return;
+          e.stopPropagation();
+
+          const path = (btnCheck || btnDl).dataset.path || '';
+          if (!path) return;
+
+          if (btnCheck) {
+            FilePathActions.check(path);
+          } else {
+            FilePathActions.download(path);
+          }
+        });
+      }
     }
 
     _sameColumns(columns) {
@@ -1741,10 +1787,126 @@
     }
   }
 
+  // ============================================================
+  // FilePathActions — FILE_PATH 컬럼 버튼 공통 로직
+  //   QueryRunner._renderTable 이 그린 버튼 클릭 핸들러가 사용.
+  //   /files/check + /files/download 엔드포인트를 그대로 활용.
+  // ============================================================
+  const FilePathActions = {
+
+    /* 파일 크기 포맷 */
+    _fmtSize(bytes) {
+      if (bytes == null) return '?';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let v = bytes, i = 0;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return i === 0 ? `${v} B` : `${v.toFixed(2)} ${units[i]}`;
+    },
+
+    /* 버튼 상태 변경 헬퍼 */
+    _setBtnState(btn, loading) {
+      if (!btn) return;
+      btn.disabled = loading;
+      btn.classList.toggle('fp-btn-loading', loading);
+    },
+
+    /* 결과를 Toast + 버튼 옆 인라인 뱃지로 모두 알림 */
+    _showInline(btn, ok, msg) {
+      // 이전 뱃지 제거
+      const prev = btn.parentElement.querySelector('.fp-inline-result');
+      if (prev) prev.remove();
+
+      const span = document.createElement('span');
+      span.className = `fp-inline-result fp-inline-${ok ? 'ok' : 'err'}`;
+      span.textContent = msg;
+      btn.parentElement.appendChild(span);
+
+      // 4초 후 자동 제거
+      setTimeout(() => { if (span.parentElement) span.remove(); }, 4000);
+    },
+
+    /* /files/check 호출 */
+    async check(path) {
+      // 해당 행의 [확인] 버튼 참조 (클릭 이벤트 발생 직후이므로 document.activeElement 활용)
+      const btn = document.activeElement;
+      this._setBtnState(btn, true);
+
+      let data, ok;
+      try {
+        const res = await fetch(
+          `/files/check?path=${encodeURIComponent(path)}`,
+          { headers: { Accept: 'application/json' } }
+        );
+        data = await res.json().catch(() => ({}));
+        ok   = res.ok;
+      } catch (err) {
+        if (window.Toast) Toast.show(`요청 실패: ${err.message}`, { level: 'error', icon: '✗' });
+        this._setBtnState(btn, false);
+        return;
+      }
+
+      this._setBtnState(btn, false);
+
+      if (ok) {
+        const msg = `존재 ✓ | ${escapeHtml(data.name || '')} | ${this._fmtSize(data.size_bytes)}`;
+        this._showInline(btn, true, msg);
+        if (window.Toast) Toast.show(msg, { level: 'success', icon: '✓', durationMs: 3000 });
+      } else if (data.reason === 'not_found') {
+        this._showInline(btn, false, '파일 없음 ✗');
+        if (window.Toast) Toast.show('파일이 존재하지 않습니다.', { level: 'error', icon: '✗', durationMs: 3000 });
+      } else {
+        const msg = data.message || `HTTP ${data.status}`;
+        this._showInline(btn, false, `오류: ${msg}`);
+        if (window.Toast) Toast.show(`확인 실패: ${msg}`, { level: 'error', icon: '✗' });
+      }
+    },
+
+    /* /files/check → 존재하면 /files/download 트리거 */
+    async download(path) {
+      const btn = document.activeElement;
+      this._setBtnState(btn, true);
+
+      let data, res;
+      try {
+        res  = await fetch(
+          `/files/check?path=${encodeURIComponent(path)}`,
+          { headers: { Accept: 'application/json' } }
+        );
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        if (window.Toast) Toast.show(`요청 실패: ${err.message}`, { level: 'error', icon: '✗' });
+        this._setBtnState(btn, false);
+        return;
+      }
+
+      this._setBtnState(btn, false);
+
+      if (!res.ok) {
+        const msg = data.reason === 'not_found' ? '파일이 존재하지 않습니다.' : (data.message || `HTTP ${res.status}`);
+        this._showInline(btn, false, data.reason === 'not_found' ? '파일 없음 ✗' : `오류: ${msg}`);
+        if (window.Toast) Toast.show(msg, { level: 'error', icon: '✗', durationMs: 3000 });
+        return;
+      }
+
+      // 존재 → 다운로드 트리거
+      this._showInline(btn, true, `다운로드 시작 ⬇ | ${escapeHtml(data.name || '')}`);
+      if (window.Toast) Toast.show(`다운로드 시작: ${data.name || ''}`, { level: 'success', icon: '⬇', durationMs: 2500 });
+
+      const a = document.createElement('a');
+      a.href = `/files/download?path=${encodeURIComponent(path)}`;
+      a.rel  = 'noopener';
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
+  };
+
   // 외부 노출
   window.QueryRunner = QueryRunner;
   window.ChartCard = ChartCard;
   window.CountCard = CountCard;
   window.LoginTodayCard = LoginTodayCard;
   window.Toast = Toast;
+  window.FilePathActions = FilePathActions;
 })();
