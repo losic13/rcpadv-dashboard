@@ -4675,3 +4675,150 @@ td:has(a.es-id-link) {
   width: 110px;
   white-space: nowrap;
 }
+
+/* ════════════════════════════════════════════════════════════
+   설비별 처리현황 페이지 (/es/eqp-status)
+   · product / maker / eqp_id × 날짜 매트릭스
+   · 좌측 3열 sticky (가로 스크롤 시 고정)
+   · doc_count = 0 셀은 회색
+   ──────────────────────────────────────────────────────────── */
+.eqp-status-page .card-body {
+  padding: 16px;
+}
+
+/* 표 컨테이너 — 가로/세로 스크롤 + 헤더 sticky */
+.eqp-table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 280px);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: #fff;
+  position: relative;
+}
+
+table.eqp-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;       /* 컨텐츠 만큼 늘어나도록 */
+  min-width: 100%;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 헤더 — 세로 스크롤 시 상단 고정 */
+table.eqp-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f9fafb;
+  border-bottom: 2px solid #d1d5db;
+  padding: 8px 10px;
+  font-weight: 600;
+  text-align: center;
+  color: #374151;
+  white-space: nowrap;
+}
+
+table.eqp-table tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f3f4f6;
+  background: #fff;
+  white-space: nowrap;
+  text-align: right;
+}
+
+table.eqp-table tbody tr:hover td {
+  background: #f9fafb;
+}
+
+/* ── 좌측 sticky 3열 (product / maker / eqp_id) ─────────── */
+.eqp-table .eqp-col-fixed {
+  position: sticky;
+  z-index: 2;                /* 일반 td(1) 보다 위 */
+  background: #fff;
+  text-align: left;
+  font-weight: 500;
+  color: #111827;
+}
+
+.eqp-table thead th.eqp-col-fixed {
+  z-index: 4;                /* 헤더(3) × sticky(2) 둘 다 만나는 좌상단은 가장 위 */
+  background: #f3f4f6;
+}
+
+/* 각 열의 left 위치 — 너비를 명시하고 left 도 같이 지정 */
+.eqp-table .eqp-col-product { left: 0;     min-width: 140px; max-width: 200px; }
+.eqp-table .eqp-col-maker   { left: 140px; min-width: 120px; max-width: 180px; }
+.eqp-table .eqp-col-eqp     { left: 260px; min-width: 140px; max-width: 220px; }
+
+/* sticky 3번째 컬럼 우측 경계선 — 가로 스크롤 시 시각적 구분 */
+.eqp-table .eqp-col-eqp {
+  border-right: 2px solid #d1d5db;
+}
+
+/* 호버 시 sticky 셀도 같이 강조 */
+.eqp-table tbody tr:hover .eqp-col-fixed {
+  background: #f9fafb;
+}
+
+/* ── 날짜 셀 ────────────────────────────────────────────── */
+.eqp-table .eqp-col-date {
+  min-width: 96px;
+  text-align: right;
+}
+
+.eqp-table .eqp-cell {
+  color: #111827;
+}
+
+/* doc_count = 0 (또는 null) — 회색 처리 */
+.eqp-table .eqp-cell-zero {
+  color: #d1d5db;
+}
+
+/* ── 합계 (행 끝 컬럼) ──────────────────────────────────── */
+.eqp-table .eqp-col-total {
+  min-width: 100px;
+  background: #f9fafb;
+  font-weight: 600;
+  color: #1f2937;
+  border-left: 1px solid #e5e7eb;
+  text-align: right;
+}
+
+.eqp-table thead th.eqp-col-total {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+/* ── tfoot 열 합계 ──────────────────────────────────────── */
+.eqp-table tfoot .eqp-foot-total td {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: #eef2ff;
+  font-weight: 600;
+  color: #1e293b;
+  border-top: 2px solid #c7d2fe;
+  text-align: right;
+  padding: 8px 10px;
+}
+
+.eqp-table tfoot .eqp-foot-total td.eqp-col-fixed {
+  z-index: 4;
+  text-align: left;
+  background: #e0e7ff;
+}
+
+.eqp-table tfoot .eqp-foot-total .eqp-cell-grand {
+  background: #c7d2fe;
+  color: #1e1b4b;
+}
+
+/* 빈 상태 안내 */
+.eqp-table .eqp-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: #6b7280;
+  background: #fafafa;
+}
