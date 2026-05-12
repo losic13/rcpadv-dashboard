@@ -687,14 +687,19 @@
           _kwTable = $(tableEl).DataTable({
             data: rows,
             columns: [
-              { title: 'index', data: 'index', width: '80px', className: 'dt-center', defaultContent: '' },
+              // INDEX 컬럼:
+              //   · 헤더 'INDEX' + DataTables 정렬 화살표(약 18~22px) 가 80px 안에서
+              //     겹치는 문제 → 폭을 110px 로 늘리고 .kw-col-index 로 CSS 강제 폭 지정.
+              //   · 이 페이지에서만 INDEX 를 내림차순으로 기본 정렬 (최근 등록 우선 보기).
+              { title: 'INDEX', data: 'index', width: '110px',
+                className: 'dt-center kw-col-index', defaultContent: '' },
               { title: 'name',  data: 'name',  defaultContent: '' },
             ],
             dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
             buttons: [{ extend: 'csvHtml5', text: 'CSV 내보내기', filename: 'amat_keyword' }],
             pageLength: 25,
             lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, '전체']],
-            order: [[0, 'asc']],
+            order: [[0, 'desc']],
             language: window._DT_KO || {},
           });
           setStatus('', '');
