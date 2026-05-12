@@ -30,6 +30,13 @@ class SqlQueryDef:
     description: str = ""
     params: list[ParamDef] = []      # 현재 UI에서 입력받지 않음 (PR #4에서 제거)
     show_in_dashboard: bool = False  # (메타) 대시보드 후보 표시 — home.py 가 직접 enumerate
+    hidden: bool = False             # True 이면 source_page 탭 목록 제외 (PR #46, special_tab 전용)
+
+@dataclass
+class SqlDmlDef:                     # PR #47 — INSERT/UPDATE/DELETE 전용
+    id: str
+    description: str
+    sql: str
 
 @dataclass
 class EsQueryDef:
@@ -249,18 +256,39 @@ ORDER BY TKIN_TIME ASC
 # app/routers/home.py
 DASHBOARD_CARDS = [
     {
+        "type": "chart",
         "source": "vnand",
         "source_label": "VNAND DB",
         "title": "VNAND 파싱 결과",
         "query_id": "recent_parsing_results",
         "products": ["LAM", "TEL"],
+        "link_url": "/vnand",          # 타이틀 클릭 시 이동 (선택적, PR #50)
     },
     {
+        "type": "chart",
         "source": "dram",
         "source_label": "DRAM DB",
         "title": "DRAM 파싱 결과",
         "query_id": "recent_parsing_results",
         "products": ["AMAT", "LAM", "TEL"],
+        "link_url": "/dram",
+    },
+    {
+        "type": "count",
+        "source": "dram",
+        "source_label": "DRAM DB",
+        "title": "AMAT 비정상 스텝 (미처리)",
+        "query_id": "amat_abnormal_steps_no_treat",
+        "unit": "건",
+        # link_url 없음 → 타이틀 링크 없음
+    },
+    {
+        "type": "login_today",
+        "source": "login_history",
+        "source_label": "VNAND DB",
+        "title": "오늘 접속자수",
+        "description": "오늘 0시 ~ 현재까지의 로그인 통계입니다.",
+        "link_url": "/login-history",
     },
 ]
 ```
