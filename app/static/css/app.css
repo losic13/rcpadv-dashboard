@@ -4594,3 +4594,30 @@ body.ls-dl-modal-open { overflow: hidden; }
     display: none;
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   ES_ID 컬럼 링크 — AMAT 설비탐색 등에서 ES_ID 셀을 클릭하면
+   Document 빌더(/es/document)로 점프하여 자동 조회.
+   ──────────────────────────────────────────────────────────── */
+a.es-id-link {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #2563eb;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(37, 99, 235, 0.45);
+  padding: 0 2px;
+  word-break: break-all;
+  line-height: 1.4;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+a.es-id-link:hover,
+a.es-id-link:focus {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.08);
+  border-bottom-color: #1d4ed8;
+  outline: none;
+}
+a.es-id-link:visited {
+  color: #6d28d9;
+}

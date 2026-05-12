@@ -726,6 +726,20 @@
 
   // 초기 카운트
   updateInputCount();
+
+  // ── 외부 진입(?ids=...) 처리 ───────────────────────────
+  //   다른 페이지(예: /amat 의 ES_ID 컬럼 링크) 에서 ?ids=ABC,DEF 형태로
+  //   넘어오면 textarea 를 자동으로 채우고 즉시 조회를 실행한다.
+  //   서버가 initial_ids 로 raw 문자열을 그대로 넘겨주므로(쉼표/공백/세미콜론
+  //   포함 가능) parseIds() 가 그대로 받아 처리한다.
+  (function autoRunFromQuery() {
+    const initial = {{ initial_ids|tojson }};
+    if (!initial) return;
+    $textarea.value = initial;
+    updateInputCount();
+    // 다음 tick 에서 실행 — 위 동기 init 코드(updateInputCount 등) 가 모두 끝나도록.
+    setTimeout(() => { runLookup(); }, 0);
+  })();
 })();
 </script>
 {% endblock %}
