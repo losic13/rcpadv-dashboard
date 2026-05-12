@@ -4822,3 +4822,57 @@ table.eqp-table tbody tr:hover td {
   color: #6b7280;
   background: #fafafa;
 }
+
+/* ── 설비별 처리현황 — 정렬 가능 헤더 ───────────────────── */
+.eqp-table th.eqp-th-sortable {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  position: sticky;          /* thead sticky 보존 */
+  top: 0;
+}
+
+.eqp-table th.eqp-th-sortable:hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+/* 헤더 라벨 + 정렬 인디케이터 정렬용 */
+.eqp-table th.eqp-th-sortable .eqp-th-label {
+  margin-right: 4px;
+}
+
+.eqp-table .eqp-sort-ind {
+  display: inline-block;
+  font-size: 10px;
+  color: #9ca3af;
+  min-width: 10px;
+  text-align: center;
+  vertical-align: middle;
+  transition: color 0.15s;
+}
+
+.eqp-table th.eqp-th-sortable:hover .eqp-sort-ind {
+  color: #4338ca;
+}
+
+.eqp-table .eqp-sort-ind.eqp-sort-active {
+  color: #4338ca;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 현재 정렬 중인 컬럼 헤더 — 강조 배경 */
+.eqp-table th.eqp-th-sorted {
+  background: #e0e7ff !important;
+  color: #312e81;
+}
+
+/* 현재 정렬 중인 컬럼의 셀 — 살짝 강조 */
+.eqp-table tbody td.eqp-cell-sorted {
+  background: #f5f3ff;
+}
+
+.eqp-table tbody tr:hover td.eqp-cell-sorted {
+  background: #ede9fe;
+}

@@ -111,14 +111,101 @@
     el.hidden = !text;
   }
 
+  /* ──────────────────────────────────────────────────────────
+     정렬 상태
+     ──────────────────────────────────────────────────────────
+     state.sortKey:
+        null               → 기본 정렬 (product / maker / eqp_id asc)
+        'YYYY-MM-DD'       → 특정 날짜 컬럼 기준
+        '__total__'        → 합계 컬럼 기준
+     state.sortDir:
+        'desc' | 'asc'
+     클릭 토글 순환:
+        none → desc → asc → none → ...
+     (사용자가 "데이터 많은거/적은거" 를 먼저 보고 싶다 했으므로 desc 부터)
+     ────────────────────────────────────────────────────────── */
+  var state = {
+    sortKey: null,     // null = 기본 정렬 모드
+    sortDir: 'desc',   // 'desc' | 'asc'  (sortKey != null 일 때만 의미)
+    lastData: null,    // 최근 fetch 결과 (재정렬 시 재사용)
+  };
+
+  /* 두 행 비교: 기본 정렬 (product → maker → eqp_id, 모두 asc) */
+  function compareDefault(a, b) {
+    var pa = (a.product || ''), pb = (b.product || '');
+    if (pa !== pb) return pa < pb ? -1 : 1;
+    var ma = (a.maker || ''), mb = (b.maker || '');
+    if (ma !== mb) return ma < mb ? -1 : 1;
+    var ea = (a.eqp_id || ''), eb = (b.eqp_id || '');
+    if (ea !== eb) return ea < eb ? -1 : 1;
+    return 0;
+  }
+
+  /* rows 를 현재 state 에 맞게 정렬해 새 배열 반환 */
+  function sortRows(rows) {
+    var sorted = rows.slice();
+    if (state.sortKey == null) {
+      sorted.sort(compareDefault);
+      return sorted;
+    }
+    var key = state.sortKey;     // 날짜 문자열 또는 '__total__'
+    var rowKey = (key === '__total__') ? '합계' : key;
+    var dir = (state.sortDir === 'asc') ? 1 : -1;
+    sorted.sort(function (a, b) {
+      var va = Number(a[rowKey] || 0);
+      var vb = Number(b[rowKey] || 0);
+      if (va !== vb) return (va - vb) * dir;
+      // 동률이면 기본 순서로 안정 정렬
+      return compareDefault(a, b);
+    });
+    return sorted;
+  }
+
+  /* 헤더 정렬 아이콘 + aria-sort 적용 */
+  function sortIndicator(key) {
+    if (state.sortKey !== key) {
+      return '<span class="eqp-sort-ind" aria-hidden="true">⇅</span>';
+    }
+    var arrow = state.sortDir === 'asc' ? '▲' : '▼';
+    return '<span class="eqp-sort-ind eqp-sort-active" aria-hidden="true">' + arrow + '</span>';
+  }
+  function ariaSort(key) {
+    if (state.sortKey !== key) return 'none';
+    return state.sortDir === 'asc' ? 'ascending' : 'descending';
+  }
+
+  /* 헤더 클릭 → 정렬 상태 토글 (none → desc → asc → none) */
+  function toggleSort(key) {
+    if (state.sortKey !== key) {
+      state.sortKey = key;
+      state.sortDir = 'desc';
+    } else if (state.sortDir === 'desc') {
+      state.sortDir = 'asc';
+    } else {
+      // 이미 asc 였으면 정렬 해제 → 기본 정렬로 복귀
+      state.sortKey = null;
+      state.sortDir = 'desc';
+    }
+    if (state.lastData) renderTable(state.lastData);
+  }
+
+  /* 헤더 클릭 위임 핸들러 (renderTable 후 thead 가 새로 그려져도 OK) */
+  document.getElementById('eqp-thead').addEventListener('click', function (e) {
+    var th = e.target.closest('th[data-sort-key]');
+    if (!th) return;
+    toggleSort(th.getAttribute('data-sort-key'));
+  });
+
   /* ── 표 렌더링 ─────────────────────────────────────────── */
   function renderTable(data) {
+    state.lastData = data;
+
     var thead = document.getElementById('eqp-thead');
     var tbody = document.getElementById('eqp-tbody');
     var tfoot = document.getElementById('eqp-tfoot');
 
     var dateCols = data.date_columns || [];
-    var rows     = data.rows || [];
+    var rows     = sortRows(data.rows || []);
     var totals   = data.totals_by_date || {};
 
     if (!rows.length) {
@@ -134,9 +221,24 @@
       + '<th class="eqp-col-fixed eqp-col-maker">maker</th>'
       + '<th class="eqp-col-fixed eqp-col-eqp">eqp_id</th>';
     for (var i = 0; i < dateCols.length; i++) {
-      th += '<th class="eqp-col-date">' + esc(dateCols[i]) + '</th>';
+      var dk = dateCols[i];
+      var sortCls = (state.sortKey === dk) ? ' eqp-th-sorted' : '';
+      th += '<th class="eqp-col-date eqp-th-sortable' + sortCls + '"'
+          + ' data-sort-key="' + esc(dk) + '"'
+          + ' aria-sort="' + ariaSort(dk) + '"'
+          + ' title="클릭하여 정렬 (내림차순 → 오름차순 → 해제)">'
+          + '<span class="eqp-th-label">' + esc(dk) + '</span>'
+          + sortIndicator(dk)
+          + '</th>';
     }
-    th += '<th class="eqp-col-total">합계</th>';
+    var totalSortCls = (state.sortKey === '__total__') ? ' eqp-th-sorted' : '';
+    th += '<th class="eqp-col-total eqp-th-sortable' + totalSortCls + '"'
+        + ' data-sort-key="__total__"'
+        + ' aria-sort="' + ariaSort('__total__') + '"'
+        + ' title="클릭하여 정렬">'
+        + '<span class="eqp-th-label">합계</span>'
+        + sortIndicator('__total__')
+        + '</th>';
     th += '</tr>';
     thead.innerHTML = th;
 
@@ -151,10 +253,13 @@
       for (var c = 0; c < dateCols.length; c++) {
         var key = dateCols[c];
         var v   = row[key];
-        var cls = (v == null || v === 0) ? 'eqp-cell-zero' : 'eqp-cell';
+        var isZero = (v == null || v === 0);
+        var cls = isZero ? 'eqp-cell-zero' : 'eqp-cell';
+        if (state.sortKey === key) cls += ' eqp-cell-sorted';
         bodyHtml += '<td class="' + cls + '">' + (v == null ? '0' : fmtNum(v)) + '</td>';
       }
-      bodyHtml += '<td class="eqp-col-total"><strong>' + fmtNum(row['합계']) + '</strong></td>';
+      var totalCls = 'eqp-col-total' + (state.sortKey === '__total__' ? ' eqp-cell-sorted' : '');
+      bodyHtml += '<td class="' + totalCls + '"><strong>' + fmtNum(row['합계']) + '</strong></td>';
       bodyHtml += '</tr>';
     }
     tbody.innerHTML = bodyHtml;
