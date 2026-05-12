@@ -1,6 +1,7 @@
 """DRAM DB 쿼리 모음."""
-from app.queries._base import ParamDef, SqlQueryDef
+from app.queries._base import ParamDef, SqlDmlDef, SqlQueryDef
 
+# ── SELECT 쿼리 ──────────────────────────────────────────────────────────────
 QUERIES: dict[str, SqlQueryDef] = {
     "amat_keyword_list": SqlQueryDef(
         id="amat_keyword_list",
@@ -61,5 +62,14 @@ QUERIES: dict[str, SqlQueryDef] = {
             ORDER BY fail_count DESC
             LIMIT 1000
         """,
+    ),
+}
+
+# ── DML 쿼리 (INSERT / UPDATE / DELETE) ──────────────────────────────────────
+DML_QUERIES: dict[str, SqlDmlDef] = {
+    "amat_keyword_insert": SqlDmlDef(
+        id="amat_keyword_insert",
+        description="amat_keyword 테이블에 name 값을 INSERT.",
+        sql="INSERT INTO amat_keyword (name) VALUES (:name)",
     ),
 }

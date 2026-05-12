@@ -280,10 +280,9 @@
           const tableEl = document.getElementById('kw-table');
           if (!tableEl) return;
 
-          const rows = (data.rows || []).map((r, i) => ({
-            no:   i + 1,
-            id:   r.id,
-            name: r.name,
+          const rows = (data.rows || []).map(r => ({
+            index: r.index,
+            name:  r.name,
           }));
 
           if (_kwTable) {
@@ -294,14 +293,13 @@
 
           // 최초 초기화
           tableEl.innerHTML =
-            '<thead><tr><th>No.</th><th>ID</th><th>Name</th></tr></thead><tbody></tbody>';
+            '<thead><tr><th>index</th><th>name</th></tr></thead><tbody></tbody>';
 
           _kwTable = $(tableEl).DataTable({
             data: rows,
             columns: [
-              { title: 'No.',  data: 'no',   width: '60px',  className: 'dt-center' },
-              { title: 'ID',   data: 'id',   width: '80px',  className: 'dt-center' },
-              { title: 'Name', data: 'name', defaultContent: '' },
+              { title: 'index', data: 'index', width: '80px', className: 'dt-center', defaultContent: '' },
+              { title: 'name',  data: 'name',  defaultContent: '' },
             ],
             dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
             buttons: [{ extend: 'csvHtml5', text: 'CSV 내보내기', filename: 'amat_keyword' }],

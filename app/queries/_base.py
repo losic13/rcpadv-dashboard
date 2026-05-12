@@ -19,7 +19,7 @@ class ParamDef:
 
 @dataclass
 class SqlQueryDef:
-    """MariaDB 쿼리 정의."""
+    """MariaDB SELECT 쿼리 정의."""
     id: str
     title: str                      # UI 표시 한글 제목
     sql: str
@@ -27,6 +27,14 @@ class SqlQueryDef:
     params: list[ParamDef] = field(default_factory=list)
     show_in_dashboard: bool = False  # 통합 대시보드 카드 노출
     hidden: bool = False             # True면 source_page 탭 목록에서 제외 (special_tab 등)
+
+
+@dataclass
+class SqlDmlDef:
+    """MariaDB DML(INSERT/UPDATE/DELETE) 쿼리 정의."""
+    id: str
+    description: str    # 용도 설명 (유지관리용)
+    sql: str            # SQLAlchemy :param 바인딩 형식
 
 
 @dataclass
