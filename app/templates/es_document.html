@@ -5,7 +5,12 @@
   · 동작  : POST /es/document/lookup  { ids: [...] }
             → 서버가 settings.ES_DOCUMENT_LOOKUP_INDEX 에 terms 쿼리 1회 실행
             → 입력 순서대로 정렬된 hits 와 미발견 _id 목록을 반환
-  · 결과  : DataTables 로 표시 (_id + _source 의 모든 필드를 동적 컬럼으로)
+  · 결과  : Document 카드 리스트 (doc 1개 = 카드 1개)
+            · 스칼라 값은 한 줄 'key : value'
+            · 객체/배열은 신택스 하이라이트된 들여쓴 JSON 블록
+            · 카드 접기/펼치기 (기본: 첫 카드만 펼침)
+            · 카드 헤더의 [복사] 버튼으로 전체 _source JSON 클립보드 복사
+            · 상단 필터로 카드 전체 텍스트 대소문자 무관 매칭
 
   최대 입력 한도 / 인덱스 이름은 환경 변수에서 주입:
     · ES_DOCUMENT_LOOKUP_INDEX     (.env / app.config.settings)
@@ -99,15 +104,35 @@
       </span>
     </div>
 
-    {# ── 결과 테이블 ──────────────────────────────────────── #}
-    <div class="doc-table-wrap" id="doc-table-wrap" hidden>
-      <table id="doc-table" class="display compact" style="width:100%;">
-        <thead></thead>
-        <tbody></tbody>
-      </table>
+    {# ── 결과 컨트롤 바 (필터 + 일괄 펼치기) ──────────────── #}
+    <div class="doc-result-controls" id="doc-result-controls" hidden>
+      <label class="doc-filter-wrap">
+        <span class="doc-filter-icon" aria-hidden="true">🔎</span>
+        <input
+          type="text"
+          id="doc-filter-input"
+          class="doc-filter-input"
+          placeholder="필터: _id 또는 필드값 (대소문자 무관)"
+          autocomplete="off"
+          spellcheck="false">
+        <span class="doc-filter-count" id="doc-filter-count"></span>
+      </label>
+      <div class="doc-result-actions">
+        <button class="btn btn-run btn-run-sm" id="doc-btn-expand-all" type="button" title="모두 펼치기">
+          <span class="btn-run-label">모두 펼치기</span>
+        </button>
+        <button class="btn btn-run btn-run-sm" id="doc-btn-collapse-all" type="button" title="모두 접기">
+          <span class="btn-run-label">모두 접기</span>
+        </button>
+      </div>
     </div>
 
-    {# ── 미발견 _id 영역 (옵션) ──────────────────────────── #}
+    {# ── 결과 카드 리스트 ────────────────────────────────── #}
+    <div class="doc-cards-wrap" id="doc-cards-wrap" hidden>
+      <div class="doc-cards" id="doc-cards"></div>
+    </div>
+
+    {# ── 미발견 _id 영역 ─────────────────────────────────── #}
     <details class="doc-missing-box" id="doc-missing-box" hidden>
       <summary>
         미발견 _id <span id="doc-missing-summary-count">0</span> 개 보기
@@ -123,6 +148,9 @@
   </div>
 </section>
 
+{# 복사 알림용 토스트 (CSS 로 페이드인) #}
+<div class="doc-toast" id="doc-toast" hidden></div>
+
 {% endblock %}
 
 
@@ -131,8 +159,9 @@
 (() => {
   'use strict';
 
+  const MAX_IDS = {{ lookup_max_ids|int }};
+
   // ── 입력 파싱 ────────────────────────────────────────────
-  // 개행/콤마/공백/세미콜론/탭 어떻게 들어와도 분리.
   function parseIds(raw) {
     if (!raw) return [];
     const parts = raw.split(/[\s,;]+/);
@@ -141,7 +170,7 @@
     for (const p of parts) {
       const s = p.trim();
       if (!s) continue;
-      if (seen.has(s)) continue;   // 클라이언트에서도 중복 제거
+      if (seen.has(s)) continue;
       seen.add(s);
       out.push(s);
     }
@@ -149,37 +178,40 @@
   }
 
   // ── DOM ──────────────────────────────────────────────────
-  const $textarea     = document.getElementById('doc-ids-input');
-  const $btnRun       = document.getElementById('doc-btn-run');
-  const $btnClear     = document.getElementById('doc-btn-clear');
-  const $badge        = document.getElementById('doc-status-badge');
-  const $inputCount   = document.getElementById('doc-input-count');
-  const $error        = document.getElementById('doc-error');
-  const $resultMeta   = document.getElementById('doc-result-meta');
-  const $queriedAt    = document.getElementById('doc-queried-at');
-  const $elapsed      = document.getElementById('doc-elapsed');
-  const $requested    = document.getElementById('doc-requested');
-  const $found        = document.getElementById('doc-found');
-  const $missingCount = document.getElementById('doc-missing-count');
-  const $tableWrap    = document.getElementById('doc-table-wrap');
-  const $tableEl      = document.getElementById('doc-table');
-  const $missingBox   = document.getElementById('doc-missing-box');
-  const $missingSum   = document.getElementById('doc-missing-summary-count');
-  const $missingList  = document.getElementById('doc-missing-list');
-  const $empty        = document.getElementById('doc-empty');
-
-  const MAX_IDS = {{ lookup_max_ids|int }};
+  const $textarea      = document.getElementById('doc-ids-input');
+  const $btnRun        = document.getElementById('doc-btn-run');
+  const $btnClear      = document.getElementById('doc-btn-clear');
+  const $badge         = document.getElementById('doc-status-badge');
+  const $inputCount    = document.getElementById('doc-input-count');
+  const $error         = document.getElementById('doc-error');
+  const $resultMeta    = document.getElementById('doc-result-meta');
+  const $queriedAt     = document.getElementById('doc-queried-at');
+  const $elapsed       = document.getElementById('doc-elapsed');
+  const $requested     = document.getElementById('doc-requested');
+  const $found         = document.getElementById('doc-found');
+  const $missingCount  = document.getElementById('doc-missing-count');
+  const $resultControls = document.getElementById('doc-result-controls');
+  const $filterInput   = document.getElementById('doc-filter-input');
+  const $filterCount   = document.getElementById('doc-filter-count');
+  const $btnExpandAll  = document.getElementById('doc-btn-expand-all');
+  const $btnCollapseAll = document.getElementById('doc-btn-collapse-all');
+  const $cardsWrap     = document.getElementById('doc-cards-wrap');
+  const $cards         = document.getElementById('doc-cards');
+  const $missingBox    = document.getElementById('doc-missing-box');
+  const $missingSum    = document.getElementById('doc-missing-summary-count');
+  const $missingList   = document.getElementById('doc-missing-list');
+  const $empty         = document.getElementById('doc-empty');
+  const $toast         = document.getElementById('doc-toast');
 
   // ── 상태 관리 ────────────────────────────────────────────
-  let _dataTable = null;
-  let _runToken = 0;          // 가장 최근 실행만 결과 반영
+  let _runToken = 0;
   let _abortCtl = null;
+  let _lastRows = [];   // 마지막 응답 rows 캐시 (필터 재적용용)
 
   function setBadge(state, label) {
     $badge.dataset.state = state;
     $badge.textContent = label || '';
   }
-
   function showError(msg) {
     $error.textContent = msg;
     $error.hidden = false;
@@ -188,80 +220,263 @@
     $error.hidden = true;
     $error.textContent = '';
   }
-
   function updateInputCount() {
     const ids = parseIds($textarea.value);
     $inputCount.textContent = ids.length;
-    // 한도 초과 시 시각적 경고
-    if (ids.length > MAX_IDS) {
-      $inputCount.style.color = '#dc2626';
-    } else {
-      $inputCount.style.color = '';
+    $inputCount.style.color = (ids.length > MAX_IDS) ? '#dc2626' : '';
+  }
+
+  // ── HTML escape ──────────────────────────────────────────
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ── JSON 신택스 하이라이트 (vanilla, ~30줄) ──────────────
+  //   JSON.stringify(obj, null, 2) 결과를 토크나이즈해서 span 으로 감싼다.
+  //   - key:   "..."   바로 뒤에 ':' 가 오는 문자열
+  //   - str:   그 외 따옴표 문자열
+  //   - num:   숫자
+  //   - bool:  true/false
+  //   - null:  null
+  function highlightJson(pretty) {
+    // 먼저 escape (JSON 출력 그대로면 < > 가 들어올 일은 거의 없지만 안전하게).
+    const esc = escapeHtml(pretty);
+    // 정규식 한 방으로 토큰 종류별 분류 후 span 부착
+    return esc.replace(
+      /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b)/g,
+      (match) => {
+        let cls = 'jh-num';
+        if (/^"/.test(match)) {
+          cls = /:$/.test(match) ? 'jh-key' : 'jh-str';
+        } else if (/^(true|false)$/.test(match)) {
+          cls = 'jh-bool';
+        } else if (/^null$/.test(match)) {
+          cls = 'jh-null';
+        }
+        return `<span class="${cls}">${match}</span>`;
+      }
+    );
+  }
+
+  // ── 토스트 알림 ──────────────────────────────────────────
+  let _toastTimer = null;
+  function showToast(msg) {
+    $toast.textContent = msg;
+    $toast.hidden = false;
+    // force reflow → CSS transition 발화
+    void $toast.offsetWidth;
+    $toast.classList.add('is-visible');
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => {
+      $toast.classList.remove('is-visible');
+      setTimeout(() => { $toast.hidden = true; }, 250);
+    }, 1500);
+  }
+
+  // ── 클립보드 복사 ────────────────────────────────────────
+  async function copyToClipboard(text, successMsg) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast(successMsg || '복사됨');
+    } catch (e) {
+      showToast('복사 실패: ' + (e.message || e));
     }
   }
 
-  // ── 결과 렌더링 ──────────────────────────────────────────
-  function renderTable(columns, rows) {
-    // 기존 DataTable 인스턴스 정리
-    if (_dataTable) {
-      try { _dataTable.destroy(); } catch (_) {}
-      _dataTable = null;
-    }
-    // thead / tbody 클리어
-    const $thead = $tableEl.querySelector('thead');
-    const $tbody = $tableEl.querySelector('tbody');
-    $thead.innerHTML = '';
-    $tbody.innerHTML = '';
+  // ── 값 분류 ──────────────────────────────────────────────
+  //   - scalar : string / number / boolean / null
+  //   - complex: object / array (length 와 무관하게 항상 JSON 블록으로)
+  function isComplex(v) {
+    return v !== null && typeof v === 'object';
+  }
 
-    if (!columns.length || !rows.length) {
-      $tableWrap.hidden = true;
+  // ── 카드 1개 HTML 생성 ───────────────────────────────────
+  function renderCard(row, index) {
+    // _id 와 그 외 필드 분리
+    const id = row._id != null ? String(row._id) : '(no _id)';
+    const fields = Object.keys(row).filter(k => k !== '_id');
+
+    // 카드 내부 필드 행들
+    const rowsHtml = fields.map(key => {
+      const v = row[key];
+      if (isComplex(v)) {
+        // 객체/배열은 JSON 블록 — 키와 함께 한 줄에 type 표시
+        const pretty = JSON.stringify(v, null, 2);
+        const hl = highlightJson(pretty);
+        const typeLabel = Array.isArray(v) ? `Array(${v.length})` : 'Object';
+        return `
+          <div class="doc-field doc-field-complex">
+            <div class="doc-field-header">
+              <span class="doc-field-key">${escapeHtml(key)}</span>
+              <span class="doc-field-type">${typeLabel}</span>
+              <button class="doc-field-copy" type="button" data-field-copy="${escapeHtml(key)}" title="이 필드 JSON 복사">📋</button>
+            </div>
+            <pre class="doc-json"><code>${hl}</code></pre>
+          </div>`;
+      }
+      // 스칼라 — 한 줄
+      let displayClass = 'doc-val';
+      let displayValue;
+      if (v === null || v === undefined) {
+        displayClass += ' doc-val-null';
+        displayValue = 'null';
+      } else if (typeof v === 'boolean') {
+        displayClass += ' doc-val-bool';
+        displayValue = String(v);
+      } else if (typeof v === 'number') {
+        displayClass += ' doc-val-num';
+        displayValue = String(v);
+      } else {
+        displayClass += ' doc-val-str';
+        displayValue = escapeHtml(String(v));
+      }
+      return `
+        <div class="doc-field doc-field-scalar">
+          <span class="doc-field-key">${escapeHtml(key)}</span>
+          <span class="${displayClass}">${displayValue}</span>
+        </div>`;
+    }).join('');
+
+    // _source 전체 (= _id 제외) — 카드 헤더 [복사] 버튼용
+    const sourceObj = {};
+    fields.forEach(k => { sourceObj[k] = row[k]; });
+    const fieldCount = fields.length;
+
+    // 기본 펼침: 첫 카드만
+    const isOpen = (index === 0);
+
+    return `
+      <details class="doc-card ${isOpen ? '' : 'is-collapsed'}" data-doc-index="${index}" ${isOpen ? 'open' : ''}>
+        <summary class="doc-card-header">
+          <span class="doc-card-toggle" aria-hidden="true">▶</span>
+          <span class="doc-card-id" title="_id">${escapeHtml(id)}</span>
+          <span class="doc-card-meta">${fieldCount} 필드</span>
+          <span class="doc-card-actions">
+            <button class="doc-card-copy" type="button" data-doc-copy="${index}" title="전체 _source JSON 복사">JSON 복사</button>
+          </span>
+        </summary>
+        <div class="doc-card-body">
+          ${rowsHtml || '<div class="doc-card-empty">_source 필드가 없습니다.</div>'}
+        </div>
+      </details>`;
+  }
+
+  function renderCards(rows) {
+    _lastRows = rows;
+    if (!rows || !rows.length) {
+      $cards.innerHTML = '';
+      $cardsWrap.hidden = true;
+      $resultControls.hidden = true;
       return;
     }
+    $cards.innerHTML = rows.map((r, i) => renderCard(r, i)).join('');
+    $cardsWrap.hidden = false;
+    $resultControls.hidden = false;
+    applyFilter(); // 필터가 입력되어 있으면 즉시 적용
+  }
 
-    // thead
-    const trHead = document.createElement('tr');
-    for (const c of columns) {
-      const th = document.createElement('th');
-      th.textContent = c;
-      trHead.appendChild(th);
+  // ── 필터링 ───────────────────────────────────────────────
+  //   카드 전체 텍스트(_id + 필드 키/값) 를 토대로 대소문자 무관 매칭.
+  function applyFilter() {
+    const q = ($filterInput.value || '').trim().toLowerCase();
+    const cards = $cards.querySelectorAll('.doc-card');
+    if (!q) {
+      cards.forEach(c => { c.style.display = ''; });
+      $filterCount.textContent = '';
+      return;
     }
-    $thead.appendChild(trHead);
-
-    // DataTables 데이터 (columns 순서대로)
-    const tableData = rows.map(r => columns.map(c => {
-      const v = r[c];
-      if (v == null) return '';
-      if (typeof v === 'object') {
-        try { return JSON.stringify(v); } catch { return String(v); }
+    let shown = 0;
+    cards.forEach(c => {
+      // textContent 는 details 가 닫혀 있어도 안의 내용을 다 반환함
+      const txt = c.textContent.toLowerCase();
+      if (txt.indexOf(q) >= 0) {
+        c.style.display = '';
+        shown++;
+      } else {
+        c.style.display = 'none';
       }
-      return v;
-    }));
+    });
+    $filterCount.textContent = `${shown} / ${cards.length}`;
+  }
 
-    $tableWrap.hidden = false;
-
-    // jQuery DataTables
-    _dataTable = $($tableEl).DataTable({
-      data: tableData,
-      columns: columns.map(c => ({ title: c })),
-      destroy: true,
-      pageLength: 25,
-      lengthMenu: [10, 25, 50, 100, 250],
-      order: [],   // 서버에서 입력순서로 정렬해 보냈으므로 그대로 둠
-      deferRender: true,
-      autoWidth: false,
-      language: {
-        emptyTable: '결과가 없습니다',
-        info: '총 _TOTAL_ 건 (_START_ ~ _END_)',
-        infoEmpty: '0 건',
-        infoFiltered: ' / 필터 적용 _MAX_ 건 중',
-        lengthMenu: '_MENU_ 건씩 보기',
-        search: '검색:',
-        paginate: { previous: '이전', next: '다음', first: '처음', last: '마지막' },
-        zeroRecords: '일치하는 행이 없습니다',
-      },
+  // ── 모두 펼치기 / 접기 ───────────────────────────────────
+  function expandAll() {
+    $cards.querySelectorAll('.doc-card').forEach(c => {
+      c.open = true;
+      c.classList.remove('is-collapsed');
+    });
+  }
+  function collapseAll() {
+    $cards.querySelectorAll('.doc-card').forEach(c => {
+      c.open = false;
+      c.classList.add('is-collapsed');
     });
   }
 
+  // ── 카드 영역 이벤트 위임 (복사 버튼, 토글 동기화) ──────
+  $cards.addEventListener('click', (e) => {
+    // 1) 전체 _source 복사
+    const $copyBtn = e.target.closest('button[data-doc-copy]');
+    if ($copyBtn) {
+      e.preventDefault();   // details summary toggle 방지
+      e.stopPropagation();
+      const idx = parseInt($copyBtn.dataset.docCopy, 10);
+      const row = _lastRows[idx];
+      if (!row) return;
+      const src = {};
+      Object.keys(row).forEach(k => { if (k !== '_id') src[k] = row[k]; });
+      copyToClipboard(JSON.stringify(src, null, 2), `_source JSON 복사됨 (${row._id})`);
+      return;
+    }
+    // 2) 개별 필드 복사
+    const $fieldCopy = e.target.closest('button[data-field-copy]');
+    if ($fieldCopy) {
+      e.preventDefault();
+      e.stopPropagation();
+      const key = $fieldCopy.dataset.fieldCopy;
+      // 가장 가까운 카드의 row 데이터에서 가져온다
+      const $card = $fieldCopy.closest('.doc-card');
+      const idx = parseInt($card.dataset.docIndex, 10);
+      const row = _lastRows[idx];
+      if (!row || !(key in row)) return;
+      const val = row[key];
+      const text = (val !== null && typeof val === 'object')
+        ? JSON.stringify(val, null, 2)
+        : String(val);
+      copyToClipboard(text, `${key} 복사됨`);
+      return;
+    }
+  });
+
+  // details toggle ↔ is-collapsed 클래스 동기화 (CSS 가 컬랩스 외형을 입힘)
+  $cards.addEventListener('toggle', (e) => {
+    if (!e.target.classList.contains('doc-card')) return;
+    if (e.target.open) {
+      e.target.classList.remove('is-collapsed');
+    } else {
+      e.target.classList.add('is-collapsed');
+    }
+  }, true);   // capture: details 의 toggle 이벤트는 bubbling 하지 않음
+
+  // ── 미발견 _id 렌더 ──────────────────────────────────────
   function renderMissing(missingIds) {
     if (!missingIds || !missingIds.length) {
       $missingBox.hidden = true;
@@ -288,14 +503,12 @@
       return;
     }
 
-    // 이전 요청 cancel + 토큰 갱신
     if (_abortCtl) {
       try { _abortCtl.abort(); } catch (_) {}
     }
     _abortCtl = new AbortController();
     const myToken = ++_runToken;
 
-    // UI: 로딩 상태
     $btnRun.disabled = true;
     setBadge('loading', '조회 중…');
     $empty.style.display = 'none';
@@ -309,7 +522,6 @@
         signal: _abortCtl.signal,
       });
     } catch (e) {
-      // abort 는 의도된 취소이므로 조용히 무시 (단, 가장 최근 토큰이면 idle)
       if (e.name === 'AbortError') {
         if (myToken === _runToken) {
           setBadge('superseded', '취소됨');
@@ -324,7 +536,7 @@
       return;
     }
 
-    if (myToken !== _runToken) return;   // 더 새 요청이 있으면 폐기
+    if (myToken !== _runToken) return;
 
     try {
       json = await resp.json();
@@ -340,9 +552,7 @@
       return;
     }
 
-    // 정상 응답
-    const columns = json.columns || [];
-    const rows    = json.rows    || [];
+    const rows = json.rows || [];
 
     $resultMeta.hidden = false;
     $queriedAt.textContent     = json.queried_at || '—';
@@ -351,7 +561,7 @@
     $found.textContent         = json.found ?? 0;
     $missingCount.textContent  = json.missing_count ?? 0;
 
-    renderTable(columns, rows);
+    renderCards(rows);
     renderMissing(json.missing_ids || []);
 
     if (!rows.length) {
@@ -371,13 +581,12 @@
     updateInputCount();
     hideError();
 
-    if (_dataTable) {
-      try { _dataTable.destroy(); } catch (_) {}
-      _dataTable = null;
-    }
-    $tableEl.querySelector('thead').innerHTML = '';
-    $tableEl.querySelector('tbody').innerHTML = '';
-    $tableWrap.hidden = true;
+    _lastRows = [];
+    $cards.innerHTML = '';
+    $cardsWrap.hidden = true;
+    $resultControls.hidden = true;
+    $filterInput.value = '';
+    $filterCount.textContent = '';
     $missingBox.hidden = true;
     $resultMeta.hidden = true;
     setBadge('idle', '');
@@ -389,6 +598,9 @@
   $textarea.addEventListener('input', updateInputCount);
   $btnRun.addEventListener('click', runLookup);
   $btnClear.addEventListener('click', clearAll);
+  $filterInput.addEventListener('input', applyFilter);
+  $btnExpandAll.addEventListener('click', expandAll);
+  $btnCollapseAll.addEventListener('click', collapseAll);
 
   // Ctrl+Enter / Cmd+Enter 로 즉시 조회
   $textarea.addEventListener('keydown', (e) => {
