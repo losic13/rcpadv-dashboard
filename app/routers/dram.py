@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.logger import get_logger
 from app.queries.dram_queries import DML_QUERIES as DRAM_DML, QUERIES as DRAM_QUERIES
-from app.repositories.mariadb import execute as db_execute, execute_dml
+from app.repositories.mariadb import execute as db_execute, execute_dml, execute_dml_many
 from app.routers._templating import NAV_ITEMS, templates
 from app.services import dram_service
 
@@ -70,6 +70,49 @@ async def keyword_list():
     except Exception as e:
         log.error("keyword_list 실패: %s", e)
         raise HTTPException(status_code=500, detail=f"조회 실패: {e}")
+
+
+# ── AMAT Abnormal Step STATUS 일괄 저장 ──────────────────────────────────────
+
+ALLOWED_STATUSES = {"ERROR", "CHECKED", "SUCCESS"}
+
+
+class AbnormalStepStatusItem(BaseModel):
+    idx: int
+    status: str
+
+
+class AbnormalStepSaveBody(BaseModel):
+    changes: list[AbnormalStepStatusItem]
+
+
+@router.post("/abnormal-step/save")
+async def abnormal_step_save(body: AbnormalStepSaveBody):
+    """변경된 amat_abnormal_step row들의 status를 idx 기준으로 일괄 UPDATE."""
+    if not body.changes:
+        raise HTTPException(status_code=422, detail="변경 항목이 없습니다.")
+
+    # status 값 화이트리스트 검증
+    invalid = [c for c in body.changes if c.status not in ALLOWED_STATUSES]
+    if invalid:
+        bad = ", ".join(f"{c.idx}:{c.status}" for c in invalid)
+        raise HTTPException(status_code=422, detail=f"허용되지 않은 status 값: {bad}")
+
+    params_list = [{"idx": c.idx, "status": c.status} for c in body.changes]
+    sql = DRAM_DML["amat_abnormal_step_update_status"].sql
+
+    try:
+        updated = await asyncio.wait_for(
+            asyncio.to_thread(execute_dml_many, "dram", sql, params_list),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+        log.info("abnormal_step status 저장 완료: %d건", updated)
+        return JSONResponse({"ok": True, "updated": updated})
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="쿼리 타임아웃")
+    except Exception as e:
+        log.error("abnormal_step_save 실패: %s", e)
+        raise HTTPException(status_code=500, detail=f"저장 실패: {e}")
 
 
 class KeywordRegisterBody(BaseModel):
