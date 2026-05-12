@@ -418,8 +418,10 @@
                 );
               }
             : isStatus
-            ? (val, _type, row) => {
-                // STATUS 드롭다운 렌더링
+            ? (val, type, row) => {
+                // sort / filter / type-check 호출 시에는 원래 텍스트값 반환
+                if (type !== 'display') return val != null ? String(val) : '';
+                // display: STATUS 드롭다운 렌더링
                 const cur   = val != null ? String(val) : '';
                 const pkVal = PK_COL && row[PK_COL] != null ? String(row[PK_COL]) : '';
                 const opts  = STATUS_OPTIONS.map(s =>
@@ -479,7 +481,7 @@
         '</tr></thead><tbody></tbody>';
       this.tableEl.innerHTML = thead;
 
-      this.dataTable = $(this.tableEl).DataTable({
+      const dtOpts = {
         data: data.rows || [],
         columns: columns,
         // 상단: [info 우측 정렬]
@@ -498,7 +500,23 @@
         order: [],
         deferRender: true,
         language: DATATABLES_KO,
-      });
+      };
+
+      // STATUS 컬럼이 있을 때: 페이지 전환(draw) 후 _statusChanges 반영
+      if (STATUS_COL) {
+        dtOpts.drawCallback = () => {
+          if (this._statusChanges.size === 0) return;
+          this.tableEl.querySelectorAll('.st-select').forEach(sel => {
+            const pk = sel.dataset.pk;
+            if (!pk || !this._statusChanges.has(pk)) return;
+            const pendingVal = this._statusChanges.get(pk);
+            sel.value = pendingVal;
+            sel.className = 'st-select st-select--' + pendingVal.toLowerCase();
+          });
+        };
+      }
+
+      this.dataTable = $(this.tableEl).DataTable(dtOpts);
 
       this._cachedColumns = columns.map(c => c.data);
 
