@@ -26,6 +26,7 @@ class SqlQueryDef:
     description: str = ""
     params: list[ParamDef] = field(default_factory=list)
     show_in_dashboard: bool = False  # 통합 대시보드 카드 노출
+    hidden: bool = False             # True면 source_page 탭 목록에서 제외 (special_tab 등)
 
 
 @dataclass

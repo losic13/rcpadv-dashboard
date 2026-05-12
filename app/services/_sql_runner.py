@@ -17,7 +17,7 @@ log = get_logger("service.sql")
 
 
 def list_queries(queries: dict[str, SqlQueryDef]) -> list[dict[str, Any]]:
-    """UI 셀렉터용 쿼리 메타 목록."""
+    """UI 셀렉터용 쿼리 메타 목록. hidden=True 항목은 제외."""
     return [
         {
             "id": q.id,
@@ -26,6 +26,7 @@ def list_queries(queries: dict[str, SqlQueryDef]) -> list[dict[str, Any]]:
             "params": [p.__dict__ for p in q.params],
         }
         for q in queries.values()
+        if not q.hidden
     ]
 
 

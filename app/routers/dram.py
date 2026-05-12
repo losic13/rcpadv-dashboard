@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.logger import get_logger
-from app.queries.dram_queries import KEYWORD_LIST_SQL
+from app.queries.dram_queries import QUERIES as DRAM_QUERIES
 from app.repositories.mariadb import execute as db_execute, execute_dml
 from app.routers._templating import NAV_ITEMS, templates
 from app.services import dram_service
@@ -61,7 +61,7 @@ async def keyword_list():
     """amat_keyword 테이블 전체 조회. No. 컬럼은 클라이언트에서 부여."""
     try:
         columns, rows = await asyncio.wait_for(
-            asyncio.to_thread(db_execute, "dram", KEYWORD_LIST_SQL),
+            asyncio.to_thread(db_execute, "dram", DRAM_QUERIES["amat_keyword_list"].sql),
             timeout=settings.QUERY_TIMEOUT_SECONDS,
         )
         return JSONResponse({"columns": columns, "rows": rows, "row_count": len(rows)})
