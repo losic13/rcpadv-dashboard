@@ -4630,14 +4630,19 @@ body.ls-dl-modal-open { overflow: hidden; }
    Document 빌더(/es/document)로 점프하여 자동 조회.
    ──────────────────────────────────────────────────────────── */
 a.es-id-link {
-  display: inline-block;
+  /* inline-block 이면 부모 <td> 가 폭 계산에 inline-block 의 'min-content'
+     를 쓰는데, padding 까지 더해져 'INDEX' 화살표 케이스처럼 살짝 좁아져
+     줄바꿈이 발생하는 경우가 있다. inline 으로 두고 nowrap 으로 한 줄
+     유지 → <td> 가 자연 폭만큼 늘어나도록 한다. */
+  display: inline;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   color: #2563eb;
   text-decoration: none;
   border-bottom: 1px dashed rgba(37, 99, 235, 0.45);
   padding: 0 2px;
-  word-break: break-all;
+  /* ES_ID 는 단일 식별자라 줄바꿈이 의미 없음 → 한 줄 강제 */
+  white-space: nowrap;
   line-height: 1.4;
   transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
@@ -4650,4 +4655,23 @@ a.es-id-link:focus {
 }
 a.es-id-link:visited {
   color: #6d28d9;
+}
+/* es-id-link 를 자식으로 가진 td 도 줄바꿈 방지 (셀 단위 폭 계산 안정화).
+   :has() 미지원 브라우저에선 무시되지만 그래도 위 nowrap 으로 한 줄은 유지됨. */
+td:has(> a.es-id-link),
+td:has(a.es-id-link) {
+  white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════════════
+   AMAT Keyword 패널 — #kw-table 의 INDEX 컬럼 폭 보정
+   · DataTables 의 정렬 화살표(약 18~22px) 가 컬럼 헤더 'INDEX'(5자)
+     글자와 겹치는 문제 → min-width 로 충분한 폭 강제.
+   · JS 의 width: '110px' 와 한 쌍.
+   ──────────────────────────────────────────────────────────── */
+#kw-table th.kw-col-index,
+#kw-table td.kw-col-index {
+  min-width: 110px;
+  width: 110px;
+  white-space: nowrap;
 }
