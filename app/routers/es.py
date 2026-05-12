@@ -84,10 +84,16 @@ async def overview_tkin(request: Request):
 
 # ── 신규: /es/document (Document 조회 — _id terms 쿼리) ──────────────────
 @router.get("/document")
-def document_page(request: Request):
+def document_page(request: Request, ids: str | None = None):
     """Document 조회 페이지 — _id 목록으로 ES_DOCUMENT_LOOKUP_INDEX doc 조회.
 
     인덱스 이름 / 한도는 settings (.env) 에서 가져온다.
+
+    URL 파라미터:
+        ids : 쉼표/공백/세미콜론으로 구분된 _id 목록 (선택).
+              값이 있으면 페이지 로드 직후 textarea 에 채우고 자동 조회한다.
+              · 다른 페이지(예: /amat 의 ES_ID 컬럼 링크)에서 점프할 때 사용.
+              · 클라이언트의 파싱 규칙(/[\\s,;]+/) 과 호환되도록 그대로 전달.
     """
     return templates.TemplateResponse(
         request,
@@ -98,6 +104,8 @@ def document_page(request: Request):
             "page_title": "Document 조회",
             "lookup_index": settings.ES_DOCUMENT_LOOKUP_INDEX,
             "lookup_max_ids": settings.ES_DOCUMENT_LOOKUP_MAX_IDS,
+            # 다른 페이지에서 ?ids= 로 점프해 온 경우, 템플릿이 textarea 초기값 + 자동 조회 트리거에 사용.
+            "initial_ids": (ids or "").strip(),
         },
     )
 
