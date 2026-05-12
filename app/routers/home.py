@@ -39,6 +39,7 @@ DASHBOARD_CARDS = [
         "title": "VNAND 파싱 결과",
         "query_id": "recent_parsing_results",
         "products": ["LAM", "TEL"],
+        "link_url": "/vnand",
     },
     {
         "type": "chart",
@@ -47,6 +48,7 @@ DASHBOARD_CARDS = [
         "title": "DRAM 파싱 결과",
         "query_id": "recent_parsing_results",
         "products": ["AMAT", "LAM", "TEL"],
+        "link_url": "/dram",
     },
     {
         "type": "count",
@@ -71,6 +73,7 @@ DASHBOARD_CARDS = [
         "source_label": "VNAND DB",
         "title": "오늘 접속자수",
         "description": "오늘 0시 ~ 현재까지의 로그인 통계입니다.",
+        "link_url": "/login-history",
     },
 ]
 

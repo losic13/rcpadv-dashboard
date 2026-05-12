@@ -1481,6 +1481,17 @@ table[data-role="table"].is-loading {
 .chart-card .card-title strong,
 .count-card .card-title strong,
 .login-today-card .card-title strong { font-weight: 700; }
+
+/* 카드 타이틀 링크 — link_url 이 있는 카드에서 타이틀을 클릭 가능하게 */
+.card-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+.card-title-link:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--color-brand);
+}
 .chart-card .card-sub,
 .count-card .card-sub,
 .login-today-card .card-sub {
