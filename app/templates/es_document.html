@@ -237,31 +237,146 @@
       .replace(/'/g, '&#39;');
   }
 
-  // ── JSON 신택스 하이라이트 (vanilla, ~30줄) ──────────────
-  //   JSON.stringify(obj, null, 2) 결과를 토크나이즈해서 span 으로 감싼다.
-  //   - key:   "..."   바로 뒤에 ':' 가 오는 문자열
-  //   - str:   그 외 따옴표 문자열
-  //   - num:   숫자
-  //   - bool:  true/false
-  //   - null:  null
-  function highlightJson(pretty) {
-    // 먼저 escape (JSON 출력 그대로면 < > 가 들어올 일은 거의 없지만 안전하게).
-    const esc = escapeHtml(pretty);
-    // 정규식 한 방으로 토큰 종류별 분류 후 span 부착
-    return esc.replace(
-      /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b)/g,
-      (match) => {
-        let cls = 'jh-num';
-        if (/^"/.test(match)) {
-          cls = /:$/.test(match) ? 'jh-key' : 'jh-str';
-        } else if (/^(true|false)$/.test(match)) {
-          cls = 'jh-bool';
-        } else if (/^null$/.test(match)) {
-          cls = 'jh-null';
-        }
-        return `<span class="${cls}">${match}</span>`;
+  // ── JSON 트리 렌더러 (재귀, vanilla) ─────────────────────
+  //   객체/배열을 <details> 로 감싸 접기/펼치기 가능.
+  //   · 스칼라(string/number/bool/null) 는 색상 span 으로
+  //   · 비어있는 {}/[] 는 토글 없이 inline 표기
+  //   · depth < maxOpenDepth 이면 자동 펼침 (open 속성)
+  //   · summary 에 "{3 keys}" 또는 "[5 items]" 미리보기 표시
+  //   · 형제 노드 사이 콤마는 컨테이너 children CSS 가 처리(::after) → DOM 단순화
+  //
+  //   토큰 클래스:
+  //     .jt-punct  { } [ ] :   (구두점)
+  //     .jt-key    "키"
+  //     .jt-str    "문자열"
+  //     .jt-num    숫자
+  //     .jt-bool   true/false
+  //     .jt-null   null
+  //     .jt-meta   {N keys} / [N items] / (empty)  ← 미리보기
+  function renderJsonScalar(v) {
+    if (v === null || v === undefined) {
+      return `<span class="jt-null">null</span>`;
+    }
+    if (typeof v === 'boolean') {
+      return `<span class="jt-bool">${v}</span>`;
+    }
+    if (typeof v === 'number') {
+      return `<span class="jt-num">${v}</span>`;
+    }
+    // string
+    return `<span class="jt-str">"${escapeHtml(String(v))}"</span>`;
+  }
+
+  function renderJsonKey(k) {
+    return `<span class="jt-key">"${escapeHtml(String(k))}"</span>`;
+  }
+
+  // value 를 HTML 로 렌더링. depth=0 이 최상위.
+  // isLast=true 이면 컨테이너 안의 마지막 형제 (콤마 미부착).
+  function renderJsonValue(value, depth, maxOpenDepth, isLast) {
+    const comma = isLast ? '' : '<span class="jt-comma">,</span>';
+
+    if (value === null || typeof value !== 'object') {
+      // 스칼라 — 한 줄
+      return `<div class="jt-line jt-scalar-line">${renderJsonScalar(value)}${comma}</div>`;
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return `<div class="jt-line jt-empty-line"><span class="jt-punct">[]</span>${comma}</div>`;
       }
-    );
+      const isOpen = depth < maxOpenDepth;
+      const childrenHtml = value.map((item, i) =>
+        renderJsonChild(null, item, depth + 1, maxOpenDepth, i === value.length - 1)
+      ).join('');
+      return `<details class="jt-node jt-array" ${isOpen ? 'open' : ''}>` +
+        `<summary class="jt-summary">` +
+          `<span class="jt-toggle" aria-hidden="true">▶</span>` +
+          `<span class="jt-punct">[</span>` +
+          `<span class="jt-meta jt-meta-collapsed">${value.length} items</span>` +
+          `<span class="jt-ellipsis">…</span>` +
+          `<span class="jt-punct jt-close-inline">]</span>${comma}` +
+        `</summary>` +
+        `<div class="jt-children">${childrenHtml}</div>` +
+        `<div class="jt-close-line"><span class="jt-punct">]</span>${comma}</div>` +
+      `</details>`;
+    }
+
+    // Object
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      return `<div class="jt-line jt-empty-line"><span class="jt-punct">{}</span>${comma}</div>`;
+    }
+    const isOpen = depth < maxOpenDepth;
+    const childrenHtml = keys.map((k, i) =>
+      renderJsonChild(k, value[k], depth + 1, maxOpenDepth, i === keys.length - 1)
+    ).join('');
+    return `<details class="jt-node jt-object" ${isOpen ? 'open' : ''}>` +
+      `<summary class="jt-summary">` +
+        `<span class="jt-toggle" aria-hidden="true">▶</span>` +
+        `<span class="jt-punct">{</span>` +
+        `<span class="jt-meta jt-meta-collapsed">${keys.length} keys</span>` +
+        `<span class="jt-ellipsis">…</span>` +
+        `<span class="jt-punct jt-close-inline">}</span>${comma}` +
+      `</summary>` +
+      `<div class="jt-children">${childrenHtml}</div>` +
+      `<div class="jt-close-line"><span class="jt-punct">}</span>${comma}</div>` +
+    `</details>`;
+  }
+
+  // 컨테이너의 child 1개를 렌더링.
+  //   - keyName === null  → 배열 원소 (키 미표시)
+  //   - keyName !== null  → 객체 프로퍼티 ("key": value)
+  // child 가 스칼라/빈 컨테이너면 한 줄, 큰 컨테이너면 details 블록.
+  function renderJsonChild(keyName, value, depth, maxOpenDepth, isLast) {
+    const comma = isLast ? '' : '<span class="jt-comma">,</span>';
+    const isObj = (value !== null && typeof value === 'object');
+    const isEmpty = isObj && (Array.isArray(value) ? value.length === 0 : Object.keys(value).length === 0);
+    const keyPrefix = (keyName !== null)
+      ? `${renderJsonKey(keyName)}<span class="jt-punct jt-colon">:</span> `
+      : '';
+
+    if (!isObj || isEmpty) {
+      // 스칼라 또는 빈 컨테이너 → 한 줄
+      let valHtml;
+      if (!isObj) {
+        valHtml = renderJsonScalar(value);
+      } else {
+        valHtml = `<span class="jt-punct">${Array.isArray(value) ? '[]' : '{}'}</span>`;
+      }
+      return `<div class="jt-line">${keyPrefix}${valHtml}${comma}</div>`;
+    }
+
+    // 비어있지 않은 객체/배열 → details
+    const isOpen = depth < maxOpenDepth;
+    const isArr = Array.isArray(value);
+    const size = isArr ? value.length : Object.keys(value).length;
+    const meta = isArr ? `${size} items` : `${size} keys`;
+    const openCh = isArr ? '[' : '{';
+    const closeCh = isArr ? ']' : '}';
+
+    const inner = isArr
+      ? value.map((item, i) => renderJsonChild(null, item, depth + 1, maxOpenDepth, i === size - 1)).join('')
+      : Object.keys(value).map((k, i) => renderJsonChild(k, value[k], depth + 1, maxOpenDepth, i === size - 1)).join('');
+
+    return `<details class="jt-node ${isArr ? 'jt-array' : 'jt-object'}" ${isOpen ? 'open' : ''}>` +
+      `<summary class="jt-summary">` +
+        `<span class="jt-toggle" aria-hidden="true">▶</span>` +
+        `${keyPrefix}` +
+        `<span class="jt-punct">${openCh}</span>` +
+        `<span class="jt-meta jt-meta-collapsed">${meta}</span>` +
+        `<span class="jt-ellipsis">…</span>` +
+        `<span class="jt-punct jt-close-inline">${closeCh}</span>${comma}` +
+      `</summary>` +
+      `<div class="jt-children">${inner}</div>` +
+      `<div class="jt-close-line"><span class="jt-punct">${closeCh}</span>${comma}</div>` +
+    `</details>`;
+  }
+
+  // 카드 본문에 들어가는 최상위 JSON 블록 1개를 렌더링.
+  // 최상위는 펼침, 그 안의 nested 는 접힘 (maxOpenDepth=1).
+  function renderJsonTree(value) {
+    return `<div class="jt-root">${renderJsonValue(value, 0, 1, true)}</div>`;
   }
 
   // ── 토스트 알림 ──────────────────────────────────────────
@@ -318,9 +433,8 @@
     const rowsHtml = fields.map(key => {
       const v = row[key];
       if (isComplex(v)) {
-        // 객체/배열은 JSON 블록 — 키와 함께 한 줄에 type 표시
-        const pretty = JSON.stringify(v, null, 2);
-        const hl = highlightJson(pretty);
+        // 객체/배열은 접기/펼치기 가능한 JSON 트리로 표시
+        const tree = renderJsonTree(v);
         const typeLabel = Array.isArray(v) ? `Array(${v.length})` : 'Object';
         return `
           <div class="doc-field doc-field-complex">
@@ -329,7 +443,7 @@
               <span class="doc-field-type">${typeLabel}</span>
               <button class="doc-field-copy" type="button" data-field-copy="${escapeHtml(key)}" title="이 필드 JSON 복사">📋</button>
             </div>
-            <pre class="doc-json"><code>${hl}</code></pre>
+            <div class="doc-json">${tree}</div>
           </div>`;
       }
       // 스칼라 — 한 줄

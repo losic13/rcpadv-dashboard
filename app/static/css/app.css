@@ -4434,7 +4434,7 @@ body.ls-dl-modal-open { overflow: hidden; }
   color: #4338ca;
 }
 
-/* ── JSON pre 블록 ────────────────────────────────── */
+/* ── JSON 트리 블록 (접기/펼치기 가능) ───────────── */
 .es-document-page .doc-json {
   margin: 0;
   padding: 8px 12px;
@@ -4445,35 +4445,116 @@ body.ls-dl-modal-open { overflow: hidden; }
   font-size: 11.5px;
   line-height: 1.55;
   overflow-x: auto;
-  max-height: 380px;
+  max-height: 480px;
   overflow-y: auto;
 }
-.es-document-page .doc-json code {
-  background: transparent;
-  padding: 0;
-  font-size: inherit;
-  color: inherit;
-  white-space: pre;
+.es-document-page .doc-json .jt-root {
+  display: block;
 }
 
-/* ── JSON 신택스 하이라이트 토큰 색 (다크 배경) ─── */
-.es-document-page .doc-json .jh-key {
+/* details 컨테이너 자체 — 기본 marker 제거 */
+.es-document-page .doc-json .jt-node {
+  display: block;
+}
+.es-document-page .doc-json .jt-node > summary {
+  list-style: none;
+}
+.es-document-page .doc-json .jt-node > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 한 줄 (key: value, 또는 닫는 괄호 줄) */
+.es-document-page .doc-json .jt-line,
+.es-document-page .doc-json .jt-summary,
+.es-document-page .doc-json .jt-close-line {
+  display: block;
+  white-space: pre;
+  padding-left: 14px;        /* 들여쓰기: 부모 컨테이너의 children 이 추가로 indent */
+}
+.es-document-page .doc-json .jt-children {
+  display: block;
+  /* 자식 라인은 자체 padding-left 로 들여쓰기 */
+  padding-left: 14px;
+  border-left: 1px dotted rgba(148, 163, 184, 0.18);
+  margin-left: 4px;
+}
+
+/* summary (접힘 헤더) — 클릭 가능 */
+.es-document-page .doc-json .jt-summary {
+  cursor: pointer;
+  user-select: none;
+  padding-left: 0;            /* 토글 화살표가 자리 차지 */
+  position: relative;
+}
+.es-document-page .doc-json .jt-summary:hover {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+/* 토글 화살표 */
+.es-document-page .doc-json .jt-toggle {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-size: 9px;
+  color: #94a3b8;
+  transition: transform 0.12s ease;
+  margin-right: 2px;
+  user-select: none;
+}
+.es-document-page .doc-json .jt-node[open] > .jt-summary > .jt-toggle {
+  transform: rotate(90deg);
+}
+
+/* 펼침/접힘 상태별 표시
+   - 접힘: summary 의 meta(...키 N개) + ellipsis 표시, 펼친 children 과 close 줄 숨김 (details 가 자동 처리)
+   - 펼침: summary 의 meta 와 ellipsis + 인라인 close 괄호 숨김, children 과 close 줄 표시
+*/
+.es-document-page .doc-json .jt-node[open] > .jt-summary > .jt-meta-collapsed,
+.es-document-page .doc-json .jt-node[open] > .jt-summary > .jt-ellipsis,
+.es-document-page .doc-json .jt-node[open] > .jt-summary > .jt-close-inline,
+.es-document-page .doc-json .jt-node[open] > .jt-summary > .jt-comma {
+  display: none;
+}
+/* 접힘 상태에서는 children/close-line 은 details 가 알아서 숨김 */
+
+.es-document-page .doc-json .jt-meta {
+  color: #64748b;
+  font-style: italic;
+  margin: 0 4px;
+  font-size: 10.5px;
+}
+.es-document-page .doc-json .jt-ellipsis {
+  color: #94a3b8;
+  margin: 0 2px;
+}
+
+/* 토큰 색상 */
+.es-document-page .doc-json .jt-key {
   color: #93c5fd;
   font-weight: 600;
 }
-.es-document-page .doc-json .jh-str {
+.es-document-page .doc-json .jt-str {
   color: #86efac;
 }
-.es-document-page .doc-json .jh-num {
+.es-document-page .doc-json .jt-num {
   color: #fdba74;
 }
-.es-document-page .doc-json .jh-bool {
+.es-document-page .doc-json .jt-bool {
   color: #c4b5fd;
   font-weight: 600;
 }
-.es-document-page .doc-json .jh-null {
+.es-document-page .doc-json .jt-null {
   color: #94a3b8;
   font-style: italic;
+}
+.es-document-page .doc-json .jt-punct {
+  color: #cbd5e1;
+}
+.es-document-page .doc-json .jt-colon {
+  margin-right: 2px;
+}
+.es-document-page .doc-json .jt-comma {
+  color: #94a3b8;
 }
 
 /* ── 토스트 알림 (복사 성공) ──────────────────────── */
