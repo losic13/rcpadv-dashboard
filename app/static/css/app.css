@@ -3639,3 +3639,94 @@ body.ls-dl-modal-open { overflow: hidden; }
 .pct-mid    { color: #4f6df5; font-weight: 600; }
 .pct-warn   { color: #f59e0b; font-weight: 600; }
 .pct-danger { color: #ef4444; font-weight: 600; }
+
+/* ============================================================
+ * FILE_PATH 컬럼 인라인 다운로드 UI
+ *   QueryRunner._renderTable 이 FILE_PATH 컬럼에 주입하는 버튼/뱃지
+ * ============================================================ */
+
+/* 셀 전체 래퍼 */
+.fp-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* 경로 텍스트 — 넘치면 말줄임 */
+.fp-path {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  color: var(--color-text);
+  cursor: default;
+}
+
+/* 버튼 그룹 */
+.fp-actions {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* 공통 버튼 */
+.fp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: var(--radius-sm, 5px);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, opacity 0.15s;
+  line-height: 1.4;
+}
+.fp-btn:disabled,
+.fp-btn.fp-btn-loading {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* [확인] 버튼 */
+.fp-btn-check {
+  background: #f0f4ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+.fp-btn-check:hover:not(:disabled) {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+
+/* [⬇ 다운로드] 버튼 */
+.fp-btn-dl {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+.fp-btn-dl:hover:not(:disabled) {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+/* 인라인 결과 뱃지 */
+.fp-inline-result {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fp-inline-ok  { background: #d1fae5; color: #065f46; }
+.fp-inline-err { background: #fee2e2; color: #991b1b; }
