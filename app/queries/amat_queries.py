@@ -11,8 +11,8 @@ DB 연결:
   - 즉, AMAT 쿼리는 DRAM DB 엔진에서 실행된다.
 
 STATUS 값 집합 (PR ②):
-  - amat_abnormal_step.status 는 'ERROR' / 'CHECKED' / 'COMPLETE' 셋 중 하나.
-  - "미처리" 의 정의 = status <> 'COMPLETE'.
+  - amat_abnormal_step.status 는 'ERROR' / 'CHECKED' / 'SUCCESS' 셋 중 하나.
+  - "미처리" 의 정의 = status <> 'SUCCESS'.
 """
 from app.queries._base import SqlDmlDef, SqlQueryDef
 
@@ -32,26 +32,26 @@ _AMAT_ABNORMAL_STEP_COLUMNS = """
 
 # ── SELECT 쿼리 ──────────────────────────────────────────────────────────────
 QUERIES: dict[str, SqlQueryDef] = {
-    # ① 미처리 목록 — status <> 'COMPLETE' 만. 페이지 첫 진입 / 대시보드 카드 점프 대상.
+    # ① 미처리 목록 — status <> 'SUCCESS' 만. 페이지 첫 진입 / 대시보드 카드 점프 대상.
     "amat_abnormal_steps_no_treat": SqlQueryDef(
         id="amat_abnormal_steps_no_treat",
         title="AMAT 비정상 스텝 (미처리)",
-        description="status 가 COMPLETE 가 아닌 AMAT 비정상 스텝 목록. STATUS 셀에서 직접 변경 후 SAVE.",
+        description="status 가 SUCCESS 가 아닌 AMAT 비정상 스텝 목록. STATUS 셀에서 직접 변경 후 SAVE.",
         sql=f"""
             SELECT
                 {_AMAT_ABNORMAL_STEP_COLUMNS}
             FROM amat_abnormal_step
-            WHERE status <> 'COMPLETE'
+            WHERE status <> 'SUCCESS'
             ORDER BY insert_datetime DESC
             LIMIT 1000
         """,
     ),
 
-    # ② 전체 목록 — COMPLETE 포함. 과거 건의 STATUS 정정도 가능.
+    # ② 전체 목록 — SUCCESS 포함. 과거 건의 STATUS 정정도 가능.
     "amat_abnormal_steps_all": SqlQueryDef(
         id="amat_abnormal_steps_all",
         title="AMAT 비정상 스텝 (전체)",
-        description="AMAT 비정상 스텝 전체 목록 (COMPLETE 포함). STATUS 셀에서 직접 변경 후 SAVE.",
+        description="AMAT 비정상 스텝 전체 목록 (SUCCESS 포함). STATUS 셀에서 직접 변경 후 SAVE.",
         sql=f"""
             SELECT
                 {_AMAT_ABNORMAL_STEP_COLUMNS}
@@ -89,7 +89,7 @@ DML_QUERIES: dict[str, SqlDmlDef] = {
         id="amat_abnormal_step_update_status",
         description=(
             "amat_abnormal_step 의 status 를 idx 기준으로 UPDATE. "
-            "status 는 'ERROR' / 'CHECKED' / 'COMPLETE' 셋 중 하나 — "
+            "status 는 'ERROR' / 'CHECKED' / 'SUCCESS' 셋 중 하나 — "
             "허용값 검증은 API 레이어 (app/routers/amat.py) 의 화이트리스트에서 수행한다."
         ),
         sql="UPDATE amat_abnormal_step SET status = :status WHERE idx = :idx",

@@ -35,7 +35,7 @@ log = get_logger("router.amat")
 
 # AMAT Abnormal Step 의 status 허용값 — DML 실행 전 화이트리스트로 한 번 더 검증.
 # Pydantic Literal 로도 1차 검증되지만, 명시적으로 set 형태로도 둬서 향후 확장 시 추적이 쉽도록.
-ALLOWED_STATUSES: set[str] = {"ERROR", "CHECKED", "COMPLETE"}
+ALLOWED_STATUSES: set[str] = {"ERROR", "CHECKED", "SUCCESS"}
 
 
 @router.get("")
@@ -143,7 +143,7 @@ async def keyword_register(body: KeywordRegisterBody):
 class StatusUpdateItem(BaseModel):
     """STATUS 변경 한 행 — PK(idx) + 새 status."""
     idx: int = Field(..., description="amat_abnormal_step.idx (PK)")
-    status: Literal["ERROR", "CHECKED", "COMPLETE"]
+    status: Literal["ERROR", "CHECKED", "SUCCESS"]
 
 
 class StatusUpdateBody(BaseModel):
