@@ -3,19 +3,31 @@
 본 문서는 `/` 통합 대시보드 페이지의 시각화 설계, 데이터 변환 규칙, 그리고
 "어디를 고치면 어디가 바뀌는지" 를 정리합니다.
 
-## 1. 카드 구성 (현재 = PR #29 이후)
+## 1. 카드 구성 (현재 = PR #50 이후)
 
 대시보드는 **한 페이지에 4개의 카드** 를 위→아래 순서로 표시합니다.
 
-| # | 카드 | type | source | 데이터 |
-|---|------|------|--------|--------|
-| 1 | VNAND 파싱 결과 | `chart` | `vnand` | `recent_parsing_results` (PRODUCT: `LAM`, `TEL`) |
-| 2 | DRAM 파싱 결과  | `chart` | `dram`  | `recent_parsing_results` (PRODUCT: `AMAT`, `LAM`, `TEL`) |
-| 3 | AMAT 비정상 스텝(미처리) | `count` | `dram` | `amat_abnormal_steps_no_treat` 결과 행 수 |
-| 4 | 오늘 접속자수 | `login_today` | `vnand` (logically) | `/login-history/today` |
+| # | 카드 | type | source | 데이터 | 클릭 이동 |
+|---|------|------|--------|--------|----------|
+| 1 | VNAND 파싱 결과 | `chart` | `vnand` | `recent_parsing_results` (PRODUCT: `LAM`, `TEL`) | `/vnand` |
+| 2 | DRAM 파싱 결과  | `chart` | `dram`  | `recent_parsing_results` (PRODUCT: `AMAT`, `LAM`, `TEL`) | `/dram` |
+| 3 | AMAT 비정상 스텝(미처리) | `count` | `dram` | `amat_abnormal_steps_no_treat` 결과 행 수 | — |
+| 4 | 오늘 접속자수 | `login_today` | `vnand` (logically) | `/login-history/today` | `/login-history` |
 
 > 이 정의는 `app/routers/home.py` 의 `DASHBOARD_CARDS` 리스트에 그대로 들어 있습니다.
 > 카드 추가/제거/순서 변경/PRODUCT 변경은 이 리스트만 수정하면 됩니다.
+
+### 카드 타이틀 링크 (PR #50)
+
+`DASHBOARD_CARDS` 항목에 `link_url` 필드를 추가하면 카드 타이틀이 클릭 가능한 `<a>` 링크가 됩니다.
+
+```python
+{"type": "chart", "title": "VNAND 파싱 결과", ..., "link_url": "/vnand"}
+```
+
+- `link_url` 이 있으면 타이틀 `<strong>` 을 `<a class="card-title-link">` 로 감쌈
+- `link_url` 이 없으면 기존 `<strong>` 그대로 유지 (하위 호환)
+- CSS: `.card-title-link` — hover 시 브랜드 컬러(`var(--color-brand)`) 밑줄 표시
 
 ### 1.1 카드 타입별 책임 분리
 

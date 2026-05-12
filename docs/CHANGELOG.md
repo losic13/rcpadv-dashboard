@@ -16,6 +16,94 @@ PR 단위로 기록한 변경 이력과 의사결정 메모입니다. 최신이 
 
 ---
 
+## PR #50 — 대시보드 카드 타이틀 클릭 링크 추가
+
+**커밋**: `feat(home): 대시보드 카드 타이틀 클릭 링크 추가`
+**머지**: `2026-05-12` (PR: `#50`)
+
+### 변경 사항
+
+대시보드 각 카드의 타이틀 텍스트를 클릭하면 해당 페이지로 이동합니다.
+
+| 카드 | 이동 페이지 |
+|------|------------|
+| VNAND 파싱 결과 | `/vnand` |
+| DRAM 파싱 결과 | `/dram` |
+| 오늘 접속자수 | `/login-history` |
+
+#### 구현 방식
+
+- **`home.py`**: `DASHBOARD_CARDS` 각 항목에 `link_url` 필드 추가 (선택적 — 없으면 링크 없음, 하위 호환)
+- **`home.html`**: 카드 타입 3종(chart / count / login_today) 모두 `{% if card.link_url %}` 분기
+  - 있으면 `<a class="card-title-link">` 로 감쌈
+  - 없으면 기존 `<strong>` 그대로 (AMAT 비정상 스텝 등 이동 대상 없는 카드)
+- **`app.css`**: `.card-title-link` 스타일 추가 (기본: 색상 상속 + 밑줄 없음, hover: `var(--color-brand)` 밑줄)
+
+#### 수정 파일
+- `app/routers/home.py` — `DASHBOARD_CARDS` 에 `link_url` 필드 추가
+- `app/templates/home.html` — 카드 타입별 `{% if card.link_url %}` 분기
+- `app/static/css/app.css` — `.card-title-link` 스타일 추가
+
+---
+
+## PR #44~#47 — DRAM 탭 기능 확장 (FILE_PATH 다운로드 / Keyword 관리 / 쿼리 구조 리팩터)
+
+> **주의**: PR #48, #49 (STATUS 인라인 편집 + SAVE 버튼)는 작업 후 롤백됨 (2026-05-12).
+> 현재 main 은 PR #47 완료 상태 기준입니다.
+
+### PR #44 — FILE_PATH 컬럼 인라인 파일 확인/다운로드
+
+**커밋**: `feat(dram): FILE_PATH 컬럼 인라인 파일 확인/다운로드 기능 추가`
+**머지**: `2026-05-12`
+
+- `dram_queries.py`: `amat_abnormal_step_new` SqlQueryDef 추가 (DRAM 탭에 자동 노출)
+- `app.js` QueryRunner: FILE_PATH 컬럼 감지 → `[🔍 확인]` / `[⬇ 다운로드]` 버튼 렌더링
+  - `FilePathActions` 모듈 — `/files/check`, `/files/download` 재사용
+  - 이벤트 위임으로 페이지네이션 전 행도 처리
+- `app.css`: `.fp-cell`, `.fp-path`, `.fp-actions`, `.fp-btn-*` 스타일 추가
+
+### PR #45 — AMAT Abnormal Keyword 탭 추가
+
+**커밋**: `feat(dram): AMAT Abnormal Keyword 탭 추가 (조회 + 등록)`
+**머지**: `2026-05-12`
+
+- `dram_queries.py`: `KEYWORD_LIST_SQL` 상수 추가
+- `mariadb.py`: `execute_dml()` 추가 (INSERT/UPDATE/DELETE + 자동 COMMIT)
+- `dram.py`: `GET /dram/keyword/list` + `POST /dram/keyword/register` 엔드포인트
+  - `special_tabs` 로 DRAM 페이지에 Keyword 전용 탭 추가
+- `source_page.html`: `#panel-amat-keyword` 패널 + `KwPanel` JS 모듈
+  - 앞뒤공백/줄바꿈 감지 시 `kw-confirm-overlay` 확인창
+  - 등록 성공 시 DataTables 목록 자동 갱신
+- `app.css`: `.kw-*` 스타일 추가
+
+### PR #46 — KEYWORD_LIST_SQL → QUERIES dict 통합
+
+**커밋**: `refactor(dram): KEYWORD_LIST_SQL → QUERIES dict 통합 관리`
+**머지**: `2026-05-12`
+
+- `SqlQueryDef`에 `hidden: bool = False` 필드 추가
+  - `hidden=True` 이면 source_page 일반 탭 목록에서 제외 (special_tab 전용)
+- `_sql_runner.py`: `list_queries()` 에서 `hidden=True` 항목 필터링
+- `dram_queries.py`: `KEYWORD_LIST_SQL` 상수 → `QUERIES['amat_keyword_list']` SqlQueryDef 로 편입
+
+### PR #47 — DML_QUERIES 분리 + keyword 테이블 컬럼 변경
+
+**커밋**: `refactor(dram): INSERT 쿼리 DML_QUERIES로 분리, keyword 테이블 컬럼 index/name으로 변경`
+**머지**: `2026-05-12`
+
+- `_base.py`: `SqlDmlDef` 데이터클래스 추가 (INSERT/UPDATE/DELETE 전용)
+- `dram_queries.py`: `DML_QUERIES` dict 추가 (`QUERIES` 와 SELECT/DML 역할 명확히 분리)
+  - `amat_keyword_insert`: `INSERT INTO amat_keyword (name) VALUES (:name)`
+- `dram.py`: 하드코딩 INSERT SQL → `DML_QUERIES['amat_keyword_insert'].sql` 참조
+- `source_page.html` KwPanel: `No.` 컬럼 제거, 컬럼명 `index`/`name` 으로 변경
+
+#### 의사결정 메모
+
+- **`hidden=True` 도입 이유**: `amat_keyword_list` 는 special_tab 전용 쿼리로, 일반 탭 목록에 나오면 클릭 시 source_page의 공통 탭 패널이 표시돼 UX 혼란. `hidden` 플래그로 `list_queries()` 에서만 제외하고, 라우터는 직접 `.sql` 을 참조.
+- **`DML_QUERIES` 분리 이유**: SELECT(`QUERIES`)와 INSERT/UPDATE/DELETE(`DML_QUERIES`)를 같은 dict에 두면 `run_query()` 와 `execute_dml()` 중 어느 것을 써야 하는지 불분명해짐. dict 분리로 역할 명확화.
+
+---
+
 ## PR #33 — AMAT 카드 부제 단순화 + 일평균 정수화·X축 아래 이동 + 오늘접속자 라벨 / 메뉴명 'Client 접속 이력'
 
 **커밋**: `043ccb3 feat(home): AMAT 카드 부제 단순화 + 일평균 정수화·X축 아래 이동 + 오늘접속자 라벨 변경 / refactor(nav): '사용자 접속 이력' → 'Client 접속 이력'`
