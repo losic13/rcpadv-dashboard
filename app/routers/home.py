@@ -52,12 +52,17 @@ DASHBOARD_CARDS = [
     },
     {
         "type": "count",
-        "source": "dram",
-        "source_label": "DRAM DB",
+        # source 는 fetch URL prefix 로 그대로 사용된다 → /amat/query/<query_id>.
+        # AMAT 쿼리는 amat_queries.QUERIES 에 정의되어 있고 /amat 라우터에서 실행한다.
+        "source": "amat",
+        "source_label": "AMAT 설비관리",
         "title": "AMAT 비정상 스텝 (미처리)",
         "query_id": "amat_abnormal_steps_no_treat",
         "unit": "건",
         "description": "사용자 조치가 필요한 이상 감지 로그 건 수 입니다.",
+        # 카드 타이틀 클릭 시 AMAT 페이지의 "미처리" 탭으로 점프.
+        # amat_page.html 의 pickInitialTab() 이 ?tab= 값을 읽어 해당 탭을 활성화한다.
+        "link_url": "/amat?tab=amat_abnormal_steps_no_treat",
     },
     # ─────────────────────────────────────────────────────
     # ④ 오늘 접속자수 카드 — "전체" / "고객" 을 한 카드 안에 같이 표시.

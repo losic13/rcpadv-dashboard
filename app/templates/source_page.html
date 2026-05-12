@@ -95,59 +95,7 @@
     <div class="error-msg" data-role="error" hidden></div>
   </div>
 
-  {# ---- AMAT Keyword 관리 패널 ---- #}
-  {% if source == 'dram' %}
-  <div class="card-body kw-panel" id="panel-amat-keyword" role="tabpanel" hidden>
-
-    {# 등록 폼 #}
-    <div class="kw-register-box">
-      <h3 class="kw-section-title">키워드 등록</h3>
-      <div class="kw-form-row">
-        <input  type="text"
-                id="kw-input"
-                class="kw-input"
-                placeholder="등록할 키워드를 입력하세요"
-                maxlength="255"
-                autocomplete="off" />
-        <button type="button" id="kw-register-btn" class="btn kw-btn-register">
-          등록
-        </button>
-      </div>
-      <p class="kw-hint">※ 앞뒤 공백 또는 줄바꿈 문자 포함 시 등록 전 확인창이 표시됩니다.</p>
-    </div>
-
-    {# 확인 다이얼로그 (기본 숨김) #}
-    <div class="kw-confirm-overlay" id="kw-confirm-overlay" hidden>
-      <div class="kw-confirm-box" role="dialog" aria-modal="true" aria-labelledby="kw-confirm-title">
-        <h4 class="kw-confirm-title" id="kw-confirm-title">⚠️ 등록 전 확인</h4>
-        <p class="kw-confirm-msg" id="kw-confirm-msg"></p>
-        <pre class="kw-confirm-preview" id="kw-confirm-preview"></pre>
-        <div class="kw-confirm-actions">
-          <button type="button" id="kw-confirm-ok"  class="btn kw-btn-ok">그대로 등록</button>
-          <button type="button" id="kw-confirm-cancel" class="btn kw-btn-cancel">취소</button>
-        </div>
-      </div>
-    </div>
-
-    {# 조회 테이블 #}
-    <div class="kw-list-box">
-      <div class="kw-list-header">
-        <h3 class="kw-section-title">키워드 목록</h3>
-        <button type="button" id="kw-refresh-btn" class="btn kw-btn-refresh" title="목록 새로고침">
-          ↻ 새로고침
-        </button>
-      </div>
-      <div id="kw-list-status" class="kw-list-status" hidden></div>
-      <table class="display compact" id="kw-table" style="width:100%">
-        <thead><tr>
-          <th class="placeholder-cell">⏳ 목록을 불러오는 중...</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-
-  </div>
-  {% endif %}
+  {# AMAT Keyword 관리 패널은 /amat 페이지(amat_page.html) 로 이전됨. #}
 
 </section>
 
@@ -198,12 +146,10 @@
       const specialPanel = tabBtn.dataset.specialPanel;
       if (specialPanel) {
         // 특수 탭: QueryRunner 종료 + 전용 패널 표시
+        // (현재 source_page.html 을 쓰는 VNAND/DRAM 에는 special 탭이 없지만
+        //  ES 등 향후 사용을 위해 구조는 유지)
         if (runner) { runner.destroy(); runner = null; }
         showSpecialPanel(specialPanel);
-        // 키워드 패널 초기화 (최초 1회)
-        if (specialPanel === 'panel-amat-keyword') {
-          KwPanel.init();
-        }
       } else {
         // 일반 탭: 결과 패널 표시 + QueryRunner 기동
         showQueryPanel();
@@ -237,177 +183,29 @@
       e.preventDefault();
     });
 
-    // 첫 탭 자동 활성화
-    const firstTab = tabsContainer.querySelector('.query-tab');
-    if (firstTab) activateTab(firstTab);
-
-    // ═══════════════════════════════════════════════════════════
-    // KwPanel — AMAT Keyword 관리 패널 로직
-    // ═══════════════════════════════════════════════════════════
-    const KwPanel = (() => {
-      let _initialized = false;
-      let _kwTable     = null;   // DataTables 인스턴스
-
-      // ── DOM refs ──
-      const panel         = () => document.getElementById('panel-amat-keyword');
-      const kwInput       = () => document.getElementById('kw-input');
-      const kwRegBtn      = () => document.getElementById('kw-register-btn');
-      const kwRefreshBtn  = () => document.getElementById('kw-refresh-btn');
-      const kwListStatus  = () => document.getElementById('kw-list-status');
-      const confirmOverlay= () => document.getElementById('kw-confirm-overlay');
-      const confirmMsg    = () => document.getElementById('kw-confirm-msg');
-      const confirmPreview= () => document.getElementById('kw-confirm-preview');
-      const confirmOkBtn  = () => document.getElementById('kw-confirm-ok');
-      const confirmCancelBtn = () => document.getElementById('kw-confirm-cancel');
-
-      // ── 상태 표시 ──
-      function setStatus(msg, type) {   // type: '' | 'ok' | 'err'
-        const el = kwListStatus();
-        if (!el) return;
-        el.textContent = msg;
-        el.className   = 'kw-list-status' + (type ? ' kw-status-' + type : '');
-        el.hidden      = !msg;
+    // ── 초기 탭 선택 ─────────────────────────────────────────
+    //   URL 의 ?tab=<key> 가 있으면 그 탭을 활성화. 매칭 우선순위:
+    //     1) 일반 쿼리 탭의 data-query-id == <key>
+    //     2) 특수 탭의 data-special-panel == <key> 또는 == "panel-<key>"
+    //   둘 다 안 맞으면 첫 탭으로 fallback.
+    function pickInitialTab() {
+      const params  = new URLSearchParams(window.location.search);
+      const wanted  = (params.get('tab') || '').trim();
+      const allTabs = Array.from(tabsContainer.querySelectorAll('.query-tab'));
+      if (wanted) {
+        const match = allTabs.find(t => {
+          if (t.dataset.queryId === wanted) return true;
+          const sp = t.dataset.specialPanel || '';
+          if (sp === wanted) return true;
+          if (sp === `panel-${wanted}`) return true;
+          return false;
+        });
+        if (match) return match;
       }
-
-      // ── 목록 로드 ──
-      async function loadList() {
-        setStatus('목록 불러오는 중…', '');
-        try {
-          const res  = await fetch('/dram/keyword/list');
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || res.statusText);
-
-          const tableEl = document.getElementById('kw-table');
-          if (!tableEl) return;
-
-          const rows = (data.rows || []).map(r => ({
-            index: r.index,
-            name:  r.name,
-          }));
-
-          if (_kwTable) {
-            _kwTable.clear().rows.add(rows).draw(false);
-            setStatus('', '');
-            return;
-          }
-
-          // 최초 초기화
-          tableEl.innerHTML =
-            '<thead><tr><th>index</th><th>name</th></tr></thead><tbody></tbody>';
-
-          _kwTable = $(tableEl).DataTable({
-            data: rows,
-            columns: [
-              { title: 'index', data: 'index', width: '80px', className: 'dt-center', defaultContent: '' },
-              { title: 'name',  data: 'name',  defaultContent: '' },
-            ],
-            dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
-            buttons: [{ extend: 'csvHtml5', text: 'CSV 내보내기', filename: 'amat_keyword' }],
-            pageLength: 25,
-            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, '전체']],
-            order: [[0, 'asc']],
-            language: window._DT_KO || {},
-          });
-          setStatus('', '');
-        } catch (err) {
-          setStatus('⚠ 목록 로드 실패: ' + err.message, 'err');
-        }
-      }
-
-      // ── 등록 실행 ──
-      async function doRegister(name) {
-        const btn = kwRegBtn();
-        if (btn) { btn.disabled = true; btn.textContent = '등록 중…'; }
-        try {
-          const res  = await fetch('/dram/keyword/register', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ name }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || res.statusText);
-
-          Toast.show('등록 완료: ' + name, 'success');
-          if (kwInput()) kwInput().value = '';
-          await loadList();
-        } catch (err) {
-          Toast.show('등록 실패: ' + err.message, 'error');
-        } finally {
-          if (btn) { btn.disabled = false; btn.textContent = '등록'; }
-        }
-      }
-
-      // ── 입력값 검증 → 확인창 또는 즉시 등록 ──
-      function requestRegister() {
-        const inp = kwInput();
-        if (!inp) return;
-        const raw  = inp.value;
-        const trimmed = raw.trim();
-
-        if (!trimmed) {
-          Toast.show('키워드를 입력해 주세요.', 'error');
-          return;
-        }
-
-        // 앞뒤 공백 또는 줄바꿈 포함 여부 체크
-        const hasLeadingTrailingSpace = (raw !== trimmed);
-        const hasNewline = /[\r\n]/.test(raw);
-
-        if (hasLeadingTrailingSpace || hasNewline) {
-          // 경고 문구 조합
-          const reasons = [];
-          if (hasLeadingTrailingSpace) reasons.push('앞/뒤 공백');
-          if (hasNewline)              reasons.push('줄바꿈 문자(\\n)');
-          confirmMsg().textContent =
-            '입력값에 ' + reasons.join(', ') + ' 이(가) 포함되어 있습니다. 그대로 등록하시겠습니까?';
-          // 입력값을 눈에 보이도록 표시 (이스케이프)
-          confirmPreview().textContent = raw
-            .replace(/\r\n/g, '↵\n')
-            .replace(/\n/g, '↵\n')
-            .replace(/\r/g, '↵');
-          confirmOverlay().hidden = false;
-          confirmOkBtn().onclick = () => {
-            confirmOverlay().hidden = true;
-            doRegister(raw);
-          };
-          confirmCancelBtn().onclick = () => {
-            confirmOverlay().hidden = true;
-          };
-        } else {
-          doRegister(raw);
-        }
-      }
-
-      // ── 초기화 (탭 최초 진입 시 1회) ──
-      function init() {
-        if (_initialized) return;
-        _initialized = true;
-
-        const regBtn  = kwRegBtn();
-        const refBtn  = kwRefreshBtn();
-        const inp     = kwInput();
-
-        if (regBtn)  regBtn.addEventListener('click', requestRegister);
-        if (refBtn)  refBtn.addEventListener('click', loadList);
-        if (inp) {
-          inp.addEventListener('keydown', e => {
-            if (e.key === 'Enter') { e.preventDefault(); requestRegister(); }
-          });
-        }
-
-        // 오버레이 바깥 클릭 시 닫기
-        const overlay = confirmOverlay();
-        if (overlay) {
-          overlay.addEventListener('click', e => {
-            if (e.target === overlay) overlay.hidden = true;
-          });
-        }
-
-        loadList();
-      }
-
-      return { init };
-    })();
+      return allTabs[0] || null;
+    }
+    const initialTab = pickInitialTab();
+    if (initialTab) activateTab(initialTab);
 
   })();
 </script>

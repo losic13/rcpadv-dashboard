@@ -98,14 +98,18 @@ NAV_ITEMS = [
     },
 
     # ── 4) Maria DB ───────────────────────────────────────
+    #   AMAT 설비관리는 DRAM DB 안의 amat_* 테이블들을 사용하지만,
+    #   "쿼리 조회만" 인 VNAND/DRAM 과 달리 페이지에서 다양한 작업
+    #   (STATUS 인라인 편집/SAVE 등)을 수행할 수 있는 전용 페이지로 분리.
     {
         "type":  "category",
         "key":   "cat_mariadb",
         "label": "Maria DB",
         "icon":  "🗄",
         "children": [
-            {"key": "vnand", "label": "VNAND", "url": "/vnand"},
-            {"key": "dram",  "label": "DRAM",  "url": "/dram"},
+            {"key": "vnand", "label": "VNAND",        "url": "/vnand"},
+            {"key": "dram",  "label": "DRAM",         "url": "/dram"},
+            {"key": "amat",  "label": "AMAT 설비관리", "url": "/amat"},
         ],
     },
 

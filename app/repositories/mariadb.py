@@ -82,6 +82,32 @@ def execute_dml(source: str, sql: str, params: dict[str, Any] | None = None) -> 
         return result.rowcount
 
 
+def execute_dml_many(
+    source: str,
+    sql: str,
+    params_list: list[dict[str, Any]],
+) -> int:
+    """동일한 DML(SQL) 을 N건의 파라미터로 **단일 트랜잭션** 에서 실행.
+
+    - 한 건이라도 예외가 발생하면 전체 ROLLBACK (all-or-nothing).
+    - 정상 완료 시 영향받은 총 행 수를 반환 (Σ rowcount).
+    - params_list 가 비어 있으면 0 을 반환하고 아무 것도 실행하지 않는다.
+
+    사용 예: AMAT Abnormal Step 의 STATUS 다중 UPDATE — 사용자가 SAVE 버튼을
+    누르면 변경된 행 N건을 한 번에 보내고, 한 건이라도 실패하면 모두 폐기한다.
+    """
+    if not params_list:
+        return 0
+    engine = _get_engine(source)
+    stmt = text(sql)
+    total = 0
+    with engine.begin() as conn:           # 단일 트랜잭션 — 예외 시 자동 ROLLBACK
+        for params in params_list:
+            result = conn.execute(stmt, params)
+            total += (result.rowcount or 0)
+    return total
+
+
 def dispose_all() -> None:
     """앱 종료 시 호출."""
     for eng in _engines.values():
