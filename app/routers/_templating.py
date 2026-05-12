@@ -120,6 +120,7 @@ NAV_ITEMS = [
         "label": "Elastic Search",
         "icon":  "🔍",
         "children": [
+            {"key": "es_document", "label": "Document 조회",  "url": "/es/document"},
             {"key": "es_targets",  "label": "대상 설비",      "url": "/es/targets",  "disabled": True},
             {"key": "es_overview", "label": "대상 로그 개요",  "url": "/es/overview"},
             {"key": "es_history",  "label": "종합 처리 이력",  "url": "/es/history",  "disabled": True},

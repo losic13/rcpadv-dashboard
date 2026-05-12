@@ -194,6 +194,162 @@ async def run_overview_tkin() -> dict[str, Any]:
 
 
 # ============================================================
+# Document 조회 — _id terms 쿼리 (Document 조회 페이지)
+# ============================================================
+
+#: Document 조회용 인덱스 (parsing-index-2-* 와일드카드).
+#: 운영에서 다른 인덱스로 바꾸려면 이 상수만 변경.
+DOCUMENT_LOOKUP_INDEX = "parsing-index-2-*"
+
+#: 한 번에 조회 가능한 _id 최대 개수.
+DOCUMENT_LOOKUP_MAX_IDS = 1000
+
+
+async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
+    """입력된 _id 목록으로 parsing-index-2-* doc 조회 (terms 쿼리).
+
+    동작:
+        - 중복 _id 는 입력 순서를 유지하면서 제거.
+        - ES terms 쿼리로 한 번에 조회 (size = len(ids)).
+        - 결과 rows 는 입력 순서대로 재정렬 (ES 응답 순서는 보장되지 않음).
+        - 미발견 _id 도 함께 반환해 UI 에서 사용자에게 알려줄 수 있게 함.
+
+    반환:
+        {
+          "ok": bool,
+          "columns": [...],
+          "rows": [...],
+          "requested": int,         # 중복 제거 후 입력 개수
+          "found": int,             # 실제 조회된 doc 수
+          "missing_ids": [...],     # 미발견 _id 목록 (전체)
+          "missing_count": int,
+          "elapsed_ms": int,
+          "queried_at": str,
+          "index": str,
+          "error": str | None,
+        }
+    """
+    # 입력 순서를 유지하면서 중복 제거
+    seen: set[str] = set()
+    unique_ids: list[str] = []
+    for raw in ids:
+        s = (raw or "").strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        unique_ids.append(s)
+
+    if not unique_ids:
+        return {
+            "ok": False,
+            "columns": [],
+            "rows": [],
+            "requested": 0,
+            "found": 0,
+            "missing_ids": [],
+            "missing_count": 0,
+            "elapsed_ms": 0,
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": DOCUMENT_LOOKUP_INDEX,
+            "error": "조회할 _id 가 없습니다.",
+        }
+
+    if len(unique_ids) > DOCUMENT_LOOKUP_MAX_IDS:
+        return {
+            "ok": False,
+            "columns": [],
+            "rows": [],
+            "requested": len(unique_ids),
+            "found": 0,
+            "missing_ids": [],
+            "missing_count": 0,
+            "elapsed_ms": 0,
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": DOCUMENT_LOOKUP_INDEX,
+            "error": f"최대 {DOCUMENT_LOOKUP_MAX_IDS} 건까지만 조회 가능합니다 (입력 {len(unique_ids)} 건).",
+        }
+
+    body = {
+        "size": len(unique_ids),
+        "query": {"terms": {"_id": unique_ids}},
+    }
+
+    log.info(
+        "[es/document] _id terms 조회 시작: index=%s, ids=%d",
+        DOCUMENT_LOOKUP_INDEX, len(unique_ids),
+    )
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.search, DOCUMENT_LOOKUP_INDEX, body),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error("[es/document] 쿼리 타임아웃 (>%ds)", settings.QUERY_TIMEOUT_SECONDS)
+        return {
+            "ok": False,
+            "columns": [],
+            "rows": [],
+            "requested": len(unique_ids),
+            "found": 0,
+            "missing_ids": [],
+            "missing_count": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": DOCUMENT_LOOKUP_INDEX,
+            "error": "쿼리 타임아웃",
+        }
+    except Exception as e:
+        log.error("[es/document] 쿼리 실패: %s", e)
+        return {
+            "ok": False,
+            "columns": [],
+            "rows": [],
+            "requested": len(unique_ids),
+            "found": 0,
+            "missing_ids": [],
+            "missing_count": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": DOCUMENT_LOOKUP_INDEX,
+            "error": str(e),
+        }
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    columns, rows = _normalize(resp)
+
+    # ── 입력 순서대로 재정렬 + 미발견 추적 ──
+    found_map: dict[str, dict] = {r.get("_id"): r for r in rows if r.get("_id")}
+    ordered_rows: list[dict] = []
+    missing_ids: list[str] = []
+    for _id in unique_ids:
+        if _id in found_map:
+            ordered_rows.append(found_map[_id])
+        else:
+            missing_ids.append(_id)
+
+    log.info(
+        "[es/document] 완료: index=%s, 입력=%d, 발견=%d, 미발견=%d, %dms",
+        DOCUMENT_LOOKUP_INDEX, len(unique_ids), len(ordered_rows),
+        len(missing_ids), elapsed_ms,
+    )
+
+    return {
+        "ok": True,
+        "columns": columns,
+        "rows": ordered_rows,
+        "requested": len(unique_ids),
+        "found": len(ordered_rows),
+        "missing_ids": missing_ids,
+        "missing_count": len(missing_ids),
+        "elapsed_ms": elapsed_ms,
+        "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "index": DOCUMENT_LOOKUP_INDEX,
+        "error": None,
+    }
+
+
+# ============================================================
 # 공통 내부 유틸
 # ============================================================
 
