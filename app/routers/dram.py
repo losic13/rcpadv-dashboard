@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.logger import get_logger
-from app.queries.dram_queries import QUERIES as DRAM_QUERIES
+from app.queries.dram_queries import DML_QUERIES as DRAM_DML, QUERIES as DRAM_QUERIES
 from app.repositories.mariadb import execute as db_execute, execute_dml
 from app.routers._templating import NAV_ITEMS, templates
 from app.services import dram_service
@@ -87,7 +87,7 @@ async def keyword_register(body: KeywordRegisterBody):
             asyncio.to_thread(
                 execute_dml,
                 "dram",
-                "INSERT INTO amat_keyword (name) VALUES (:name)",
+                DRAM_DML["amat_keyword_insert"].sql,
                 {"name": name},
             ),
             timeout=settings.QUERY_TIMEOUT_SECONDS,
