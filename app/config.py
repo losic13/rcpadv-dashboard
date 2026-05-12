@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     ES_PASSWORD: str = ""
     ES_VERIFY_CERTS: bool = False
 
+    # ---- ES Document 조회 페이지 (/es/document) ----
+    # 인덱스 이름 / 한도를 코드 상수 대신 환경 변수로 관리.
+    # 운영에서 인덱스를 바꾸거나 한도를 조정해야 할 때 코드를 건드리지 않도록 .env 로 빼둠.
+    # · ES_DOCUMENT_LOOKUP_INDEX : terms 쿼리를 보낼 ES 인덱스 (와일드카드 가능)
+    # · ES_DOCUMENT_LOOKUP_MAX_IDS : 한 번의 조회에서 받을 수 있는 _id 최대 개수
+    ES_DOCUMENT_LOOKUP_INDEX: str = "parsing-index-2-*"
+    ES_DOCUMENT_LOOKUP_MAX_IDS: int = 1000
+
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"

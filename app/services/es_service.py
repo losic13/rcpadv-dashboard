@@ -196,17 +196,15 @@ async def run_overview_tkin() -> dict[str, Any]:
 # ============================================================
 # Document 조회 — _id terms 쿼리 (Document 조회 페이지)
 # ============================================================
-
-#: Document 조회용 인덱스 (parsing-index-2-* 와일드카드).
-#: 운영에서 다른 인덱스로 바꾸려면 이 상수만 변경.
-DOCUMENT_LOOKUP_INDEX = "parsing-index-2-*"
-
-#: 한 번에 조회 가능한 _id 최대 개수.
-DOCUMENT_LOOKUP_MAX_IDS = 1000
+#
+# 인덱스 이름 / 한도는 app.config.settings 로 옮겼다.
+#   - settings.ES_DOCUMENT_LOOKUP_INDEX   (.env: ES_DOCUMENT_LOOKUP_INDEX)
+#   - settings.ES_DOCUMENT_LOOKUP_MAX_IDS (.env: ES_DOCUMENT_LOOKUP_MAX_IDS)
+# 운영에서 인덱스/한도를 바꿔야 할 때 코드를 건드리지 않고 .env 만 수정한다.
 
 
 async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
-    """입력된 _id 목록으로 parsing-index-2-* doc 조회 (terms 쿼리).
+    """입력된 _id 목록으로 ES_DOCUMENT_LOOKUP_INDEX 에서 doc 조회 (terms 쿼리).
 
     동작:
         - 중복 _id 는 입력 순서를 유지하면서 제거.
@@ -225,10 +223,13 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
           "missing_count": int,
           "elapsed_ms": int,
           "queried_at": str,
-          "index": str,
+          "index": str,             # 실행에 사용된 인덱스 (settings 값 그대로)
           "error": str | None,
         }
     """
+    index = settings.ES_DOCUMENT_LOOKUP_INDEX
+    max_ids = settings.ES_DOCUMENT_LOOKUP_MAX_IDS
+
     # 입력 순서를 유지하면서 중복 제거
     seen: set[str] = set()
     unique_ids: list[str] = []
@@ -250,11 +251,11 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
             "missing_count": 0,
             "elapsed_ms": 0,
             "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "index": DOCUMENT_LOOKUP_INDEX,
+            "index": index,
             "error": "조회할 _id 가 없습니다.",
         }
 
-    if len(unique_ids) > DOCUMENT_LOOKUP_MAX_IDS:
+    if len(unique_ids) > max_ids:
         return {
             "ok": False,
             "columns": [],
@@ -265,8 +266,8 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
             "missing_count": 0,
             "elapsed_ms": 0,
             "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "index": DOCUMENT_LOOKUP_INDEX,
-            "error": f"최대 {DOCUMENT_LOOKUP_MAX_IDS} 건까지만 조회 가능합니다 (입력 {len(unique_ids)} 건).",
+            "index": index,
+            "error": f"최대 {max_ids} 건까지만 조회 가능합니다 (입력 {len(unique_ids)} 건).",
         }
 
     body = {
@@ -276,12 +277,12 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
 
     log.info(
         "[es/document] _id terms 조회 시작: index=%s, ids=%d",
-        DOCUMENT_LOOKUP_INDEX, len(unique_ids),
+        index, len(unique_ids),
     )
     start = time.perf_counter()
     try:
         resp = await asyncio.wait_for(
-            asyncio.to_thread(es_client.search, DOCUMENT_LOOKUP_INDEX, body),
+            asyncio.to_thread(es_client.search, index, body),
             timeout=settings.QUERY_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
@@ -296,7 +297,7 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
             "missing_count": 0,
             "elapsed_ms": int((time.perf_counter() - start) * 1000),
             "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "index": DOCUMENT_LOOKUP_INDEX,
+            "index": index,
             "error": "쿼리 타임아웃",
         }
     except Exception as e:
@@ -311,7 +312,7 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
             "missing_count": 0,
             "elapsed_ms": int((time.perf_counter() - start) * 1000),
             "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "index": DOCUMENT_LOOKUP_INDEX,
+            "index": index,
             "error": str(e),
         }
 
@@ -330,7 +331,7 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
 
     log.info(
         "[es/document] 완료: index=%s, 입력=%d, 발견=%d, 미발견=%d, %dms",
-        DOCUMENT_LOOKUP_INDEX, len(unique_ids), len(ordered_rows),
+        index, len(unique_ids), len(ordered_rows),
         len(missing_ids), elapsed_ms,
     )
 
@@ -344,7 +345,7 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
         "missing_count": len(missing_ids),
         "elapsed_ms": elapsed_ms,
         "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "index": DOCUMENT_LOOKUP_INDEX,
+        "index": index,
         "error": None,
     }
 

@@ -3,13 +3,14 @@
   ──────────────────────────────────────────────────────────────
   · 입력  : textarea 에 _id 목록 (개행/콤마/공백/세미콜론 무관)
   · 동작  : POST /es/document/lookup  { ids: [...] }
-            → 서버가 parsing-index-2-* 에 terms 쿼리 1회 실행
+            → 서버가 settings.ES_DOCUMENT_LOOKUP_INDEX 에 terms 쿼리 1회 실행
             → 입력 순서대로 정렬된 hits 와 미발견 _id 목록을 반환
   · 결과  : DataTables 로 표시 (_id + _source 의 모든 필드를 동적 컬럼으로)
 
-  최대 입력 한도 / 인덱스 이름은 백엔드 상수
-    (es_service.DOCUMENT_LOOKUP_MAX_IDS / DOCUMENT_LOOKUP_INDEX)
-  를 그대로 페이지에 노출.
+  최대 입력 한도 / 인덱스 이름은 환경 변수에서 주입:
+    · ES_DOCUMENT_LOOKUP_INDEX     (.env / app.config.settings)
+    · ES_DOCUMENT_LOOKUP_MAX_IDS   (.env / app.config.settings)
+  라우터(/es/document)가 settings 값을 그대로 페이지에 넘긴다.
 #}
 {% extends "base.html" %}
 

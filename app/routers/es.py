@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.config import settings
 from app.logger import get_logger
 from app.routers._templating import NAV_ITEMS, templates
 from app.services import es_service
@@ -84,7 +85,10 @@ async def overview_tkin(request: Request):
 # ── 신규: /es/document (Document 조회 — _id terms 쿼리) ──────────────────
 @router.get("/document")
 def document_page(request: Request):
-    """Document 조회 페이지 — _id 목록으로 parsing-index-2-* doc 조회."""
+    """Document 조회 페이지 — _id 목록으로 ES_DOCUMENT_LOOKUP_INDEX doc 조회.
+
+    인덱스 이름 / 한도는 settings (.env) 에서 가져온다.
+    """
     return templates.TemplateResponse(
         request,
         "es_document.html",
@@ -92,8 +96,8 @@ def document_page(request: Request):
             "nav_items": NAV_ITEMS,
             "active_nav": "es_document",
             "page_title": "Document 조회",
-            "lookup_index": es_service.DOCUMENT_LOOKUP_INDEX,
-            "lookup_max_ids": es_service.DOCUMENT_LOOKUP_MAX_IDS,
+            "lookup_index": settings.ES_DOCUMENT_LOOKUP_INDEX,
+            "lookup_max_ids": settings.ES_DOCUMENT_LOOKUP_MAX_IDS,
         },
     )
 
