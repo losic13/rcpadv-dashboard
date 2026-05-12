@@ -1,0 +1,762 @@
+{#
+  AMAT 설비관리 페이지 전용 템플릿.
+
+  컨텍스트:
+    - page_title  : 화면 제목
+    - source      : "amat" (고정)
+    - queries     : [{id, title, description, params: [...]}]
+    - special_tabs: [{id, title, description, panel_id}]
+
+  source_page.html 과 구조가 비슷하지만, 다음 두 가지 이유로 분리:
+    1) AMAT 페이지에서는 앞으로 STATUS 인라인 편집/SAVE 등 페이지별
+       전용 작업이 점점 추가될 예정 (단순 조회 페이지인 VNAND/DRAM 과
+       라이프사이클이 달라짐).
+    2) source_page.html 안에 더 이상 {% if source == 'amat' %} 조건부
+       블록을 늘리지 않고, 페이지 단위로 책임을 분리한다.
+
+  주의: 일반 쿼리 탭의 fetch 는 /amat/query/<id> (amat 라우터) 로 향한다.
+        QueryRunner 가 root[data-source="amat"] 를 그대로 사용하므로
+        라우터 prefix 만 일치시키면 별도 처리는 필요 없다.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+{% if not queries and not special_tabs %}
+<div class="empty-state">
+  <p>등록된 쿼리가 없습니다.</p>
+  <p class="hint">
+    <code>app/queries/amat_queries.py</code> 에 쿼리를 추가하세요.
+  </p>
+</div>
+{% else %}
+
+<section class="card source-page" id="source-page" data-source="{{ source }}">
+
+  {# ---- 쿼리 탭 ---- #}
+  <nav class="query-tabs" role="tablist" aria-label="쿼리 목록">
+    {% for q in queries %}
+    <button type="button"
+            class="query-tab {% if loop.first %}active{% endif %}"
+            role="tab"
+            id="tab-{{ q.id }}"
+            data-query-id="{{ q.id }}"
+            data-description="{{ q.description }}"
+            aria-selected="{% if loop.first %}true{% else %}false{% endif %}"
+            aria-controls="result-panel">
+      <span class="query-tab-label">{{ q.title }}</span>
+    </button>
+    {% endfor %}
+    {# 특수 탭 (별도 패널) #}
+    {% for st in (special_tabs or []) %}
+    <button type="button"
+            class="query-tab query-tab--special"
+            role="tab"
+            id="tab-{{ st.id }}"
+            data-special-panel="{{ st.panel_id }}"
+            data-description="{{ st.description }}"
+            aria-selected="false"
+            aria-controls="{{ st.panel_id }}">
+      <span class="query-tab-label">{{ st.title }}</span>
+    </button>
+    {% endfor %}
+  </nav>
+
+  {# ---- 일반 쿼리 컨트롤 헤더 ---- #}
+  <header class="card-header source-controls" id="query-controls">
+    <div class="control-row">
+      <button type="button" class="btn btn-run" data-role="refresh" title="쿼리 다시 실행">
+        <span class="btn-run-icon" aria-hidden="true">↻</span>
+        <span class="btn-run-label">새로고침</span>
+      </button>
+
+      <label class="auto-refresh toggle-switch" title="10초마다 자동으로 다시 실행">
+        <input type="checkbox" data-role="auto-refresh">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">자동갱신 <span class="toggle-suffix">10s</span></span>
+      </label>
+
+      <span class="status-area">
+        <span class="spinner" data-role="spinner" hidden>
+          <span class="spinner-dot"></span>
+          <span class="spinner-text">실행 중</span>
+        </span>
+        <span class="status-badge" data-role="status-badge" data-state="idle" hidden></span>
+        <span class="cancel-count" data-role="cancel-count" hidden
+              title="탭 전환 등으로 취소된 이전 쿼리 누적 횟수">취소 ×<span class="cancel-count-num">0</span></span>
+        <span class="elapsed" data-role="elapsed"></span>
+      </span>
+
+      {# ── STATUS 인라인 편집 / SAVE 영역 ──
+         AbnormalStep 탭(all / no_treat) 일 때만 보이고, 그 외 탭에서는 숨김.
+         JS 가 activateTab() 시 토글한다. #}
+      <span class="save-area" data-role="save-area" hidden>
+        <button type="button"
+                class="btn btn-save"
+                data-role="save-btn"
+                disabled
+                title="변경된 STATUS 를 DB 에 저장 (한 건이라도 실패 시 전체 롤백)">
+          💾 SAVE <span class="save-count" data-role="save-count">(0건)</span>
+        </button>
+        <button type="button"
+                class="btn btn-revert"
+                data-role="revert-btn"
+                disabled
+                title="저장하지 않은 변경을 모두 폐기">
+          ↶ 되돌리기
+        </button>
+      </span>
+    </div>
+
+    <div class="control-row description-row">
+      <span class="description" id="query-description"></span>
+    </div>
+  </header>
+
+  {# ---- 일반 쿼리 결과 패널 ---- #}
+  <div class="card-body" id="result-panel" role="tabpanel" aria-live="polite">
+    <table class="display compact" data-role="table" id="result-table" style="width:100%">
+      <thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="error-msg" data-role="error" hidden></div>
+  </div>
+
+  {# ---- AMAT Keyword 관리 패널 ---- #}
+  <div class="card-body kw-panel" id="panel-amat-keyword" role="tabpanel" hidden>
+
+    {# 등록 폼 #}
+    <div class="kw-register-box">
+      <h3 class="kw-section-title">키워드 등록</h3>
+      <div class="kw-form-row">
+        <input  type="text"
+                id="kw-input"
+                class="kw-input"
+                placeholder="등록할 키워드를 입력하세요"
+                maxlength="255"
+                autocomplete="off" />
+        <button type="button" id="kw-register-btn" class="btn kw-btn-register">
+          등록
+        </button>
+      </div>
+      <p class="kw-hint">※ 앞뒤 공백 또는 줄바꿈 문자 포함 시 등록 전 확인창이 표시됩니다.</p>
+    </div>
+
+    {# 확인 다이얼로그 (기본 숨김) #}
+    <div class="kw-confirm-overlay" id="kw-confirm-overlay" hidden>
+      <div class="kw-confirm-box" role="dialog" aria-modal="true" aria-labelledby="kw-confirm-title">
+        <h4 class="kw-confirm-title" id="kw-confirm-title">⚠️ 등록 전 확인</h4>
+        <p class="kw-confirm-msg" id="kw-confirm-msg"></p>
+        <pre class="kw-confirm-preview" id="kw-confirm-preview"></pre>
+        <div class="kw-confirm-actions">
+          <button type="button" id="kw-confirm-ok"  class="btn kw-btn-ok">그대로 등록</button>
+          <button type="button" id="kw-confirm-cancel" class="btn kw-btn-cancel">취소</button>
+        </div>
+      </div>
+    </div>
+
+    {# 조회 테이블 #}
+    <div class="kw-list-box">
+      <div class="kw-list-header">
+        <h3 class="kw-section-title">키워드 목록</h3>
+        <button type="button" id="kw-refresh-btn" class="btn kw-btn-refresh" title="목록 새로고침">
+          ↻ 새로고침
+        </button>
+      </div>
+      <div id="kw-list-status" class="kw-list-status" hidden></div>
+      <table class="display compact" id="kw-table" style="width:100%">
+        <thead><tr>
+          <th class="placeholder-cell">⏳ 목록을 불러오는 중...</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+</section>
+
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function() {
+    const root = document.getElementById('source-page');
+    if (!root) return;
+
+    const tabsContainer  = root.querySelector('.query-tabs');
+    const description    = document.getElementById('query-description');
+    const queryControls  = document.getElementById('query-controls');
+    const resultPanel    = document.getElementById('result-panel');
+    const saveArea       = root.querySelector('[data-role="save-area"]');
+    const saveBtn        = root.querySelector('[data-role="save-btn"]');
+    const saveCountEl    = root.querySelector('[data-role="save-count"]');
+    const revertBtn      = root.querySelector('[data-role="revert-btn"]');
+
+    let runner    = null;
+    let activeTab = null;
+
+    // ── 어떤 쿼리 ID 가 STATUS 인라인 편집 대상인지 ─────────────────────
+    //   no_treat 와 all 둘 다 같은 amat_abnormal_step 테이블을 보고 같은
+    //   컬럼(idx, status, ...) 을 반환하므로 두 탭 모두에서 SAVE 가능.
+    const ABNORMAL_STEP_QUERY_IDS = new Set([
+      'amat_abnormal_steps_no_treat',
+      'amat_abnormal_steps_all',
+    ]);
+
+    // STATUS 가능값 (서버 ALLOWED_STATUSES 와 정확히 일치해야 함)
+    const STATUS_OPTIONS = ['ERROR', 'CHECKED', 'COMPLETE'];
+
+    // ── 패널 전환 헬퍼 ──────────────────────────────────────
+    function showQueryPanel() {
+      if (queryControls) queryControls.hidden = false;
+      if (resultPanel)   resultPanel.hidden   = false;
+      root.querySelectorAll('.kw-panel').forEach(p => { p.hidden = true; });
+      // SAVE 영역은 AbnormalStep 탭 binding 시에만 보이도록 기본 숨김.
+      if (saveArea) saveArea.hidden = true;
+    }
+    function showSpecialPanel(panelId) {
+      if (queryControls) queryControls.hidden = true;
+      if (resultPanel)   resultPanel.hidden   = true;
+      root.querySelectorAll('.kw-panel').forEach(p => {
+        p.hidden = (p.id !== panelId);
+      });
+      if (saveArea) saveArea.hidden = true;
+    }
+
+    // ── 탭 활성화 ────────────────────────────────────────────
+    function activateTab(tabBtn) {
+      if (!tabBtn || tabBtn === activeTab) return;
+
+      tabsContainer.querySelectorAll('.query-tab').forEach(t => {
+        const isActive = (t === tabBtn);
+        t.classList.toggle('active', isActive);
+        t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        t.setAttribute('tabindex', isActive ? '0' : '-1');
+      });
+      activeTab = tabBtn;
+      description.textContent = tabBtn.dataset.description || '';
+
+      // 탭이 바뀌면 무조건 dirty 폐기 확인이 끝난 뒤로 가야 한다.
+      // (activateTab 호출 직전에 확인을 끝내는 게 더 깔끔하지만, 키보드/click
+      //  양 경로에서 일관 처리하려면 여기서 한 번 더 가드한다)
+      if (!AbnormalStepEditor.guardDiscard('탭 전환')) {
+        return;  // 사용자가 취소 — 이전 active 탭 유지를 위해 강제 복원
+      }
+      // 가드 통과 → editor 상태 초기화 (이전 탭의 dirty 흔적이 새 탭에 묻지 않도록)
+      AbnormalStepEditor.reset();
+
+      const specialPanel = tabBtn.dataset.specialPanel;
+      if (specialPanel) {
+        // 특수 탭: QueryRunner 종료 + 전용 패널 표시
+        if (runner) { runner.destroy(); runner = null; }
+        showSpecialPanel(specialPanel);
+        // 키워드 패널 초기화 (최초 1회)
+        if (specialPanel === 'panel-amat-keyword') {
+          KwPanel.init();
+        }
+      } else {
+        // 일반 탭: 결과 패널 표시 + QueryRunner 기동
+        showQueryPanel();
+        if (runner) runner.destroy();
+
+        const qid = tabBtn.dataset.queryId;
+        const isAbnormalStep = ABNORMAL_STEP_QUERY_IDS.has(qid);
+
+        // AbnormalStep 탭이면 STATUS 컬럼을 select 로 렌더 + SAVE 영역 표시.
+        // 그 외 탭은 평소대로 (override / hook 없음).
+        const runnerOpts = {
+          rootEl: root,
+          source: root.dataset.source,    // "amat" → fetch '/amat/query/<id>'
+          queryId: qid,
+          autoRefreshIntervalMs: 10000,
+          pageLength: 25,
+        };
+        if (isAbnormalStep) {
+          AbnormalStepEditor.bind(qid);
+          runnerOpts.columnRenderOverrides = {
+            status: AbnormalStepEditor.renderStatusCell,
+          };
+          // dirty 가 있으면 자동갱신/새로고침을 막아 사용자 변경분을 보호.
+          runnerOpts.beforeRun = () => AbnormalStepEditor.beforeRunGuard();
+          // draw 직후 dirty 상태 복원 (페이지네이션/정렬/검색 후에도 select 가 유지되도록)
+          runnerOpts.afterDraw = () => AbnormalStepEditor.afterDrawRestore();
+        }
+
+        runner = new QueryRunner(runnerOpts);
+        runner.init({ runOnLoad: true });
+      }
+    }
+
+    // ── 탭 이벤트 ────────────────────────────────────────────
+    tabsContainer.addEventListener('click', e => {
+      const btn = e.target.closest('.query-tab');
+      if (btn) activateTab(btn);
+    });
+    tabsContainer.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const tabs = Array.from(tabsContainer.querySelectorAll('.query-tab'));
+      const idx  = tabs.indexOf(document.activeElement);
+      if (idx === -1) return;
+      const next = e.key === 'ArrowRight'
+        ? tabs[(idx + 1) % tabs.length]
+        : tabs[(idx - 1 + tabs.length) % tabs.length];
+      next.focus();
+      activateTab(next);
+      e.preventDefault();
+    });
+
+    // ── 초기 탭 선택 ─────────────────────────────────────────
+    //   URL 의 ?tab=<key> 가 있으면 그 탭을 활성화. 매칭 우선순위:
+    //     1) 일반 쿼리 탭의 data-query-id == <key>
+    //     2) 특수 탭의 data-special-panel == "panel-<key>" 또는 == <key>
+    //   둘 다 안 맞으면 첫 탭으로 fallback.
+    //
+    //   예) 대시보드 "AMAT 비정상 스텝(미처리)" 카드 → /amat?tab=amat_abnormal_steps_no_treat
+    function pickInitialTab() {
+      const params  = new URLSearchParams(window.location.search);
+      const wanted  = (params.get('tab') || '').trim();
+      const allTabs = Array.from(tabsContainer.querySelectorAll('.query-tab'));
+      if (wanted) {
+        const match = allTabs.find(t => {
+          if (t.dataset.queryId === wanted) return true;
+          const sp = t.dataset.specialPanel || '';
+          if (sp === wanted) return true;
+          if (sp === `panel-${wanted}`) return true;
+          return false;
+        });
+        if (match) return match;
+      }
+      return allTabs[0] || null;
+    }
+    // 주의: pickInitialTab() / activateTab() 호출은 IIFE 의 맨 아래에서 수행한다.
+    // activateTab 내부가 AbnormalStepEditor 와 KwPanel 을 참조하므로, 두 모듈이
+    // 정의된 뒤에 호출되어야 ReferenceError (TDZ) 가 발생하지 않는다.
+
+    // ═══════════════════════════════════════════════════════════
+    // AbnormalStepEditor — STATUS 인라인 편집 / SAVE
+    //
+    // 책임 범위:
+    //   - QueryRunner 의 columnRenderOverrides 로 STATUS 셀을 <select> 로 렌더링
+    //   - 사용자가 select 값을 바꿀 때 dirty map 갱신 + SAVE/Revert 버튼 상태 갱신
+    //   - SAVE 버튼 → 확인창 → POST /amat/abnormal-step/status (all-or-nothing)
+    //   - 새로고침/자동갱신/탭전환 시 dirty 가 있으면 사용자에게 confirm
+    //   - DataTables 의 매 draw (페이지 이동/정렬/검색) 뒤 dirty 상태 복원
+    //
+    // 상태:
+    //   _activeQueryId : 현재 binding 된 쿼리 id (탭 식별용; reset() 시 null)
+    //   _pending       : Map<idx:number, { original: string, current: string }>
+    //                    original 은 서버에서 받은 마지막 값, current 는 사용자 선택값.
+    //                    current === original 이면 자동으로 제거됨.
+    // ═══════════════════════════════════════════════════════════
+    const AbnormalStepEditor = (() => {
+      let _activeQueryId = null;
+      const _pending = new Map();      // Map<number, {original, current}>
+      let _saving = false;             // SAVE 진행 중 동시 클릭 방어
+      let _confirmingDiscard = false;  // confirm() 중첩 호출 방어
+
+      function _esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // ── STATUS 셀 렌더 — QueryRunner.columnRenderOverrides.status ──
+      //   행 데이터에서 idx 를 함께 꺼내 select 의 data-idx 로 부여한다.
+      //   dirty map 에 current 가 있으면 그 값을 선택해 보여준다 (draw 후 복원).
+      function renderStatusCell(val, row) {
+        const idx = (row && (row.idx != null ? row.idx : row.IDX));
+        const orig = (val == null ? '' : String(val));
+        let shown = orig;
+        let isDirty = false;
+        if (idx != null && _pending.has(Number(idx))) {
+          shown = _pending.get(Number(idx)).current;
+          isDirty = (shown !== orig);
+        }
+        const opts = STATUS_OPTIONS.map(opt =>
+          `<option value="${_esc(opt)}"${opt === shown ? ' selected' : ''}>${_esc(opt)}</option>`
+        ).join('');
+        const cls = 'st-select' + (isDirty ? ' is-dirty' : '');
+        return (
+          `<select class="${cls}" data-role="status-select" ` +
+          `data-idx="${_esc(idx == null ? '' : idx)}" ` +
+          `data-original="${_esc(orig)}">${opts}</select>`
+        );
+      }
+
+      // ── change 이벤트 위임 (1회만 등록) ──
+      let _changeHandlerAttached = false;
+      function _ensureChangeHandler() {
+        if (_changeHandlerAttached) return;
+        _changeHandlerAttached = true;
+        // result-panel 안의 select change 만 잡으면 됨.
+        resultPanel.addEventListener('change', (e) => {
+          const sel = e.target;
+          if (!sel || !sel.matches('select[data-role="status-select"]')) return;
+          const idxRaw = sel.dataset.idx;
+          const orig   = sel.dataset.original || '';
+          const cur    = sel.value;
+          if (!idxRaw) return;
+          const idx = Number(idxRaw);
+          if (!Number.isFinite(idx)) return;
+
+          if (cur === orig) {
+            _pending.delete(idx);
+            sel.classList.remove('is-dirty');
+          } else {
+            _pending.set(idx, { original: orig, current: cur });
+            sel.classList.add('is-dirty');
+          }
+          _updateSaveBar();
+        });
+      }
+
+      // ── dirty 가드: 새로고침/자동갱신 시 호출 ──
+      function beforeRunGuard() {
+        if (_pending.size === 0) return true;
+        // 사용자에게 묻는다 — 폐기하면 새 데이터로 진행, 아니면 fetch 차단.
+        // (자동갱신에서도 동일하게 동작 — 사용자가 변경 중에는 새 데이터로 덮어쓰지 않음)
+        const ok = window.confirm(
+          `저장하지 않은 STATUS 변경이 ${_pending.size}건 있습니다.\n` +
+          `새 데이터로 다시 불러오면 변경 내용이 모두 사라집니다.\n\n` +
+          `계속하시겠습니까? (확인=폐기 후 새로고침, 취소=현재 화면 유지)`
+        );
+        if (ok) {
+          _pending.clear();
+          _updateSaveBar();
+          return true;
+        }
+        return false;
+      }
+
+      // ── 탭 전환/페이지 이탈 등 외부에서 호출하는 가드 ──
+      //   reason 은 confirm 메시지에 넣어 어떤 상황인지 사용자에게 알려준다.
+      function guardDiscard(reason) {
+        if (_pending.size === 0) return true;
+        if (_confirmingDiscard) return false;
+        _confirmingDiscard = true;
+        try {
+          const ok = window.confirm(
+            `저장하지 않은 STATUS 변경이 ${_pending.size}건 있습니다.\n` +
+            `${reason || '이 작업'} 시 변경 내용이 모두 사라집니다.\n\n` +
+            `계속하시겠습니까?`
+          );
+          return !!ok;
+        } finally {
+          _confirmingDiscard = false;
+        }
+      }
+
+      // ── 매 draw 후 호출: 현재 페이지에 렌더된 select 들에 dirty 클래스 다시 입힘 ──
+      //   render 함수가 dirty 일 때 selected 옵션과 is-dirty 클래스를 이미 박아 두므로
+      //   여기서는 추가로 할 일이 거의 없지만, DataTables 의 일부 경로(검색 등)에서
+      //   data 만 보고 render 가 호출되지 않는 케이스에 대비해 안전망으로 한 번 더
+      //   클래스만 재적용한다.
+      function afterDrawRestore() {
+        const selects = resultPanel.querySelectorAll('select[data-role="status-select"]');
+        selects.forEach((sel) => {
+          const idxRaw = sel.dataset.idx;
+          if (!idxRaw) return;
+          const idx = Number(idxRaw);
+          if (!Number.isFinite(idx)) return;
+          if (_pending.has(idx)) {
+            const cur = _pending.get(idx).current;
+            if (sel.value !== cur) sel.value = cur;
+            sel.classList.add('is-dirty');
+          } else {
+            sel.classList.remove('is-dirty');
+          }
+        });
+      }
+
+      // ── SAVE 바 상태 갱신 (버튼 카운트/활성화) ──
+      function _updateSaveBar() {
+        const n = _pending.size;
+        if (saveCountEl) saveCountEl.textContent = `(${n}건)`;
+        const enabled = (n > 0 && !_saving);
+        if (saveBtn)   saveBtn.disabled   = !enabled;
+        if (revertBtn) revertBtn.disabled = !enabled;
+        // 시각 표시: 변경 있을 때 SAVE 버튼 강조
+        if (saveBtn) saveBtn.classList.toggle('has-changes', n > 0);
+      }
+
+      // ── SAVE 실행 ──
+      async function _doSave() {
+        if (_saving || _pending.size === 0) return;
+
+        // 사전 확인창
+        const n = _pending.size;
+        const items = Array.from(_pending.entries()).map(([idx, v]) => ({
+          idx, status: v.current, original: v.original,
+        }));
+        const previewLines = items.slice(0, 10).map(it =>
+          `  • idx=${it.idx}: ${it.original} → ${it.status}`
+        );
+        const more = (items.length > 10) ? `\n  ... 외 ${items.length - 10}건` : '';
+        const ok = window.confirm(
+          `STATUS 변경 ${n}건을 DB 에 저장합니다.\n` +
+          `(한 건이라도 실패하면 모두 롤백됩니다)\n\n` +
+          previewLines.join('\n') + more + '\n\n계속할까요?'
+        );
+        if (!ok) return;
+
+        _saving = true;
+        _updateSaveBar();
+        try {
+          const res = await fetch('/amat/abnormal-step/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              items: items.map(it => ({ idx: it.idx, status: it.status })),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            // FastAPI HTTPException → detail
+            const msg = (data && data.detail) ? data.detail : `HTTP ${res.status}`;
+            throw new Error(msg);
+          }
+          Toast.show(`STATUS 저장 완료: 요청 ${data.requested}건 (영향 ${data.affected_rows}행)`, 'success');
+          // 성공 → dirty 비우고 새 데이터 받기 (서버 상태와 동기화)
+          _pending.clear();
+          _saving = false;
+          _updateSaveBar();
+          if (runner && runner.run) runner.run();
+        } catch (err) {
+          Toast.show(`SAVE 실패 — 모두 롤백됨: ${err.message || err}`, 'error');
+          _saving = false;
+          _updateSaveBar();
+        }
+      }
+
+      // ── Revert (변경 폐기) ──
+      function _doRevert() {
+        if (_pending.size === 0) return;
+        const ok = window.confirm(`저장하지 않은 변경 ${_pending.size}건을 모두 폐기합니다. 계속할까요?`);
+        if (!ok) return;
+        _pending.clear();
+        _updateSaveBar();
+        if (runner && runner.run) runner.run();   // 원본 데이터 다시 그리기
+      }
+
+      // ── 탭 binding (탭 활성화 시 호출) ──
+      function bind(queryId) {
+        _activeQueryId = queryId;
+        _pending.clear();
+        if (saveArea) saveArea.hidden = false;
+        _updateSaveBar();
+        _ensureChangeHandler();
+      }
+
+      // ── 상태 초기화 (다른 탭으로 떠날 때) ──
+      function reset() {
+        _activeQueryId = null;
+        _pending.clear();
+        if (saveArea) saveArea.hidden = true;
+        _updateSaveBar();
+      }
+
+      // ── 버튼 wiring (페이지 로드 시 1회) ──
+      if (saveBtn)   saveBtn.addEventListener('click', _doSave);
+      if (revertBtn) revertBtn.addEventListener('click', _doRevert);
+
+      // ── 페이지 이탈 시 경고 (브라우저 기본 다이얼로그) ──
+      window.addEventListener('beforeunload', (e) => {
+        if (_pending.size > 0) {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      });
+
+      return {
+        bind,
+        reset,
+        renderStatusCell,
+        beforeRunGuard,
+        guardDiscard,
+        afterDrawRestore,
+      };
+    })();
+
+    // ═══════════════════════════════════════════════════════════
+    // KwPanel — AMAT Keyword 관리 패널 로직
+    //   /dram → /amat 로 이전됨. fetch 경로가 /amat/keyword/* 로 바뀐 것
+    //   외에는 기존 동작 그대로.
+    // ═══════════════════════════════════════════════════════════
+    const KwPanel = (() => {
+      let _initialized = false;
+      let _kwTable     = null;   // DataTables 인스턴스
+
+      // ── DOM refs ──
+      const kwInput       = () => document.getElementById('kw-input');
+      const kwRegBtn      = () => document.getElementById('kw-register-btn');
+      const kwRefreshBtn  = () => document.getElementById('kw-refresh-btn');
+      const kwListStatus  = () => document.getElementById('kw-list-status');
+      const confirmOverlay= () => document.getElementById('kw-confirm-overlay');
+      const confirmMsg    = () => document.getElementById('kw-confirm-msg');
+      const confirmPreview= () => document.getElementById('kw-confirm-preview');
+      const confirmOkBtn  = () => document.getElementById('kw-confirm-ok');
+      const confirmCancelBtn = () => document.getElementById('kw-confirm-cancel');
+
+      // ── 상태 표시 ──
+      function setStatus(msg, type) {   // type: '' | 'ok' | 'err'
+        const el = kwListStatus();
+        if (!el) return;
+        el.textContent = msg;
+        el.className   = 'kw-list-status' + (type ? ' kw-status-' + type : '');
+        el.hidden      = !msg;
+      }
+
+      // ── 목록 로드 ──
+      async function loadList() {
+        setStatus('목록 불러오는 중…', '');
+        try {
+          const res  = await fetch('/amat/keyword/list');
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+
+          const tableEl = document.getElementById('kw-table');
+          if (!tableEl) return;
+
+          const rows = (data.rows || []).map(r => ({
+            index: r.index,
+            name:  r.name,
+          }));
+
+          if (_kwTable) {
+            _kwTable.clear().rows.add(rows).draw(false);
+            setStatus('', '');
+            return;
+          }
+
+          // 최초 초기화
+          tableEl.innerHTML =
+            '<thead><tr><th>index</th><th>name</th></tr></thead><tbody></tbody>';
+
+          _kwTable = $(tableEl).DataTable({
+            data: rows,
+            columns: [
+              { title: 'index', data: 'index', width: '80px', className: 'dt-center', defaultContent: '' },
+              { title: 'name',  data: 'name',  defaultContent: '' },
+            ],
+            dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
+            buttons: [{ extend: 'csvHtml5', text: 'CSV 내보내기', filename: 'amat_keyword' }],
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, '전체']],
+            order: [[0, 'asc']],
+            language: window._DT_KO || {},
+          });
+          setStatus('', '');
+        } catch (err) {
+          setStatus('⚠ 목록 로드 실패: ' + err.message, 'err');
+        }
+      }
+
+      // ── 등록 실행 ──
+      async function doRegister(name) {
+        const btn = kwRegBtn();
+        if (btn) { btn.disabled = true; btn.textContent = '등록 중…'; }
+        try {
+          const res  = await fetch('/amat/keyword/register', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ name }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+
+          Toast.show('등록 완료: ' + name, 'success');
+          if (kwInput()) kwInput().value = '';
+          await loadList();
+        } catch (err) {
+          Toast.show('등록 실패: ' + err.message, 'error');
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = '등록'; }
+        }
+      }
+
+      // ── 입력값 검증 → 확인창 또는 즉시 등록 ──
+      function requestRegister() {
+        const inp = kwInput();
+        if (!inp) return;
+        const raw  = inp.value;
+        const trimmed = raw.trim();
+
+        if (!trimmed) {
+          Toast.show('키워드를 입력해 주세요.', 'error');
+          return;
+        }
+
+        // 앞뒤 공백 또는 줄바꿈 포함 여부 체크
+        const hasLeadingTrailingSpace = (raw !== trimmed);
+        const hasNewline = /[\r\n]/.test(raw);
+
+        if (hasLeadingTrailingSpace || hasNewline) {
+          // 경고 문구 조합
+          const reasons = [];
+          if (hasLeadingTrailingSpace) reasons.push('앞/뒤 공백');
+          if (hasNewline)              reasons.push('줄바꿈 문자(\\n)');
+          confirmMsg().textContent =
+            '입력값에 ' + reasons.join(', ') + ' 이(가) 포함되어 있습니다. 그대로 등록하시겠습니까?';
+          // 입력값을 눈에 보이도록 표시 (이스케이프)
+          confirmPreview().textContent = raw
+            .replace(/\r\n/g, '↵\n')
+            .replace(/\n/g, '↵\n')
+            .replace(/\r/g, '↵');
+          confirmOverlay().hidden = false;
+          confirmOkBtn().onclick = () => {
+            confirmOverlay().hidden = true;
+            doRegister(raw);
+          };
+          confirmCancelBtn().onclick = () => {
+            confirmOverlay().hidden = true;
+          };
+        } else {
+          doRegister(raw);
+        }
+      }
+
+      // ── 초기화 (탭 최초 진입 시 1회) ──
+      function init() {
+        if (_initialized) return;
+        _initialized = true;
+
+        const regBtn  = kwRegBtn();
+        const refBtn  = kwRefreshBtn();
+        const inp     = kwInput();
+
+        if (regBtn)  regBtn.addEventListener('click', requestRegister);
+        if (refBtn)  refBtn.addEventListener('click', loadList);
+        if (inp) {
+          inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); requestRegister(); }
+          });
+        }
+
+        // 오버레이 바깥 클릭 시 닫기
+        const overlay = confirmOverlay();
+        if (overlay) {
+          overlay.addEventListener('click', e => {
+            if (e.target === overlay) overlay.hidden = true;
+          });
+        }
+
+        loadList();
+      }
+
+      return { init };
+    })();
+
+    // ── 초기 탭 활성화 (모든 모듈 정의 이후 실행) ─────────────────────────
+    const initialTab = pickInitialTab();
+    if (initialTab) activateTab(initialTab);
+
+  })();
+</script>
+{% endblock %}

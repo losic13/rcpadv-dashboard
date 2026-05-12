@@ -95,6 +95,19 @@
      * @param {Function} [opts.paramsCollector] - () => {param: value, ...}
      * @param {number} [opts.pageLength=25]
      * @param {boolean} [opts.showRaceToast=true] - race 발생 시 토스트 표시 여부
+     * @param {Object}  [opts.columnRenderOverrides]
+     *        컬럼 단위로 render 함수를 덮어쓸 때 사용.
+     *        형태: { <columnName>: (val, row) => htmlString }
+     *        - FILE_PATH 기본 렌더보다 **우선** 적용된다.
+     *        - 예) AMAT 페이지에서 STATUS 컬럼을 select 로 그리고 싶을 때.
+     * @param {Function} [opts.beforeRun]
+     *        () => boolean | Promise<boolean>.
+     *        false 를 반환하면 fetch 자체를 건너뛴다(자동갱신 포함).
+     *        예) dirty(저장 안 된 변경) 가 있을 때 자동갱신을 막는 용도.
+     * @param {Function} [opts.afterDraw]
+     *        (data) => void. DataTables 가 새로 draw 된 직후마다 호출.
+     *        새 데이터 그려진 뒤 dirty 상태를 다시 입히거나 select 값을
+     *        복원하는 등의 부수작업에 쓴다.
      */
     constructor(opts) {
       this.root = opts.rootEl;
@@ -104,6 +117,9 @@
       this.paramsCollector = opts.paramsCollector || (() => ({}));
       this.pageLength = opts.pageLength || 25;
       this.showRaceToast = opts.showRaceToast !== false;
+      this.columnRenderOverrides = opts.columnRenderOverrides || null;
+      this.beforeRun = (typeof opts.beforeRun === 'function') ? opts.beforeRun : null;
+      this.afterDraw = (typeof opts.afterDraw === 'function') ? opts.afterDraw : null;
 
       this.tableEl = this.root.querySelector('[data-role="table"]');
       this.tableWrapEl = this.tableEl ? this.tableEl.parentElement : null;
@@ -269,6 +285,17 @@
     async run() {
       if (this._destroyed) return;
 
+      // beforeRun 후크 — false 반환 시 fetch 차단 (자동갱신/수동 새로고침 모두 영향).
+      // 예) AMAT STATUS 인라인 편집 중 dirty 가 있을 때 새 데이터로 덮어쓰지 않도록.
+      if (this.beforeRun) {
+        try {
+          const ok = await this.beforeRun();
+          if (ok === false) return;
+        } catch (_) {
+          // 후크 자체가 던지면 무시하고 평소대로 진행 (안전 fallback)
+        }
+      }
+
       // 새 실행 시작 — 이전 in-flight 가 있으면 취소
       const hadInFlight = this.inFlight && !!this._abortCtrl;
       if (hadInFlight) {
@@ -370,13 +397,29 @@
         c => c.toUpperCase() === 'FILE_PATH'
       );
 
+      const overrides = this.columnRenderOverrides || {};
+
       const columns = (data.columns || []).map(c => {
-        const isFilePath = FILE_PATH_COL && c === FILE_PATH_COL;
+        // 1) 호출자가 columnRenderOverrides 로 명시한 컬럼이면 그것을 최우선 적용.
+        //    (FILE_PATH 기본 렌더보다 우선)
+        const override = overrides[c];
+        // 2) 그 외에는 기본 동작 (FILE_PATH → 버튼, 그 외 → escape)
+        const isFilePath = !override && FILE_PATH_COL && c === FILE_PATH_COL;
         return {
           title: c,
           data: c,
-          // FILE_PATH 컬럼은 경로 텍스트 + [확인] + [⬇] 버튼으로 렌더링
-          render: isFilePath
+          render: override
+            ? (val, type, row) => {
+                // DataTables render 는 sort/filter 시에도 호출되므로 'display' 일 때만
+                // HTML 을 반환하고 그 외에는 원본 값을 그대로 돌려준다.
+                if (type && type !== 'display') return (val == null ? '' : val);
+                try {
+                  return override(val, row);
+                } catch (e) {
+                  return (val == null ? '' : escapeHtml(String(val)));
+                }
+              }
+            : isFilePath
             ? (val) => {
                 if (val == null || val === '') return '';
                 const escaped = escapeHtml(String(val));
@@ -421,7 +464,14 @@
           // DataTables 가 죽었으면 재초기화 경로로
           this.dataTable = null;
         }
-        if (this.dataTable) return;
+        if (this.dataTable) {
+          // 재초기화 경로의 drawCallback 과 동일하게, 데이터만 교체된 직후도
+          // afterDraw 후크를 호출해 dirty 복원 같은 부수작업이 일관되게 동작하도록.
+          if (this.afterDraw) {
+            try { this.afterDraw(data); } catch (_) {}
+          }
+          return;
+        }
       }
 
       // 재초기화
@@ -439,6 +489,7 @@
         '</tr></thead><tbody></tbody>';
       this.tableEl.innerHTML = thead;
 
+      const self = this;
       this.dataTable = $(this.tableEl).DataTable({
         data: data.rows || [],
         columns: columns,
@@ -450,7 +501,7 @@
             extend: 'csvHtml5',
             text: 'CSV 내보내기',
             titleAttr: 'CSV 파일로 내보내기',
-            filename: `${this.source}_${this.queryId}`,
+            filename: `${self.source}_${self.queryId}`,
           }
         ],
         pageLength: this.pageLength,
@@ -458,6 +509,13 @@
         order: [],
         deferRender: true,
         language: DATATABLES_KO,
+        // 페이지 이동/정렬/검색 등 매 draw 마다 afterDraw 후크 호출.
+        // (호출자가 dirty 표시 등을 복원하는 데 사용)
+        drawCallback: function () {
+          if (self.afterDraw) {
+            try { self.afterDraw(data); } catch (_) {}
+          }
+        },
       });
 
       this._cachedColumns = columns.map(c => c.data);

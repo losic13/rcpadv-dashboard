@@ -3942,3 +3942,114 @@ body.ls-dl-modal-open { overflow: hidden; }
 .kw-list-status[hidden] { display: none; }
 .kw-status-ok  { background: #d1fae5; color: #065f46; }
 .kw-status-err { background: #fee2e2; color: #991b1b; }
+
+/* ============================================================
+   AMAT Abnormal Step — STATUS 인라인 편집 / SAVE
+   ============================================================
+   QueryRunner 의 columnRenderOverrides 로 그려진 <select.st-select> 와
+   query-controls 안의 SAVE 영역 스타일.
+*/
+
+/* SAVE 영역 — query-controls 의 control-row 안에 .status-area 옆에 배치 */
+.save-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid #e2e8f0;
+}
+.save-area[hidden] { display: none; }
+
+/* SAVE 버튼 */
+.btn-save {
+  appearance: none;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* 변경분이 있을 때 강조 (파란 컬러로) */
+.btn-save.has-changes:not(:disabled) {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #ffffff;
+}
+.btn-save.has-changes:not(:disabled):hover {
+  background: #1d4ed8;
+}
+.save-count {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Revert 버튼 */
+.btn-revert {
+  appearance: none;
+  background: transparent;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn-revert:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-revert:not(:disabled):hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+/* STATUS 셀 select */
+.st-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 22px 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  /* 화살표 아이콘 (인라인 SVG) */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path fill='%2364748b' d='M3 4.5L6 8l3-3.5z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  background-size: 10px 10px;
+  min-width: 92px;
+}
+.st-select:hover {
+  border-color: #94a3b8;
+}
+.st-select:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.4);
+  outline-offset: 1px;
+  border-color: #2563eb;
+}
+
+/* dirty 상태 (변경된 값) — 노란 배경 + 강한 테두리 */
+.st-select.is-dirty {
+  background-color: #fef9c3;
+  border-color: #eab308;
+  color: #713f12;
+}
+.st-select.is-dirty:hover {
+  border-color: #ca8a04;
+}
