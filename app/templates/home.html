@@ -38,7 +38,13 @@
     <header class="card-header">
       <div class="card-title">
         <span class="badge">{{ card.source_label }}</span>
+        {% if card.link_url %}
+        <a href="{{ card.link_url }}" class="card-title-link" title="페이지로 이동">
+          <strong>{{ card.title }}</strong>
+        </a>
+        {% else %}
         <strong>{{ card.title }}</strong>
+        {% endif %}
         <span class="card-sub">app_server_user_log · 전체 / 고객</span>
       </div>
       <div class="card-controls">
@@ -139,7 +145,13 @@
     <header class="card-header">
       <div class="card-title">
         <span class="badge">{{ card.source_label }}</span>
+        {% if card.link_url %}
+        <a href="{{ card.link_url }}" class="card-title-link" title="페이지로 이동">
+          <strong>{{ card.title }}</strong>
+        </a>
+        {% else %}
         <strong>{{ card.title }}</strong>
+        {% endif %}
         {# 사용자 요청: count 카드의 보조 텍스트에서 내부 query_id 표기는 제거하고
            "결과 행 수"만 노출. (예전: '{query_id} · 결과 행 수' → 지금: '결과 행 수') #}
         <span class="card-sub">결과 행 수</span>
@@ -186,7 +198,13 @@
     <header class="card-header">
       <div class="card-title">
         <span class="badge">{{ card.source_label }}</span>
+        {% if card.link_url %}
+        <a href="{{ card.link_url }}" class="card-title-link" title="페이지로 이동">
+          <strong>{{ card.title }}</strong>
+        </a>
+        {% else %}
         <strong>{{ card.title }}</strong>
+        {% endif %}
         <span class="card-sub">recent_parsing_results · TKIN_TIME 기준</span>
       </div>
       <div class="card-controls">
