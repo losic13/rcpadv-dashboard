@@ -3730,3 +3730,204 @@ body.ls-dl-modal-open { overflow: hidden; }
 }
 .fp-inline-ok  { background: #d1fae5; color: #065f46; }
 .fp-inline-err { background: #fee2e2; color: #991b1b; }
+
+/* ============================================================
+   AMAT Keyword 관리 패널  (.kw-*)
+   ============================================================ */
+
+/* 전체 패널 간격 */
+.kw-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* 섹션 제목 */
+.kw-section-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+
+/* ── 등록 박스 ── */
+.kw-register-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 20px 22px;
+}
+
+.kw-form-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.kw-input {
+  flex: 1 1 260px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #1e293b;
+  background: #fff;
+  transition: border-color 0.15s;
+  outline: none;
+}
+.kw-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+
+.kw-btn-register {
+  height: 38px;
+  padding: 0 20px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.kw-btn-register:hover:not(:disabled) { background: #4f46e5; }
+.kw-btn-register:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.kw-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* ── 확인 오버레이 ── */
+.kw-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kw-confirm-overlay[hidden] { display: none; }
+
+.kw-confirm-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 30px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+
+.kw-confirm-title {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.kw-confirm-msg {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.kw-confirm-preview {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: monospace;
+  font-size: 13px;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+  margin: 0 0 18px;
+}
+
+.kw-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.kw-btn-ok {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.kw-btn-ok:hover { background: #b91c1c; }
+
+.kw-btn-cancel {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.kw-btn-cancel:hover { background: #e2e8f0; }
+
+/* ── 목록 박스 ── */
+.kw-list-box {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 20px 22px;
+}
+
+.kw-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kw-btn-refresh {
+  height: 32px;
+  padding: 0 14px;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.kw-btn-refresh:hover { background: #e2e8f0; }
+
+/* 상태 메시지 */
+.kw-list-status {
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  background: #f1f5f9;
+  color: #475569;
+}
+.kw-list-status[hidden] { display: none; }
+.kw-status-ok  { background: #d1fae5; color: #065f46; }
+.kw-status-err { background: #fee2e2; color: #991b1b; }

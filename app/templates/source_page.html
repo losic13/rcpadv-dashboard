@@ -4,6 +4,7 @@
     - page_title: 화면 제목
     - source: "vnand" | "dram" | "es"
     - queries: [{id, title, description, params: [...]}]   ← params 는 더 이상 UI 노출하지 않음
+    - special_tabs: [{id, title, description, panel_id}]   ← 별도 패널을 가진 특수 탭 (선택)
 
   쿼리 선택은 상단 탭 페이지로 표시. 탭 전환 시 자동으로 실행한다.
   탭 전환 race condition 은 QueryRunner 측 _runToken / AbortController 로 방어.
@@ -14,7 +15,7 @@
 {% block page_heading %}{{ page_title }}{% endblock %}
 
 {% block content %}
-{% if not queries %}
+{% if not queries and not special_tabs %}
 <div class="empty-state">
   <p>등록된 쿼리가 없습니다.</p>
   <p class="hint">
@@ -29,19 +30,33 @@
   <nav class="query-tabs" role="tablist" aria-label="쿼리 목록">
     {% for q in queries %}
     <button type="button"
-            class="query-tab {% if loop.first %}active{% endif %}"
+            class="query-tab {% if loop.first and not special_tabs_first %}active{% endif %}"
             role="tab"
             id="tab-{{ q.id }}"
             data-query-id="{{ q.id }}"
             data-description="{{ q.description }}"
-            aria-selected="{% if loop.first %}true{% else %}false{% endif %}"
+            aria-selected="{% if loop.first and not special_tabs_first %}true{% else %}false{% endif %}"
             aria-controls="result-panel">
       <span class="query-tab-label">{{ q.title }}</span>
     </button>
     {% endfor %}
+    {# 특수 탭 (별도 패널) #}
+    {% for st in (special_tabs or []) %}
+    <button type="button"
+            class="query-tab query-tab--special"
+            role="tab"
+            id="tab-{{ st.id }}"
+            data-special-panel="{{ st.panel_id }}"
+            data-description="{{ st.description }}"
+            aria-selected="false"
+            aria-controls="{{ st.panel_id }}">
+      <span class="query-tab-label">{{ st.title }}</span>
+    </button>
+    {% endfor %}
   </nav>
 
-  <header class="card-header source-controls">
+  {# ---- 일반 쿼리 컨트롤 헤더 ---- #}
+  <header class="card-header source-controls" id="query-controls">
     <div class="control-row">
       <button type="button" class="btn btn-run" data-role="refresh" title="쿼리 다시 실행">
         <span class="btn-run-icon" aria-hidden="true">↻</span>
@@ -71,6 +86,7 @@
     </div>
   </header>
 
+  {# ---- 일반 쿼리 결과 패널 ---- #}
   <div class="card-body" id="result-panel" role="tabpanel" aria-live="polite">
     <table class="display compact" data-role="table" id="result-table" style="width:100%">
       <thead><tr><th class="placeholder-cell">⏳ 쿼리를 자동 실행 중입니다...</th></tr></thead>
@@ -78,6 +94,61 @@
     </table>
     <div class="error-msg" data-role="error" hidden></div>
   </div>
+
+  {# ---- AMAT Keyword 관리 패널 ---- #}
+  {% if source == 'dram' %}
+  <div class="card-body kw-panel" id="panel-amat-keyword" role="tabpanel" hidden>
+
+    {# 등록 폼 #}
+    <div class="kw-register-box">
+      <h3 class="kw-section-title">키워드 등록</h3>
+      <div class="kw-form-row">
+        <input  type="text"
+                id="kw-input"
+                class="kw-input"
+                placeholder="등록할 키워드를 입력하세요"
+                maxlength="255"
+                autocomplete="off" />
+        <button type="button" id="kw-register-btn" class="btn kw-btn-register">
+          등록
+        </button>
+      </div>
+      <p class="kw-hint">※ 앞뒤 공백 또는 줄바꿈 문자 포함 시 등록 전 확인창이 표시됩니다.</p>
+    </div>
+
+    {# 확인 다이얼로그 (기본 숨김) #}
+    <div class="kw-confirm-overlay" id="kw-confirm-overlay" hidden>
+      <div class="kw-confirm-box" role="dialog" aria-modal="true" aria-labelledby="kw-confirm-title">
+        <h4 class="kw-confirm-title" id="kw-confirm-title">⚠️ 등록 전 확인</h4>
+        <p class="kw-confirm-msg" id="kw-confirm-msg"></p>
+        <pre class="kw-confirm-preview" id="kw-confirm-preview"></pre>
+        <div class="kw-confirm-actions">
+          <button type="button" id="kw-confirm-ok"  class="btn kw-btn-ok">그대로 등록</button>
+          <button type="button" id="kw-confirm-cancel" class="btn kw-btn-cancel">취소</button>
+        </div>
+      </div>
+    </div>
+
+    {# 조회 테이블 #}
+    <div class="kw-list-box">
+      <div class="kw-list-header">
+        <h3 class="kw-section-title">키워드 목록</h3>
+        <button type="button" id="kw-refresh-btn" class="btn kw-btn-refresh" title="목록 새로고침">
+          ↻ 새로고침
+        </button>
+      </div>
+      <div id="kw-list-status" class="kw-list-status" hidden></div>
+      <table class="display compact" id="kw-table" style="width:100%">
+        <thead><tr>
+          <th class="placeholder-cell">⏳ 목록을 불러오는 중...</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+  {% endif %}
+
 </section>
 
 {% endif %}
@@ -89,16 +160,32 @@
     const root = document.getElementById('source-page');
     if (!root) return;
 
-    const tabsContainer = root.querySelector('.query-tabs');
-    const description = document.getElementById('query-description');
+    const tabsContainer  = root.querySelector('.query-tabs');
+    const description    = document.getElementById('query-description');
+    const queryControls  = document.getElementById('query-controls');
+    const resultPanel    = document.getElementById('result-panel');
 
-    let runner = null;
+    let runner    = null;
     let activeTab = null;
 
+    // ── 패널 전환 헬퍼 ──────────────────────────────────────
+    function showQueryPanel() {
+      if (queryControls) queryControls.hidden = false;
+      if (resultPanel)   resultPanel.hidden   = false;
+      root.querySelectorAll('.kw-panel').forEach(p => { p.hidden = true; });
+    }
+    function showSpecialPanel(panelId) {
+      if (queryControls) queryControls.hidden = true;
+      if (resultPanel)   resultPanel.hidden   = true;
+      root.querySelectorAll('.kw-panel').forEach(p => {
+        p.hidden = (p.id !== panelId);
+      });
+    }
+
+    // ── 탭 활성화 ────────────────────────────────────────────
     function activateTab(tabBtn) {
       if (!tabBtn || tabBtn === activeTab) return;
 
-      // 탭 활성화 상태 갱신
       tabsContainer.querySelectorAll('.query-tab').forEach(t => {
         const isActive = (t === tabBtn);
         t.classList.toggle('active', isActive);
@@ -106,34 +193,41 @@
         t.setAttribute('tabindex', isActive ? '0' : '-1');
       });
       activeTab = tabBtn;
-
-      // 설명 갱신
       description.textContent = tabBtn.dataset.description || '';
 
-      // QueryRunner 인스턴스 재생성 후 자동 실행
-      if (runner) runner.destroy();
-      runner = new QueryRunner({
-        rootEl: root,
-        source: root.dataset.source,
-        queryId: tabBtn.dataset.queryId,
-        autoRefreshIntervalMs: 10000,
-        pageLength: 25,
-      });
-      // 탭 전환 시 자동으로 [실행] — runOnLoad: true
-      runner.init({ runOnLoad: true });
+      const specialPanel = tabBtn.dataset.specialPanel;
+      if (specialPanel) {
+        // 특수 탭: QueryRunner 종료 + 전용 패널 표시
+        if (runner) { runner.destroy(); runner = null; }
+        showSpecialPanel(specialPanel);
+        // 키워드 패널 초기화 (최초 1회)
+        if (specialPanel === 'panel-amat-keyword') {
+          KwPanel.init();
+        }
+      } else {
+        // 일반 탭: 결과 패널 표시 + QueryRunner 기동
+        showQueryPanel();
+        if (runner) runner.destroy();
+        runner = new QueryRunner({
+          rootEl: root,
+          source: root.dataset.source,
+          queryId: tabBtn.dataset.queryId,
+          autoRefreshIntervalMs: 10000,
+          pageLength: 25,
+        });
+        runner.init({ runOnLoad: true });
+      }
     }
 
-    // 탭 클릭
+    // ── 탭 이벤트 ────────────────────────────────────────────
     tabsContainer.addEventListener('click', e => {
       const btn = e.target.closest('.query-tab');
       if (btn) activateTab(btn);
     });
-
-    // 키보드 좌/우 화살표로 탭 이동 (a11y)
     tabsContainer.addEventListener('keydown', e => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       const tabs = Array.from(tabsContainer.querySelectorAll('.query-tab'));
-      const idx = tabs.indexOf(document.activeElement);
+      const idx  = tabs.indexOf(document.activeElement);
       if (idx === -1) return;
       const next = e.key === 'ArrowRight'
         ? tabs[(idx + 1) % tabs.length]
@@ -143,9 +237,180 @@
       e.preventDefault();
     });
 
-    // 첫 탭 자동 활성화 + 자동 실행
+    // 첫 탭 자동 활성화
     const firstTab = tabsContainer.querySelector('.query-tab');
     if (firstTab) activateTab(firstTab);
+
+    // ═══════════════════════════════════════════════════════════
+    // KwPanel — AMAT Keyword 관리 패널 로직
+    // ═══════════════════════════════════════════════════════════
+    const KwPanel = (() => {
+      let _initialized = false;
+      let _kwTable     = null;   // DataTables 인스턴스
+
+      // ── DOM refs ──
+      const panel         = () => document.getElementById('panel-amat-keyword');
+      const kwInput       = () => document.getElementById('kw-input');
+      const kwRegBtn      = () => document.getElementById('kw-register-btn');
+      const kwRefreshBtn  = () => document.getElementById('kw-refresh-btn');
+      const kwListStatus  = () => document.getElementById('kw-list-status');
+      const confirmOverlay= () => document.getElementById('kw-confirm-overlay');
+      const confirmMsg    = () => document.getElementById('kw-confirm-msg');
+      const confirmPreview= () => document.getElementById('kw-confirm-preview');
+      const confirmOkBtn  = () => document.getElementById('kw-confirm-ok');
+      const confirmCancelBtn = () => document.getElementById('kw-confirm-cancel');
+
+      // ── 상태 표시 ──
+      function setStatus(msg, type) {   // type: '' | 'ok' | 'err'
+        const el = kwListStatus();
+        if (!el) return;
+        el.textContent = msg;
+        el.className   = 'kw-list-status' + (type ? ' kw-status-' + type : '');
+        el.hidden      = !msg;
+      }
+
+      // ── 목록 로드 ──
+      async function loadList() {
+        setStatus('목록 불러오는 중…', '');
+        try {
+          const res  = await fetch('/dram/keyword/list');
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+
+          const tableEl = document.getElementById('kw-table');
+          if (!tableEl) return;
+
+          const rows = (data.rows || []).map((r, i) => ({
+            no:   i + 1,
+            id:   r.id,
+            name: r.name,
+          }));
+
+          if (_kwTable) {
+            _kwTable.clear().rows.add(rows).draw(false);
+            setStatus('', '');
+            return;
+          }
+
+          // 최초 초기화
+          tableEl.innerHTML =
+            '<thead><tr><th>No.</th><th>ID</th><th>Name</th></tr></thead><tbody></tbody>';
+
+          _kwTable = $(tableEl).DataTable({
+            data: rows,
+            columns: [
+              { title: 'No.',  data: 'no',   width: '60px',  className: 'dt-center' },
+              { title: 'ID',   data: 'id',   width: '80px',  className: 'dt-center' },
+              { title: 'Name', data: 'name', defaultContent: '' },
+            ],
+            dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',
+            buttons: [{ extend: 'csvHtml5', text: 'CSV 내보내기', filename: 'amat_keyword' }],
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, '전체']],
+            order: [[0, 'asc']],
+            language: window._DT_KO || {},
+          });
+          setStatus('', '');
+        } catch (err) {
+          setStatus('⚠ 목록 로드 실패: ' + err.message, 'err');
+        }
+      }
+
+      // ── 등록 실행 ──
+      async function doRegister(name) {
+        const btn = kwRegBtn();
+        if (btn) { btn.disabled = true; btn.textContent = '등록 중…'; }
+        try {
+          const res  = await fetch('/dram/keyword/register', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ name }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+
+          Toast.show('등록 완료: ' + name, 'success');
+          if (kwInput()) kwInput().value = '';
+          await loadList();
+        } catch (err) {
+          Toast.show('등록 실패: ' + err.message, 'error');
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = '등록'; }
+        }
+      }
+
+      // ── 입력값 검증 → 확인창 또는 즉시 등록 ──
+      function requestRegister() {
+        const inp = kwInput();
+        if (!inp) return;
+        const raw  = inp.value;
+        const trimmed = raw.trim();
+
+        if (!trimmed) {
+          Toast.show('키워드를 입력해 주세요.', 'error');
+          return;
+        }
+
+        // 앞뒤 공백 또는 줄바꿈 포함 여부 체크
+        const hasLeadingTrailingSpace = (raw !== trimmed);
+        const hasNewline = /[\r\n]/.test(raw);
+
+        if (hasLeadingTrailingSpace || hasNewline) {
+          // 경고 문구 조합
+          const reasons = [];
+          if (hasLeadingTrailingSpace) reasons.push('앞/뒤 공백');
+          if (hasNewline)              reasons.push('줄바꿈 문자(\\n)');
+          confirmMsg().textContent =
+            '입력값에 ' + reasons.join(', ') + ' 이(가) 포함되어 있습니다. 그대로 등록하시겠습니까?';
+          // 입력값을 눈에 보이도록 표시 (이스케이프)
+          confirmPreview().textContent = raw
+            .replace(/\r\n/g, '↵\n')
+            .replace(/\n/g, '↵\n')
+            .replace(/\r/g, '↵');
+          confirmOverlay().hidden = false;
+          confirmOkBtn().onclick = () => {
+            confirmOverlay().hidden = true;
+            doRegister(raw);
+          };
+          confirmCancelBtn().onclick = () => {
+            confirmOverlay().hidden = true;
+          };
+        } else {
+          doRegister(raw);
+        }
+      }
+
+      // ── 초기화 (탭 최초 진입 시 1회) ──
+      function init() {
+        if (_initialized) return;
+        _initialized = true;
+
+        const regBtn  = kwRegBtn();
+        const refBtn  = kwRefreshBtn();
+        const inp     = kwInput();
+
+        if (regBtn)  regBtn.addEventListener('click', requestRegister);
+        if (refBtn)  refBtn.addEventListener('click', loadList);
+        if (inp) {
+          inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); requestRegister(); }
+          });
+        }
+
+        // 오버레이 바깥 클릭 시 닫기
+        const overlay = confirmOverlay();
+        if (overlay) {
+          overlay.addEventListener('click', e => {
+            if (e.target === overlay) overlay.hidden = true;
+          });
+        }
+
+        loadList();
+      }
+
+      return { init };
+    })();
+
   })();
 </script>
 {% endblock %}
