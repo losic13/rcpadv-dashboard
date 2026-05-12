@@ -690,9 +690,12 @@
               // INDEX 컬럼:
               //   · 헤더 'INDEX' + DataTables 정렬 화살표(약 18~22px) 가 80px 안에서
               //     겹치는 문제 → 폭을 110px 로 늘리고 .kw-col-index 로 CSS 강제 폭 지정.
+              //   · 가운데 정렬(dt-center) 일 때 짧은 라벨 'INDEX' 와 우측 정렬 화살표가
+              //     시각적으로 겹쳐 보이는 문제가 있어 좌측 정렬(dt-left) 로 변경.
+              //     본문 값(숫자) 도 좌측 정렬로 일관성 유지.
               //   · 이 페이지에서만 INDEX 를 내림차순으로 기본 정렬 (최근 등록 우선 보기).
               { title: 'INDEX', data: 'index', width: '110px',
-                className: 'dt-center kw-col-index', defaultContent: '' },
+                className: 'dt-left kw-col-index', defaultContent: '' },
               { title: 'name',  data: 'name',  defaultContent: '' },
             ],
             dom: '<"dt-top"<"dt-top-right"i>>rt<"dt-bottom"<"dt-tools"lBf><"dt-bottom-right"p>>',

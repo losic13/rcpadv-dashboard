@@ -143,7 +143,7 @@
       this._cancelledCount = 0;     // 사용자에게 표시되는 누적 race 횟수
       this._supersedeTimer = null;  // "이전 요청 취소됨" 배지 자동 해제 타이머
 
-      this._onRefreshClick = () => this.run();
+      this._onRefreshClick = () => this.run({ manual: true });
       this._onAutoChange = () => this._applyAutoRefresh();
     }
 
@@ -282,8 +282,18 @@
       }
     }
 
-    async run() {
+    async run({ manual = false } = {}) {
       if (this._destroyed) return;
+
+      // ── 자동 새로고침 일시정지 가드 ──────────────────────
+      // FILE_PATH "확인"/"다운로드" 같은 인라인 결과(뱃지) 가 살아있는 동안
+      // 자동 새로고침이 테이블을 통째로 재렌더하면 뱃지가 즉시 사라져 보이는
+      // 문제가 있어, FilePathActions 가 짧게 lock 을 걸어 자동 새로고침만
+      // 차단할 수 있게 한다.  사용자가 명시적으로 누른 '새로고침'(manual=true)
+      // 은 의도가 명확하므로 lock 을 무시한다.
+      if (!manual && QueryRunner._isAutoRefreshPaused()) {
+        return;
+      }
 
       // beforeRun 후크 — false 반환 시 fetch 차단 (자동갱신/수동 새로고침 모두 영향).
       // 예) AMAT STATUS 인라인 편집 중 dirty 가 있을 때 새 데이터로 덮어쓰지 않도록.
@@ -551,7 +561,30 @@
       }
       return true;
     }
+
   }
+
+  /* ── 자동 새로고침 일시정지 (클래스 외부 lock) ─────────────────
+     FILE_PATH 확인/다운로드 결과 뱃지 등 "테이블이 재렌더되면 사라지는"
+     인라인 UI 를 사용자가 충분히 볼 수 있도록 잠시 자동 새로고침만
+     막아준다.  사용자가 직접 누른 '새로고침' 버튼(manual=true) 은
+     이 lock 의 영향을 받지 않는다.
+
+     사용:
+         QueryRunner.pauseAutoRefresh(8000);   // 8초간 자동 새로고침 차단
+     이미 진행 중인 일시정지 시간보다 더 긴 값으로 호출하면 연장된다.
+
+     ※ class static fields 미지원 브라우저(구형 Safari 등)에서도
+       동작하도록 클래스 외부 모듈-로컬 변수 + 인스턴스/정적 양쪽에서
+       접근 가능한 형태로 단순화. ─────────────────────────────── */
+  let _qrAutoPausedUntil = 0;
+  QueryRunner.pauseAutoRefresh = function (ms) {
+    const until = Date.now() + Math.max(0, ms || 0);
+    if (until > _qrAutoPausedUntil) _qrAutoPausedUntil = until;
+  };
+  QueryRunner._isAutoRefreshPaused = function () {
+    return Date.now() < _qrAutoPausedUntil;
+  };
 
   // DataTables 한국어 번역 (간단 버전)
   const DATATABLES_KO = {
@@ -707,7 +740,7 @@
       this._cancelledCount = 0;
       this._supersedeTimer = null;
 
-      this._onRefreshClick = () => this.run();
+      this._onRefreshClick = () => this.run({ manual: true });
       this._onAutoChange = () => this._applyAutoRefresh();
     }
 
@@ -1313,7 +1346,7 @@
       this._cancelledCount = 0;
       this._supersedeTimer = null;
 
-      this._onRefreshClick = () => this.run();
+      this._onRefreshClick = () => this.run({ manual: true });
       this._onAutoChange = () => this._applyAutoRefresh();
     }
 
@@ -1574,7 +1607,7 @@
       this._cancelledCount = 0;
       this._supersedeTimer = null;
 
-      this._onRefreshClick = () => this.run();
+      this._onRefreshClick = () => this.run({ manual: true });
       this._onAutoChange   = () => this._applyAutoRefresh();
 
       // 접속자 ID Top N tooltip — primary 영역 hover/focus 시 표시,
@@ -1868,8 +1901,18 @@
       btn.classList.toggle('fp-btn-loading', loading);
     },
 
+    /* ── 결과 표시 시간 (사용자가 충분히 읽을 수 있도록) ──────
+       AMAT 등 자동 새로고침이 도는 페이지에서 짧은 시간(예: 3-4초)
+       만 보이다 사라지던 문제 해결.  인라인 뱃지는 클릭 직후 자동
+       새로고침이 테이블을 재렌더하면 즉시 사라지는 효과가 있어,
+       lock(아래 _PAUSE_MS) 동안 자동 새로고침을 차단해 끝까지 살아남게 한다. */
+    _INLINE_MS: 8000,       // 인라인 뱃지 표시 시간
+    _TOAST_MS:  6000,       // 토스트 표시 시간
+    _PAUSE_MS:  9000,       // 자동 새로고침 일시정지 (인라인 표시 시간보다 약간 더 길게)
+
     /* 결과를 Toast + 버튼 옆 인라인 뱃지로 모두 알림 */
     _showInline(btn, ok, msg) {
+      if (!btn || !btn.parentElement) return;
       // 이전 뱃지 제거
       const prev = btn.parentElement.querySelector('.fp-inline-result');
       if (prev) prev.remove();
@@ -1877,15 +1920,33 @@
       const span = document.createElement('span');
       span.className = `fp-inline-result fp-inline-${ok ? 'ok' : 'err'}`;
       span.textContent = msg;
+      // 사용자가 명시적으로 닫을 수 있도록 닫기 버튼 추가
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'fp-inline-close';
+      closeBtn.setAttribute('aria-label', '닫기');
+      closeBtn.textContent = '×';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (span.parentElement) span.remove();
+      });
+      span.appendChild(closeBtn);
       btn.parentElement.appendChild(span);
 
-      // 4초 후 자동 제거
-      setTimeout(() => { if (span.parentElement) span.remove(); }, 4000);
+      // 자동 새로고침을 잠시 멈춰 결과 뱃지를 충분히 노출
+      if (window.QueryRunner && QueryRunner.pauseAutoRefresh) {
+        QueryRunner.pauseAutoRefresh(this._PAUSE_MS);
+      }
+
+      // 자동 제거
+      setTimeout(() => { if (span.parentElement) span.remove(); }, this._INLINE_MS);
     },
 
     /* /files/check 호출 */
     async check(path) {
-      // 해당 행의 [확인] 버튼 참조 (클릭 이벤트 발생 직후이므로 document.activeElement 활용)
+      // 클릭한 버튼 참조를 클릭 직후 캡처해 둔다.
+      //   ※ 비동기 await 사이에 다른 요소가 focus 를 가져가면
+      //      document.activeElement 가 바뀔 수 있어, btnRef 를 미리 저장.
       const btn = document.activeElement;
       this._setBtnState(btn, true);
 
@@ -1898,7 +1959,7 @@
         data = await res.json().catch(() => ({}));
         ok   = res.ok;
       } catch (err) {
-        if (window.Toast) Toast.show(`요청 실패: ${err.message}`, { level: 'error', icon: '✗' });
+        if (window.Toast) Toast.show(`요청 실패: ${err.message}`, { level: 'error', icon: '✗', durationMs: this._TOAST_MS });
         this._setBtnState(btn, false);
         return;
       }
@@ -1906,16 +1967,16 @@
       this._setBtnState(btn, false);
 
       if (ok) {
-        const msg = `존재 ✓ | ${escapeHtml(data.name || '')} | ${this._fmtSize(data.size_bytes)}`;
+        const msg = `존재 ✓ | ${data.name || ''} | ${this._fmtSize(data.size_bytes)}`;
         this._showInline(btn, true, msg);
-        if (window.Toast) Toast.show(msg, { level: 'success', icon: '✓', durationMs: 3000 });
+        if (window.Toast) Toast.show(msg, { level: 'success', icon: '✓', durationMs: this._TOAST_MS });
       } else if (data.reason === 'not_found') {
         this._showInline(btn, false, '파일 없음 ✗');
-        if (window.Toast) Toast.show('파일이 존재하지 않습니다.', { level: 'error', icon: '✗', durationMs: 3000 });
+        if (window.Toast) Toast.show('파일이 존재하지 않습니다.', { level: 'error', icon: '✗', durationMs: this._TOAST_MS });
       } else {
         const msg = data.message || `HTTP ${data.status}`;
         this._showInline(btn, false, `오류: ${msg}`);
-        if (window.Toast) Toast.show(`확인 실패: ${msg}`, { level: 'error', icon: '✗' });
+        if (window.Toast) Toast.show(`확인 실패: ${msg}`, { level: 'error', icon: '✗', durationMs: this._TOAST_MS });
       }
     },
 
@@ -1932,7 +1993,7 @@
         );
         data = await res.json().catch(() => ({}));
       } catch (err) {
-        if (window.Toast) Toast.show(`요청 실패: ${err.message}`, { level: 'error', icon: '✗' });
+        if (window.Toast) Toast.show(`요청 실패: ${err.message}`, { level: 'error', icon: '✗', durationMs: this._TOAST_MS });
         this._setBtnState(btn, false);
         return;
       }
@@ -1942,13 +2003,13 @@
       if (!res.ok) {
         const msg = data.reason === 'not_found' ? '파일이 존재하지 않습니다.' : (data.message || `HTTP ${res.status}`);
         this._showInline(btn, false, data.reason === 'not_found' ? '파일 없음 ✗' : `오류: ${msg}`);
-        if (window.Toast) Toast.show(msg, { level: 'error', icon: '✗', durationMs: 3000 });
+        if (window.Toast) Toast.show(msg, { level: 'error', icon: '✗', durationMs: this._TOAST_MS });
         return;
       }
 
       // 존재 → 다운로드 트리거
-      this._showInline(btn, true, `다운로드 시작 ⬇ | ${escapeHtml(data.name || '')}`);
-      if (window.Toast) Toast.show(`다운로드 시작: ${data.name || ''}`, { level: 'success', icon: '⬇', durationMs: 2500 });
+      this._showInline(btn, true, `다운로드 시작 ⬇ | ${data.name || ''}`);
+      if (window.Toast) Toast.show(`다운로드 시작: ${data.name || ''}`, { level: 'success', icon: '⬇', durationMs: this._TOAST_MS });
 
       const a = document.createElement('a');
       a.href = `/files/download?path=${encodeURIComponent(path)}`;

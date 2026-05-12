@@ -3731,8 +3731,10 @@ body.ls-dl-modal-open { overflow: hidden; }
 
 /* 인라인 결과 뱃지 */
 .fp-inline-result {
-  display: inline-block;
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
   border-radius: 99px;
   font-size: 11px;
   font-weight: 600;
@@ -3741,6 +3743,31 @@ body.ls-dl-modal-open { overflow: hidden; }
 }
 .fp-inline-ok  { background: #d1fae5; color: #065f46; }
 .fp-inline-err { background: #fee2e2; color: #991b1b; }
+
+/* 인라인 뱃지 닫기 버튼 — 사용자가 결과를 다 봤을 때 즉시 닫도록 */
+.fp-inline-result .fp-inline-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+.fp-inline-result .fp-inline-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.18);
+}
 
 /* ============================================================
    AMAT Keyword 관리 패널  (.kw-*)
@@ -4664,16 +4691,24 @@ td:has(a.es-id-link) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   AMAT Keyword 패널 — #kw-table 의 INDEX 컬럼 폭 보정
+   AMAT Keyword 패널 — #kw-table 의 INDEX 컬럼 폭/정렬 보정
    · DataTables 의 정렬 화살표(약 18~22px) 가 컬럼 헤더 'INDEX'(5자)
-     글자와 겹치는 문제 → min-width 로 충분한 폭 강제.
-   · JS 의 width: '110px' 와 한 쌍.
+     글자와 겹치는 문제 → min-width 로 충분한 폭 강제 + 좌측 정렬.
+   · 가운데 정렬일 때 화살표가 라벨 위로 겹쳐 보이는 문제가 있어
+     헤더와 본문 모두 좌측 정렬(text-align:left)로 일관 처리.
+   · JS 의 width: '110px' / className 'dt-left kw-col-index' 와 한 쌍.
    ──────────────────────────────────────────────────────────── */
 #kw-table th.kw-col-index,
 #kw-table td.kw-col-index {
   min-width: 110px;
   width: 110px;
   white-space: nowrap;
+  text-align: left !important;   /* DataTables 의 dt-center 잔여 스타일 차단 */
+}
+/* 헤더 라벨과 정렬 화살표가 다시 가까워지지 않도록 우측 패딩 확보.
+   DataTables 의 ::after(정렬 인디케이터) 와 'INDEX' 텍스트 사이 공간 보장. */
+#kw-table thead th.kw-col-index {
+  padding-right: 24px;
 }
 
 /* ════════════════════════════════════════════════════════════
