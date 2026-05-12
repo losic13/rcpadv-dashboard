@@ -4156,3 +4156,360 @@ body.ls-dl-modal-open { overflow: hidden; }
   border: 1px dashed var(--color-border, #d1d5db);
   border-radius: 6px;
 }
+
+/* ════════════════════════════════════════════════════════════
+   Document 조회 — 카드 리스트 / JSON 하이라이트 / 필터 / 토스트
+   (DataTables 기반 표 렌더링 대체)
+   ──────────────────────────────────────────────────────────── */
+
+/* ── 결과 컨트롤 바 (필터 + 일괄 펼치기/접기) ─────────── */
+.es-document-page .doc-result-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 10px;
+  padding: 8px 10px;
+  background: #f9fafb;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+.es-document-page .doc-filter-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 280px;
+  min-width: 240px;
+  padding: 4px 10px;
+  background: #fff;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  cursor: text;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.es-document-page .doc-filter-wrap:focus-within {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+.es-document-page .doc-filter-icon {
+  font-size: 13px;
+  color: var(--color-muted, #6b7280);
+  user-select: none;
+}
+.es-document-page .doc-filter-input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--color-text, #1f2937);
+}
+.es-document-page .doc-filter-count {
+  font-size: 11.5px;
+  color: var(--color-muted, #6b7280);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 1px 8px;
+  background: #eef2ff;
+  border-radius: 999px;
+  min-width: 0;
+}
+.es-document-page .doc-filter-count:empty {
+  display: none;
+}
+.es-document-page .doc-result-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* ── 카드 컨테이너 ─────────────────────────────────── */
+.es-document-page .doc-cards-wrap {
+  margin-top: 4px;
+}
+.es-document-page .doc-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── 카드 본체 (<details>) ─────────────────────────── */
+.es-document-page .doc-card {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  transition: box-shadow 0.12s, border-color 0.12s;
+}
+.es-document-page .doc-card[open] {
+  border-color: #c7d2fe;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.08);
+}
+
+/* details 기본 마커 제거 */
+.es-document-page .doc-card > summary {
+  list-style: none;
+}
+.es-document-page .doc-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ── 카드 헤더 (summary) ───────────────────────────── */
+.es-document-page .doc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
+  border-bottom: 1px solid transparent;
+  transition: background 0.12s;
+}
+.es-document-page .doc-card[open] > .doc-card-header {
+  border-bottom-color: var(--color-border, #e5e7eb);
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+}
+.es-document-page .doc-card-header:hover {
+  background: #eef2ff;
+}
+.es-document-page .doc-card-toggle {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+  color: #6366f1;
+  transition: transform 0.15s ease;
+  flex: 0 0 14px;
+  text-align: center;
+}
+.es-document-page .doc-card[open] > .doc-card-header > .doc-card-toggle {
+  transform: rotate(90deg);
+}
+.es-document-page .doc-card-id {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  word-break: break-all;
+  line-height: 1.4;
+}
+.es-document-page .doc-card-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--color-muted, #6b7280);
+  padding: 1px 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.es-document-page .doc-card-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.es-document-page .doc-card-copy {
+  padding: 3px 10px;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 11.5px;
+  cursor: pointer;
+  color: #4b5563;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.es-document-page .doc-card-copy:hover {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+/* ── 카드 본문 ───────────────────────────────────── */
+.es-document-page .doc-card-body {
+  padding: 10px 14px 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.es-document-page .doc-card-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--color-muted, #6b7280);
+  font-style: italic;
+}
+
+/* ── 스칼라 필드 (한 줄 grid) ───────────────────── */
+.es-document-page .doc-field-scalar {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) 1fr;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed #f1f5f9;
+  align-items: baseline;
+}
+.es-document-page .doc-field-scalar:last-child {
+  border-bottom: 0;
+}
+.es-document-page .doc-field-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  word-break: break-word;
+}
+.es-document-page .doc-val {
+  font-size: 12.5px;
+  word-break: break-word;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.es-document-page .doc-val-str {
+  color: #064e3b;
+}
+.es-document-page .doc-val-num {
+  color: #9a3412;
+  font-weight: 500;
+}
+.es-document-page .doc-val-bool {
+  color: #6d28d9;
+  font-weight: 600;
+}
+.es-document-page .doc-val-null {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* ── 객체/배열 필드 (JSON 블록) ───────────────────── */
+.es-document-page .doc-field-complex {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 8px;
+  border-bottom: 1px dashed #f1f5f9;
+}
+.es-document-page .doc-field-complex:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.es-document-page .doc-field-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.es-document-page .doc-field-header .doc-field-key {
+  flex: 0 0 auto;
+}
+.es-document-page .doc-field-type {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #6366f1;
+  padding: 1px 7px;
+  background: #eef2ff;
+  border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.es-document-page .doc-field-copy {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.12s;
+  line-height: 1;
+}
+.es-document-page .doc-field-copy:hover {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+}
+
+/* ── JSON pre 블록 ────────────────────────────────── */
+.es-document-page .doc-json {
+  margin: 0;
+  padding: 8px 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.es-document-page .doc-json code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  white-space: pre;
+}
+
+/* ── JSON 신택스 하이라이트 토큰 색 (다크 배경) ─── */
+.es-document-page .doc-json .jh-key {
+  color: #93c5fd;
+  font-weight: 600;
+}
+.es-document-page .doc-json .jh-str {
+  color: #86efac;
+}
+.es-document-page .doc-json .jh-num {
+  color: #fdba74;
+}
+.es-document-page .doc-json .jh-bool {
+  color: #c4b5fd;
+  font-weight: 600;
+}
+.es-document-page .doc-json .jh-null {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* ── 토스트 알림 (복사 성공) ──────────────────────── */
+.doc-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translate(-50%, 12px);
+  z-index: 9999;
+  padding: 10px 18px;
+  background: #1e293b;
+  color: #f1f5f9;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  max-width: 80vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ── 반응형: 좁은 화면에서 스칼라 필드 세로 배치 ─ */
+@media (max-width: 720px) {
+  .es-document-page .doc-field-scalar {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .es-document-page .doc-card-meta {
+    display: none;
+  }
+}
