@@ -1,6 +1,11 @@
 """DRAM DB 쿼리 모음."""
 from app.queries._base import ParamDef, SqlQueryDef
 
+# ── 키워드 관리 전용 쿼리 (source_page 탭 외부에서 직접 사용) ──────────────
+KEYWORD_LIST_SQL = """
+    SELECT id, name FROM amat_keyword ORDER BY id
+"""
+
 QUERIES: dict[str, SqlQueryDef] = {
     "amat_abnormal_step_new": SqlQueryDef(
         id="amat_abnormal_step_new",

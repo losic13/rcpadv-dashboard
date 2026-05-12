@@ -74,6 +74,14 @@ def _row_to_dict(row: Row, columns: list[str]) -> dict:
     return out
 
 
+def execute_dml(source: str, sql: str, params: dict[str, Any] | None = None) -> int:
+    """DML(INSERT/UPDATE/DELETE) 실행 후 커밋. 영향받은 행 수를 반환."""
+    engine = _get_engine(source)
+    with engine.begin() as conn:           # begin() → 자동 COMMIT / 예외 시 ROLLBACK
+        result = conn.execute(text(sql), params or {})
+        return result.rowcount
+
+
 def dispose_all() -> None:
     """앱 종료 시 호출."""
     for eng in _engines.values():
