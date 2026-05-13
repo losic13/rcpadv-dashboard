@@ -3769,6 +3769,82 @@ body.ls-dl-modal-open { overflow: hidden; }
   background: rgba(0, 0, 0, 0.18);
 }
 
+/* ────────────────────────────────────────────────────────────
+   FILE_PATH 결과 floating 오버레이 (.fp-result-overlay)
+   · document.body 직속으로 띄워서 셀이 재렌더돼도 영향받지 않음.
+   · 위치는 JS 가 버튼 옆/위/아래로 좌표 계산해 left/top 으로 지정.
+   · 화살표 표시 없이 단순한 toast-bubble 형태.
+   ──────────────────────────────────────────────────────────── */
+.fp-result-overlay {
+  position: fixed;
+  z-index: 9999;             /* DataTables/모달 등보다 위 */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, 80vw);
+  padding: 6px 6px 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.18),
+    0 2px 6px  rgba(0, 0, 0, 0.10);
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: auto;      /* 닫기 클릭 가능 */
+}
+.fp-result-overlay.fp-result-shown {
+  opacity: 1;
+  transform: translateY(0);
+}
+.fp-result-overlay.fp-result-leaving {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+.fp-result-overlay.fp-result-ok {
+  background: #d1fae5;
+  color:      #065f46;
+  border: 1px solid #6ee7b7;
+}
+.fp-result-overlay.fp-result-err {
+  background: #fee2e2;
+  color:      #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.fp-result-overlay .fp-result-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fp-result-overlay .fp-result-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s, background 0.15s;
+  flex: 0 0 auto;
+}
+.fp-result-overlay .fp-result-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.18);
+}
+
 /* ============================================================
    AMAT Keyword 관리 패널  (.kw-*)
    ============================================================ */

@@ -1902,44 +1902,138 @@
     },
 
     /* ── 결과 표시 시간 (사용자가 충분히 읽을 수 있도록) ──────
-       AMAT 등 자동 새로고침이 도는 페이지에서 짧은 시간(예: 3-4초)
-       만 보이다 사라지던 문제 해결.  인라인 뱃지는 클릭 직후 자동
-       새로고침이 테이블을 재렌더하면 즉시 사라지는 효과가 있어,
-       lock(아래 _PAUSE_MS) 동안 자동 새로고침을 차단해 끝까지 살아남게 한다. */
-    _INLINE_MS: 8000,       // 인라인 뱃지 표시 시간
-    _TOAST_MS:  6000,       // 토스트 표시 시간
-    _PAUSE_MS:  9000,       // 자동 새로고침 일시정지 (인라인 표시 시간보다 약간 더 길게)
+       이전 시도: 셀 안에 <span> 을 추가했지만, DataTables 가
+       자동 새로고침/정렬/검색/페이지 이동 등으로 row 를 재렌더하면
+       (clear().rows.add().draw()) 셀이 통째로 새 HTML 로 덮여
+       즉시 사라지는 문제가 있었다.
 
-    /* 결과를 Toast + 버튼 옆 인라인 뱃지로 모두 알림 */
+       해결:
+         · 결과 표시 노드를 셀 내부가 아닌 document.body 에 floating
+           오버레이로 띄운다.  좌표는 클릭 버튼의 getBoundingClientRect
+           기준으로 그 바로 옆에 배치.
+         · DataTables 가 row 를 다시 그려도 오버레이는 영향받지 않음.
+         · 페이지 스크롤 시 따라가도록 scroll/resize 리스너 등록.
+         · 사용자가 [×] 로 즉시 닫거나, 일정 시간 후 자동 제거. */
+    _OVERLAY_MS: 8000,      // floating 오버레이 표시 시간
+    _TOAST_MS:   6000,      // 토스트 표시 시간
+    _PAUSE_MS:   9000,      // 자동 새로고침 일시정지 (오버레이보다 약간 더 길게)
+
+    /* 현재 떠 있는 오버레이를 추적해 (버튼 → 오버레이) 정리.
+       같은 버튼을 다시 누르면 이전 오버레이 제거. */
+    _overlays: new Map(),   // btn(Element) → { el, cleanup }
+
+    /* ── 결과 알림: document.body 에 floating 오버레이 + Toast ── */
     _showInline(btn, ok, msg) {
-      if (!btn || !btn.parentElement) return;
-      // 이전 뱃지 제거
-      const prev = btn.parentElement.querySelector('.fp-inline-result');
-      if (prev) prev.remove();
+      if (!btn) return;
 
-      const span = document.createElement('span');
-      span.className = `fp-inline-result fp-inline-${ok ? 'ok' : 'err'}`;
-      span.textContent = msg;
-      // 사용자가 명시적으로 닫을 수 있도록 닫기 버튼 추가
+      // 같은 버튼에 떠 있던 이전 오버레이가 있으면 제거
+      const prevEntry = this._overlays.get(btn);
+      if (prevEntry) {
+        try { prevEntry.cleanup(); } catch (_) {}
+        this._overlays.delete(btn);
+      }
+
+      // ── 오버레이 DOM 생성 ────────────────────────────────────
+      const el = document.createElement('div');
+      el.className = `fp-result-overlay fp-result-${ok ? 'ok' : 'err'}`;
+      el.setAttribute('role', 'status');
+
+      const text = document.createElement('span');
+      text.className = 'fp-result-text';
+      text.textContent = msg;
+      el.appendChild(text);
+
       const closeBtn = document.createElement('button');
       closeBtn.type = 'button';
-      closeBtn.className = 'fp-inline-close';
+      closeBtn.className = 'fp-result-close';
       closeBtn.setAttribute('aria-label', '닫기');
       closeBtn.textContent = '×';
+      el.appendChild(closeBtn);
+
+      document.body.appendChild(el);
+
+      // ── 위치 계산: 버튼 우측 옆에 띄우되, 뷰포트 밖으로 나가면 좌측으로 ──
+      const reposition = () => {
+        if (!el.isConnected) return;
+        if (!btn || !btn.isConnected) {
+          // 버튼이 DOM 에서 빠지면(테이블 재렌더 등) 마지막 위치 유지.
+          // 다음 reposition 호출은 더이상 일어나지 않게 한 번만 보존.
+          return;
+        }
+        const r = btn.getBoundingClientRect();
+        const margin = 8;
+
+        // 일단 보여서 폭 측정
+        el.style.visibility = 'hidden';
+        el.style.left = '0px';
+        el.style.top  = '0px';
+        const ow = el.offsetWidth;
+        const oh = el.offsetHeight;
+
+        // 1) 기본: 버튼 우측에 vertical-center
+        let left = r.right + margin;
+        let top  = r.top + (r.height - oh) / 2;
+
+        // 2) 화면 우측 넘치면 → 버튼 왼쪽으로
+        if (left + ow > window.innerWidth - margin) {
+          left = r.left - ow - margin;
+        }
+        // 3) 그래도 왼쪽으로도 안 들어가면 → 버튼 아래로
+        if (left < margin) {
+          left = Math.min(Math.max(margin, r.left), window.innerWidth - ow - margin);
+          top  = r.bottom + 4;
+        }
+        // 4) 위/아래 클램프
+        if (top < margin) top = margin;
+        if (top + oh > window.innerHeight - margin) {
+          top = window.innerHeight - oh - margin;
+        }
+
+        el.style.left = `${Math.round(left)}px`;
+        el.style.top  = `${Math.round(top)}px`;
+        el.style.visibility = 'visible';
+      };
+
+      // 진입 애니메이션을 위한 클래스 지연 적용
+      reposition();
+      requestAnimationFrame(() => el.classList.add('fp-result-shown'));
+
+      // ── 스크롤/리사이즈 따라가기 ──────────────────────────────
+      // capture:true 로 등록해 내부 스크롤 컨테이너(테이블 wrap 등)
+      // 어디에서 스크롤이 일어나도 잡힌다.
+      const onScrollOrResize = () => reposition();
+      window.addEventListener('scroll', onScrollOrResize, true);
+      window.addEventListener('resize', onScrollOrResize);
+
+      // ── 정리 함수 ─────────────────────────────────────────────
+      let removed = false;
+      const cleanup = () => {
+        if (removed) return;
+        removed = true;
+        window.removeEventListener('scroll', onScrollOrResize, true);
+        window.removeEventListener('resize', onScrollOrResize);
+        if (autoTimer) clearTimeout(autoTimer);
+        el.classList.add('fp-result-leaving');
+        setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
+        this._overlays.delete(btn);
+      };
+
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (span.parentElement) span.remove();
+        cleanup();
       });
-      span.appendChild(closeBtn);
-      btn.parentElement.appendChild(span);
 
-      // 자동 새로고침을 잠시 멈춰 결과 뱃지를 충분히 노출
+      // 자동 새로고침을 잠시 멈춰 — _renderTable 호출 자체를 차단해
+      // 오버레이는 본래 영향을 안 받지만 사용자가 새 fetch 결과를
+      // 의식적으로 확인하지 못한 채 받는 일을 줄인다.
       if (window.QueryRunner && QueryRunner.pauseAutoRefresh) {
         QueryRunner.pauseAutoRefresh(this._PAUSE_MS);
       }
 
-      // 자동 제거
-      setTimeout(() => { if (span.parentElement) span.remove(); }, this._INLINE_MS);
+      // 자동 제거 타이머
+      const autoTimer = setTimeout(cleanup, this._OVERLAY_MS);
+
+      this._overlays.set(btn, { el, cleanup });
     },
 
     /* /files/check 호출 */
