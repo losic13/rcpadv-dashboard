@@ -1,0 +1,147 @@
+{#
+  파서 처리 절차 (Infra > 파서 처리 절차)
+  ----------------------------------------------------------------
+  · 라우터(`parser_flow.py`) 의 PARSER_FLOW_STEPS 를 위에서부터
+    순서대로 카드로 렌더링한다.
+  · 각 카드는 [헤더 = 제목 + description + ▼/▶ 화살표] + [본문 = 이미지]
+    구조이고, 헤더 영역을 클릭하면 본문이 접힘/펴짐 토글된다.
+  · 토글 상태는 localStorage 에 저장 → 새로고침해도 유지.
+  · 카드 간 토글은 독립 (한 개를 펼친다고 다른 카드가 접히지 않음).
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="parser-flow-page" id="parser-flow-page"
+         data-storage-key="parser_flow_collapsed_v1">
+
+  <!-- 페이지 안내 (Document 조회 페이지의 card-header 톤과 통일) -->
+  <section class="card pf-intro">
+    <header class="card-header">
+      <div class="card-title">
+        <span class="badge">Reference</span>
+        <strong>파서 처리 절차 다이어그램</strong>
+      </div>
+      <div class="card-controls">
+        <button type="button" class="btn" id="pf-expand-all"  title="모두 펼치기">
+          <span aria-hidden="true">▼</span>
+          <span>모두 펼치기</span>
+        </button>
+        <button type="button" class="btn" id="pf-collapse-all" title="모두 접기">
+          <span aria-hidden="true">▶</span>
+          <span>모두 접기</span>
+        </button>
+      </div>
+    </header>
+    <div class="card-body pf-intro-body">
+      <p class="pf-hint">
+        각 카드 헤더를 클릭하면 해당 단계의 그림이 접히거나 펼쳐집니다.
+        펼침 상태는 브라우저에 저장되어 새로고침 후에도 유지됩니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── 단계별 카드 ──────────────────────────────────────── -->
+  {% for step in steps %}
+  <section class="card pf-card"
+           data-step-key="{{ step.key }}"
+           {# 기본은 모두 펼침. JS 가 localStorage 값을 보고 필요 시 collapsed 클래스 부착. #}>
+    <button type="button" class="pf-card-header" aria-expanded="true">
+      <span class="pf-card-caret" aria-hidden="true">▼</span>
+      <span class="pf-card-titles">
+        <span class="pf-card-title">{{ step.title }}</span>
+        <span class="pf-card-desc">{{ step.description }}</span>
+      </span>
+    </button>
+    <div class="pf-card-body">
+      <figure class="pf-figure">
+        {# asset_version 으로 캐시 무효화 — 사용자가 이미지 교체 시 즉시 반영 #}
+        <img src="{{ step.image }}?v={{ asset_version }}"
+             alt="{{ step.alt }}"
+             class="pf-img"
+             loading="lazy">
+        <figcaption class="pf-figcaption">
+          <code>{{ step.image }}</code>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+  {% endfor %}
+
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    'use strict';
+
+    const root       = document.getElementById('parser-flow-page');
+    if (!root) return;
+    const storageKey = root.dataset.storageKey || 'parser_flow_collapsed_v1';
+    const cards      = Array.from(root.querySelectorAll('.pf-card'));
+
+    /* ── localStorage helpers ─────────────────────────────
+       값 형태: { "<key>": true|false }  — true 면 접힘 상태.
+       parse 실패하면 빈 객체로 graceful fallback. */
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return {};
+        const v = JSON.parse(raw);
+        return (v && typeof v === 'object') ? v : {};
+      } catch (_) { return {}; }
+    }
+    function saveState(state) {
+      try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (_) {}
+    }
+
+    /* ── 카드 1개의 펼침/접힘 적용 ──────────────────────── */
+    function applyCollapsed(card, collapsed) {
+      card.classList.toggle('pf-collapsed', !!collapsed);
+      const header = card.querySelector('.pf-card-header');
+      if (header) header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      const caret  = card.querySelector('.pf-card-caret');
+      if (caret)   caret.textContent = collapsed ? '▶' : '▼';
+    }
+
+    /* ── 초기 상태 적용 ─────────────────────────────────── */
+    const state = loadState();
+    cards.forEach(card => {
+      const k = card.dataset.stepKey;
+      // 저장된 값이 없으면 기본 펼침. true 인 경우만 접힘.
+      applyCollapsed(card, state[k] === true);
+    });
+
+    /* ── 헤더 클릭 → 토글 ───────────────────────────────── */
+    cards.forEach(card => {
+      const header = card.querySelector('.pf-card-header');
+      if (!header) return;
+      header.addEventListener('click', () => {
+        const k = card.dataset.stepKey;
+        const nowCollapsed = !card.classList.contains('pf-collapsed');
+        applyCollapsed(card, nowCollapsed);
+        const cur = loadState();
+        cur[k] = nowCollapsed;
+        saveState(cur);
+      });
+    });
+
+    /* ── "모두 펼치기 / 모두 접기" 버튼 ─────────────────── */
+    function setAll(collapsed) {
+      const cur = loadState();
+      cards.forEach(card => {
+        applyCollapsed(card, collapsed);
+        cur[card.dataset.stepKey] = collapsed;
+      });
+      saveState(cur);
+    }
+    const btnExpand   = document.getElementById('pf-expand-all');
+    const btnCollapse = document.getElementById('pf-collapse-all');
+    if (btnExpand)   btnExpand.addEventListener('click',   () => setAll(false));
+    if (btnCollapse) btnCollapse.addEventListener('click', () => setAll(true));
+  })();
+</script>
+{% endblock %}
