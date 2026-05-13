@@ -488,6 +488,127 @@ async def run_eqp_log_count_per_day() -> dict[str, Any]:
 
 
 # ============================================================
+# /es/pending-delay  (작업 대기 및 지연)
+# ============================================================
+
+async def run_pending_and_delay_dist() -> dict[str, Any]:
+    """es_queries.PENDING_AND_DELAY_DIST 실행 후 'key 선택+정렬' 적용.
+
+    settings.es_pending_delay_display_keys() 가 반환하는 [(key, label), ...]
+    리스트를 기준으로:
+        1) 응답의 buckets 를 key → doc_count 맵으로 만든다.
+        2) display_keys 순서대로 행을 만들고, 응답에 없는 key 는 0.
+        3) display_keys 가 비어 있으면 응답 전체를 응답 순서 그대로 노출
+           (label = key).
+
+    반환:
+        {
+          "ok": bool,
+          "rows": [
+              {"key": "WAITING", "label": "대기",   "doc_count": 123, "pct": 12.3},
+              ...
+          ],
+          "total":      int,           # 표시되는 키들의 합계 (전체가 아님)
+          "raw_total":  int,           # 응답에 있던 buckets 의 합계 (참고용)
+          "shown_count": int,          # rows 길이
+          "elapsed_ms": int,
+          "queried_at": str,
+          "index":      str,
+          "agg_name":   "current_state_distribution",
+          "error":      str | None,
+        }
+    """
+    qdef = es_queries.PENDING_AND_DELAY_DIST
+    log.info("[es/pending-delay] 쿼리 시작: index=%s", qdef.index)
+    start = time.perf_counter()
+
+    def _empty(err: str | None) -> dict[str, Any]:
+        return {
+            "ok": err is None,
+            "rows": [],
+            "total": 0,
+            "raw_total": 0,
+            "shown_count": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "index": qdef.index,
+            "agg_name": "current_state_distribution",
+            "error": err,
+        }
+
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.search, qdef.index, qdef.body),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error("[es/pending-delay] 쿼리 타임아웃 (>%ds)", settings.QUERY_TIMEOUT_SECONDS)
+        return _empty("쿼리 타임아웃")
+    except Exception as e:
+        log.error("[es/pending-delay] 쿼리 실패: %s", e)
+        return _empty(str(e))
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    # 응답 buckets → {key: doc_count} 맵
+    buckets = (
+        resp.get("aggregations", {})
+            .get("current_state_distribution", {})
+            .get("buckets", [])
+    ) or []
+    counts: dict[str, int] = {}
+    response_order: list[str] = []
+    raw_total = 0
+    for b in buckets:
+        k = b.get("key")
+        if k is None:
+            continue
+        c = int(b.get("doc_count") or 0)
+        # 동일 key 가 중복 등장하는 경우 합산 (그래야 안전)
+        if k in counts:
+            counts[k] += c
+        else:
+            counts[k] = c
+            response_order.append(str(k))
+        raw_total += c
+
+    # 표시 키 정의 로드.  비어 있으면 응답 전체를 응답 순서대로 노출.
+    display_pairs = settings.es_pending_delay_display_keys()
+    if not display_pairs:
+        display_pairs = [(k, k) for k in response_order]
+
+    # 표시 키 순서대로 행 구성 — 응답에 없으면 0.
+    rows: list[dict[str, Any]] = []
+    shown_total = 0
+    for key, label in display_pairs:
+        dc = int(counts.get(key, 0))
+        rows.append({"key": key, "label": label, "doc_count": dc})
+        shown_total += dc
+
+    # 비율(pct) 계산 — 표시된 합계 기준 (100% = 표시된 키 합계)
+    for r in rows:
+        r["pct"] = (r["doc_count"] / shown_total * 100.0) if shown_total > 0 else 0.0
+
+    log.info(
+        "[es/pending-delay] 완료: shown=%d/%d keys, total=%d (raw_total=%d), %dms",
+        len(rows), len(buckets), shown_total, raw_total, elapsed_ms,
+    )
+
+    return {
+        "ok": True,
+        "rows": rows,
+        "total": shown_total,
+        "raw_total": raw_total,
+        "shown_count": len(rows),
+        "elapsed_ms": elapsed_ms,
+        "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "index": qdef.index,
+        "agg_name": "current_state_distribution",
+        "error": None,
+    }
+
+
+# ============================================================
 # 공통 내부 유틸
 # ============================================================
 

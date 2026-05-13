@@ -43,6 +43,31 @@ class Settings(BaseSettings):
     ES_DOCUMENT_LOOKUP_INDEX: str = "parsing-index-2-*"
     ES_DOCUMENT_LOOKUP_MAX_IDS: int = 1000
 
+    # ---- ES "작업 대기 및 지연" 페이지 (/es/pending-delay) ----
+    # ES 집계 응답(`current_state_distribution.buckets`)에는 모든 상태 키가
+    # 들어있지만, 페이지에는 운영팀이 관심 있는 키만 골라 정해진 순서대로
+    # 노출하고 싶다.  그 "필터 + 정렬" 정의를 빌드/배포 시점에만 손대도록
+    # .env 환경 변수로 빼둔다.
+    #
+    # 형식:
+    #   "KEY1[:label1],KEY2[:label2],..."   (콤마 = 항목 구분, 콜론 = key:label)
+    #
+    # 예:
+    #   ES_PENDING_DELAY_DISPLAY_KEYS=WAITING:대기,RUNNING:실행 중,STUCK:정체
+    #
+    # 규칙:
+    #   - `:label` 부분을 생략하면 key 가 그대로 label 로 사용된다.
+    #   - 응답에 없는 key 는 doc_count 0 으로 표시된다.
+    #   - 응답에 있지만 여기에 없는 key 는 화면에 표시되지 않는다.
+    #   - 빈 문자열이면 응답 전체가 정의 순서대로 표시 (필터 X).
+    ES_PENDING_DELAY_DISPLAY_KEYS: str = (
+        "WAITING:대기,"
+        "RUNNING:실행 중,"
+        "STUCK:정체,"
+        "RETRY:재시도,"
+        "FAILED:실패"
+    )
+
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"
@@ -80,6 +105,36 @@ class Settings(BaseSettings):
 
     def es_hosts_list(self) -> list[str]:
         return [h.strip() for h in self.ES_HOSTS.split(",") if h.strip()]
+
+    def es_pending_delay_display_keys(self) -> list[tuple[str, str]]:
+        """``ES_PENDING_DELAY_DISPLAY_KEYS`` 문자열을 [(key, label)] 리스트로 파싱.
+
+        - 콤마(,)로 항목 구분, 콜론(:)으로 key:label 구분.
+        - label 생략 시 key 가 label.
+        - 빈 항목/빈 key 는 무시.
+        - 중복 key 는 처음 등장한 것만 유지 (선언 순서 보존).
+        """
+        raw = (self.ES_PENDING_DELAY_DISPLAY_KEYS or "").strip()
+        if not raw:
+            return []
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for item in raw.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if ":" in item:
+                k, _, lab = item.partition(":")
+                key = k.strip()
+                label = lab.strip() or key
+            else:
+                key = item
+                label = item
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append((key, label))
+        return out
 
 
 settings = Settings()

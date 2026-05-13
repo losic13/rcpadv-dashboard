@@ -156,6 +156,37 @@ async def eqp_status_data(request: Request):
     return JSONResponse(result, status_code=status)
 
 
+# ── 신규: /es/pending-delay (작업 대기 및 지연) ──────────────────────────
+@router.get("/pending-delay")
+def pending_delay_page(request: Request):
+    """작업 대기 및 지연 페이지 — current_state_distribution 막대 차트 + 표.
+
+    표시 대상 키 (key, label) 은 .env 의
+    ``ES_PENDING_DELAY_DISPLAY_KEYS`` 로 빌드 시점에 결정.
+    """
+    from app.config import settings
+    display_pairs = settings.es_pending_delay_display_keys()
+    return templates.TemplateResponse(
+        request,
+        "es_pending_delay.html",
+        {
+            "nav_items":  NAV_ITEMS,
+            "active_nav": "es_pending_delay",
+            "page_title": "작업 대기 및 지연",
+            # 표시 키 정의 — 차트 초기 X 축 라벨/순서 표시용
+            "display_keys": [{"key": k, "label": l} for k, l in display_pairs],
+        },
+    )
+
+
+@router.get("/pending-delay/data")
+async def pending_delay_data(request: Request):
+    """작업 대기 및 지연 데이터 API (JSON)."""
+    result = await es_service.run_pending_and_delay_dist()
+    status = 200 if result["ok"] else 500
+    return JSONResponse(result, status_code=status)
+
+
 # ── 준비 중 페이지들 (나중에 구현) ───────────────────────────────────────
 @router.get("/targets")
 def targets_page(request: Request):

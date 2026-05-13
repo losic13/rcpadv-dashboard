@@ -5125,3 +5125,113 @@ table.eqp-table tbody tr:hover td {
   .pf-card-desc   { font-size: 12px; }
   .pf-card-body   { padding: 12px 12px 16px; }
 }
+
+/* ============================================================
+   /es/pending-delay (작업 대기 및 지연)  .pd-*
+   ------------------------------------------------------------
+   · 상단: 막대차트 (.pd-chart-wrap > canvas)
+   · 하단: 표 (.pd-table-wrap > table.pd-table)
+   · 메타바/오류표시/스피너는 disk-* 스타일 재사용.
+   ============================================================ */
+
+/* ── 차트 영역 ──────────────────────────────────────────── */
+.pd-chart-wrap {
+  position: relative;
+  margin-top: 12px;
+  padding: 12px 8px 4px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  /* Chart.js responsive + maintainAspectRatio:false 와 짝.
+     높이는 canvas height + padding 으로 결정됨. */
+  min-height: 320px;
+}
+
+/* ── 표 영역 ────────────────────────────────────────────── */
+.pd-table-wrap {
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.pd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pd-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f3f4f6;
+  color: #374151;
+  font-weight: 700;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.pd-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.pd-table tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.pd-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.pd-table tfoot {
+  background: #f9fafb;
+  font-weight: 700;
+}
+.pd-table tfoot td {
+  padding: 10px 12px;
+  border-top: 2px solid #e5e7eb;
+}
+
+/* 컬럼별 정렬 / 폰트 */
+.pd-table .pd-col-idx   { width: 56px;  text-align: right; color: #9ca3af; font-variant-numeric: tabular-nums; }
+.pd-table .pd-col-key   { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; }
+.pd-table .pd-col-key code { font-family: inherit; background: transparent; padding: 0; }
+.pd-table .pd-col-label { color: #111827; }
+.pd-table .pd-col-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #111827;
+}
+.pd-table .pd-col-pct {
+  width: 100px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+}
+
+.pd-table .pd-foot-label {
+  text-align: right;
+  color: #6b7280;
+}
+
+.pd-table .pd-empty {
+  padding: 24px;
+  text-align: center;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* description (헤더 우상단 컨트롤이 좁은 화면에서 줄바꿈) */
+@media (max-width: 640px) {
+  .pd-chart-wrap { min-height: 240px; }
+  .pd-table { font-size: 12px; }
+  .pd-table thead th { padding: 8px 10px; }
+  .pd-table tbody td { padding: 6px 10px; }
+}
