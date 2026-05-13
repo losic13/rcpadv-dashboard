@@ -4996,10 +4996,12 @@ table.eqp-table tbody tr:hover td {
   overflow: hidden;             /* 본문 슬라이드 시 비주얼 안전망 */
 }
 
-/* 헤더 — <button> 으로 만들어 키보드 접근성 확보 */
+/* 헤더 — <button> 으로 만들어 키보드 접근성 확보.
+   description 이 여러 줄일 수 있으므로 align-items: flex-start 로
+   caret 이 첫 줄 기준으로 정렬되게 한다. */
 .pf-card-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   width: 100%;
   padding: 14px 18px;
@@ -5028,6 +5030,11 @@ table.eqp-table tbody tr:hover td {
   text-align: center;
   user-select: none;
   transition: transform 0.2s;
+  /* 헤더가 flex-start 정렬이라 caret 이 위로 붙을 수 있다 →
+     title 의 line-height 와 비슷한 line-height 를 주어 첫 줄
+     기준으로 시각적으로 가운데 정렬되도록. */
+  line-height: 1.5;
+  padding-top: 2px;
 }
 
 .pf-card-titles {
@@ -5050,6 +5057,9 @@ table.eqp-table tbody tr:hover td {
   font-weight: 400;
   color: #6b7280;
   line-height: 1.5;
+  /* description 문자열 안의 '\n' 을 실제 줄바꿈으로 출력.
+     pre-line: 연속 공백은 한 칸으로, 줄바꿈은 그대로 유지. */
+  white-space: pre-line;
 }
 
 /* ── 본문 (이미지) ───────────────────────────────────────── */
