@@ -1913,10 +1913,10 @@
            기준으로 그 바로 옆에 배치.
          · DataTables 가 row 를 다시 그려도 오버레이는 영향받지 않음.
          · 페이지 스크롤 시 따라가도록 scroll/resize 리스너 등록.
-         · 사용자가 [×] 로 즉시 닫거나, 일정 시간 후 자동 제거. */
-    _OVERLAY_MS: 8000,      // floating 오버레이 표시 시간
+         · 일정 시간 후 자동 제거. */
+    _OVERLAY_MS: 3000,      // floating 오버레이 표시 시간
     _TOAST_MS:   6000,      // 토스트 표시 시간
-    _PAUSE_MS:   9000,      // 자동 새로고침 일시정지 (오버레이보다 약간 더 길게)
+    _PAUSE_MS:   4000,      // 자동 새로고침 일시정지 (오버레이보다 약간 더 길게)
 
     /* 현재 떠 있는 오버레이를 추적해 (버튼 → 오버레이) 정리.
        같은 버튼을 다시 누르면 이전 오버레이 제거. */
@@ -1942,13 +1942,6 @@
       text.className = 'fp-result-text';
       text.textContent = msg;
       el.appendChild(text);
-
-      const closeBtn = document.createElement('button');
-      closeBtn.type = 'button';
-      closeBtn.className = 'fp-result-close';
-      closeBtn.setAttribute('aria-label', '닫기');
-      closeBtn.textContent = '×';
-      el.appendChild(closeBtn);
 
       document.body.appendChild(el);
 
@@ -2017,11 +2010,6 @@
         setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
         this._overlays.delete(btn);
       };
-
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        cleanup();
-      });
 
       // 자동 새로고침을 잠시 멈춰 — _renderTable 호출 자체를 차단해
       // 오버레이는 본래 영향을 안 받지만 사용자가 새 fetch 결과를

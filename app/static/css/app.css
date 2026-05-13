@@ -3782,7 +3782,7 @@ body.ls-dl-modal-open { overflow: hidden; }
   align-items: center;
   gap: 6px;
   max-width: min(520px, 80vw);
-  padding: 6px 6px 6px 12px;
+  padding: 6px 12px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
@@ -3819,30 +3819,6 @@ body.ls-dl-modal-open { overflow: hidden; }
 .fp-result-overlay .fp-result-text {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.fp-result-overlay .fp-result-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.08);
-  color: inherit;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.75;
-  transition: opacity 0.15s, background 0.15s;
-  flex: 0 0 auto;
-}
-.fp-result-overlay .fp-result-close:hover {
-  opacity: 1;
-  background: rgba(0, 0, 0, 0.18);
 }
 
 /* ============================================================
