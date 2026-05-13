@@ -51,6 +51,7 @@ from app.routers import (
     log_search,
     login_history,
     logs,
+    parser_flow,
     vnand,
     well_known,
 )
@@ -136,6 +137,7 @@ app.include_router(home.router)
 app.include_router(login_history.router)
 app.include_router(log_search.router)
 app.include_router(files.router)
+app.include_router(parser_flow.router)  # /infra/parser-flow  (Infra > 파서 처리 절차)
 app.include_router(disk_usage.router)  # /disk-usage
 app.include_router(vnand.router)
 app.include_router(dram.router)

@@ -137,8 +137,9 @@ NAV_ITEMS = [
         "label": "Infra",
         "icon":  "🖥",
         "children": [
-            {"key": "disk_usage", "label": "Disk 용량 확인",  "url": "/disk-usage"},
-            {"key": "eqp_if",     "label": "EQP I/F Manager", "url": "/eqp-if"},
+            {"key": "parser_flow", "label": "파서 처리 절차",   "url": "/infra/parser-flow"},
+            {"key": "disk_usage",  "label": "Disk 용량 확인",  "url": "/disk-usage"},
+            {"key": "eqp_if",      "label": "EQP I/F Manager", "url": "/eqp-if"},
         ],
     },
 ]
