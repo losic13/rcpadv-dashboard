@@ -213,7 +213,10 @@
     }
 
     btnCheck.addEventListener('click', doCheck);
-    btnDownload.addEventListener('click', doDownload);
+    // ⚠ btn-download 는 type="submit" 이라 click 시 폼의 submit 이벤트도
+    //   함께 발생한다.  과거에는 click/submit 양쪽에 doDownload 를 묶어
+    //   동일 함수가 두 번 실행되어 파일이 2회 다운로드되는 버그가 있었다.
+    //   → submit 이벤트 한 곳에서만 트리거 (Enter 키 입력도 같은 경로로 처리됨).
     form.addEventListener('submit', e => { e.preventDefault(); doDownload(); });
 
     // 입력값이 바뀌면 이전 상태 메시지 비우기 (혼동 방지)
