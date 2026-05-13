@@ -184,6 +184,66 @@ OVERVIEW_TKIN_AGG = EsQueryDef(
     },
 )
 
+
+# ──────────────────────────────────────────────────────────────
+# /es/pending-delay  (작업 대기 및 지연)
+#
+# 응답 구조 (사용자 합의 형식):
+#
+#   aggregations:
+#     current_state_distribution:
+#       buckets:
+#         - {key: "WAITING", doc_count: 123}
+#         - {key: "RUNNING", doc_count: 456}
+#         - ...
+#
+#   서비스 측에서 settings.es_pending_delay_display_keys() 로
+#   [(key, label)] 리스트를 가져와, buckets 를 그 순서대로 정렬/필터링
+#   해 차트와 표에 표시한다.  응답에 없는 key 는 doc_count=0 으로 채움.
+#
+# ⚠️ 아래 body 는 더미 — 사용자가 실 운영용 DSL 로 덮어쓸 것.
+#    중요한 것은 ``aggregations.current_state_distribution.buckets[]``
+#    구조와 ``key``/``doc_count`` 필드명을 유지하는 것.
+# ──────────────────────────────────────────────────────────────
+PENDING_AND_DELAY_DIST = EsQueryDef(
+    id="pending_and_delay_dist",
+    title="작업 대기/지연 상태 분포",
+    description=(
+        "current_state_distribution 단일 terms 집계 (더미 DSL — "
+        "운영 환경에 맞게 덮어쓸 것). 응답 형식: "
+        "aggregations.current_state_distribution.buckets[].key/doc_count"
+    ),
+    index="parsing-index-2-*",
+    body={
+        # ── ⚠️ 아래 DSL 은 더미. 실제 필드명/range 는 수정 필요 ──
+        "size": 0,
+        "query": {
+            "bool": {
+                "filter": [
+                    {
+                        "range": {
+                            "meta.tkin_time": {
+                                "gte": "now-1d/d",
+                                "lte": "now/d",
+                                "format": "epoch_millis",
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        "aggs": {
+            "current_state_distribution": {
+                "terms": {
+                    "field": "current_state.keyword",
+                    "size": 100,
+                    "order": {"_count": "desc"},
+                }
+            }
+        },
+    },
+)
+
 # ──────────────────────────────────────────────────────────────
 # 범용 쿼리 — /es 탭 페이지 (source_page.html)
 # ──────────────────────────────────────────────────────────────

@@ -1,0 +1,362 @@
+{#
+  ── 작업 대기 및 지연 (/es/pending-delay) ─────────────────────
+  · ES 응답 형식 (서비스 가공 후):
+        rows = [
+          { key: "WAITING", label: "대기",   doc_count: 200, pct: 24.69 },
+          { key: "RUNNING", label: "실행 중", doc_count: 500, pct: 61.73 },
+          ...
+        ]
+    rows 는 항상 .env(ES_PENDING_DELAY_DISPLAY_KEYS) 에 정의된
+    (key, label) 순서대로 정렬되어 내려온다. 응답에 없는 키는
+    doc_count = 0 으로 채워짐.
+
+  · 상단: Chart.js 세로 막대 차트
+  · 하단: 표 (#, 상태, 건수, 비율) + 합계행
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card pending-delay-page" id="pending-delay-page">
+
+  <!-- ── 헤더 ──────────────────────────────────────────────── -->
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES Agg</span>
+      <strong>current_state_distribution</strong>
+    </div>
+    <div class="card-controls">
+      <!-- 자동갱신 토글 -->
+      <label class="auto-refresh-label" title="10초마다 자동 새로고침">
+        <input type="checkbox" id="pd-auto-toggle" class="auto-refresh-checkbox">
+        <span class="auto-refresh-text">자동갱신</span>
+      </label>
+      <button class="btn btn-run" id="pd-btn-refresh" title="조회">
+        <span class="btn-run-icon" id="pd-spinner" aria-hidden="true">↻</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+      <span class="status-badge" id="pd-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+
+    <!-- ── 오류 표시 ──────────────────────────────────────── -->
+    <div id="pd-error" class="disk-error" hidden></div>
+
+    <!-- ── 메타바 ─────────────────────────────────────────── -->
+    <div class="disk-meta" id="pd-meta">
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="pd-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="pd-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">인덱스</span>
+        <code id="pd-index">—</code>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">표시 키</span>
+        <span id="pd-shown-count">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">표시 합계</span>
+        <span id="pd-total">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item disk-meta-elapsed" title="응답에 들어있던 모든 키 doc_count 의 합. 화면에 보이는 합계와 다를 수 있음.">
+        <span class="disk-meta-key">전체 합계</span>
+        <span id="pd-raw-total">—</span>
+      </span>
+    </div>
+
+    <!-- ── 차트 ────────────────────────────────────────────── -->
+    <div class="pd-chart-wrap">
+      <canvas id="pd-chart" height="280"></canvas>
+    </div>
+
+    <!-- ── 표 ──────────────────────────────────────────────── -->
+    <div class="pd-table-wrap">
+      <table class="pd-table" id="pd-table">
+        <thead>
+          <tr>
+            <th class="pd-col-idx">#</th>
+            <th class="pd-col-key">상태(key)</th>
+            <th class="pd-col-label">표시명</th>
+            <th class="pd-col-count">건수</th>
+            <th class="pd-col-pct">비율</th>
+          </tr>
+        </thead>
+        <tbody id="pd-tbody">
+          {# 초기 SSR 행 — display_keys 로부터.  fetch 가 끝나면 JS 가 다시 그림. #}
+          {% if display_keys %}
+            {% for d in display_keys %}
+              <tr>
+                <td class="pd-col-idx">{{ loop.index }}</td>
+                <td class="pd-col-key"><code>{{ d.key }}</code></td>
+                <td class="pd-col-label">{{ d.label }}</td>
+                <td class="pd-col-count">—</td>
+                <td class="pd-col-pct">—</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="5" class="pd-empty">
+                .env <code>ES_PENDING_DELAY_DISPLAY_KEYS</code> 가 비어 있어 응답 전체를 표시합니다. 조회를 실행하세요.
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" class="pd-foot-label">합계</td>
+            <td class="pd-col-count" id="pd-foot-count">—</td>
+            <td class="pd-col-pct"   id="pd-foot-pct">100%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+  </div><!-- /.card-body -->
+</section>
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+
+  /* ── DOM refs ──────────────────────────────────────────── */
+  const btnRefresh = document.getElementById('pd-btn-refresh');
+  const spinner    = document.getElementById('pd-spinner');
+  const autoToggle = document.getElementById('pd-auto-toggle');
+  const badge      = document.getElementById('pd-status-badge');
+  const errEl      = document.getElementById('pd-error');
+  const metaQAt    = document.getElementById('pd-queried-at');
+  const metaElap   = document.getElementById('pd-elapsed');
+  const metaIndex  = document.getElementById('pd-index');
+  const metaShown  = document.getElementById('pd-shown-count');
+  const metaTotal  = document.getElementById('pd-total');
+  const metaRawT   = document.getElementById('pd-raw-total');
+  const tbody      = document.getElementById('pd-tbody');
+  const footCount  = document.getElementById('pd-foot-count');
+  const footPct    = document.getElementById('pd-foot-pct');
+  const canvas     = document.getElementById('pd-chart');
+
+  const AUTO_INTERVAL_MS = 10_000;
+  let   _autoTimer = null;
+  let   _chart     = null;
+  let   _inflight  = false;
+
+  /* ── 유틸 ──────────────────────────────────────────────── */
+  function escHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+  function fmtNum(n) {
+    if (n == null || Number.isNaN(n)) return '—';
+    return Number(n).toLocaleString('ko-KR');
+  }
+  function fmtPct(p) {
+    if (p == null || Number.isNaN(p)) return '—';
+    return p.toFixed(2) + '%';
+  }
+  function setBadge(state, text) {
+    badge.dataset.state = state;
+    const labels = { idle: '', loading: '조회 중', ok: '완료', error: '오류' };
+    badge.textContent = text != null ? text : (labels[state] || state);
+  }
+  function setSpinning(on) {
+    // disk-usage 와 동일한 disk-spin keyframe 사용
+    spinner.style.animationName = on ? 'disk-spin' : 'none';
+  }
+
+  /* ── 색상 팔레트 ────────────────────────────────────────── */
+  // 키 개수에 맞춰 순환.  접근성 고려해 단색군은 피하고 분명히 구분되는 톤.
+  const PALETTE = [
+    '#3b82f6',  // blue
+    '#f59e0b',  // amber
+    '#ef4444',  // red
+    '#10b981',  // emerald
+    '#8b5cf6',  // violet
+    '#ec4899',  // pink
+    '#14b8a6',  // teal
+    '#f97316',  // orange
+    '#6366f1',  // indigo
+    '#84cc16',  // lime
+  ];
+  function colorFor(i) { return PALETTE[i % PALETTE.length]; }
+
+  /* ── 차트 빌드/갱신 ─────────────────────────────────────── */
+  function renderChart(rows) {
+    const labels = rows.map(r => r.label || r.key);
+    const data   = rows.map(r => r.doc_count || 0);
+    const colors = rows.map((_, i) => colorFor(i));
+
+    if (_chart) {
+      _chart.data.labels                  = labels;
+      _chart.data.datasets[0].data        = data;
+      _chart.data.datasets[0].backgroundColor = colors;
+      _chart.update();
+      return;
+    }
+    const ctx = canvas.getContext('2d');
+    _chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: '건수',
+          data,
+          backgroundColor: colors,
+          borderRadius: 4,
+          maxBarThickness: 80,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(ctx) {
+                const v = ctx.parsed.y;
+                const r = rows[ctx.dataIndex] || {};
+                const pct = (r.pct != null) ? r.pct.toFixed(2) + '%' : '';
+                return ` ${fmtNum(v)} 건${pct ? '  (' + pct + ')' : ''}`;
+              },
+              title(items) {
+                if (!items.length) return '';
+                const idx = items[0].dataIndex;
+                const r = rows[idx] || {};
+                return `${r.label || r.key}  [${r.key}]`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { autoSkip: false, maxRotation: 0 },
+            grid:  { display: false },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0, callback: v => fmtNum(v) },
+            grid:  { color: '#e5e7eb' },
+          },
+        },
+      },
+    });
+  }
+
+  /* ── 표 렌더 ──────────────────────────────────────────── */
+  function renderTable(rows, total) {
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="pd-empty">표시할 데이터가 없습니다.</td></tr>';
+      footCount.textContent = '—';
+      footPct.textContent   = '—';
+      return;
+    }
+    let html = '';
+    rows.forEach((r, i) => {
+      html += '<tr>'
+        + `<td class="pd-col-idx">${i + 1}</td>`
+        + `<td class="pd-col-key"><code>${escHtml(r.key)}</code></td>`
+        + `<td class="pd-col-label">${escHtml(r.label || r.key)}</td>`
+        + `<td class="pd-col-count">${fmtNum(r.doc_count)}</td>`
+        + `<td class="pd-col-pct">${fmtPct(r.pct)}</td>`
+        + '</tr>';
+    });
+    tbody.innerHTML = html;
+    footCount.textContent = fmtNum(total);
+    footPct.textContent   = (total > 0) ? '100%' : '—';
+  }
+
+  /* ── fetch ───────────────────────────────────────────── */
+  function fetchData() {
+    if (_inflight) return;          // 중복 요청 방지
+    _inflight = true;
+    setBadge('loading');
+    btnRefresh.disabled = true;
+    setSpinning(true);
+
+    fetch('/es/pending-delay/data', { headers: { 'Accept': 'application/json' } })
+      .then(r => r.json().then(j => ({ ok: r.ok, status: r.status, body: j })))
+      .then(res => {
+        const d = res.body || {};
+        // 메타 갱신
+        metaQAt.textContent   = d.queried_at  || '—';
+        metaElap.textContent  = d.elapsed_ms != null ? d.elapsed_ms + ' ms' : '—';
+        metaIndex.textContent = d.index       || '—';
+        metaShown.textContent = d.shown_count != null ? d.shown_count + ' 개' : '—';
+        metaTotal.textContent = d.total      != null ? fmtNum(d.total)       : '—';
+        metaRawT.textContent  = d.raw_total  != null ? fmtNum(d.raw_total)   : '—';
+
+        if (!d.ok) {
+          errEl.textContent = '오류: ' + (d.error || '알 수 없는 오류');
+          errEl.hidden = false;
+          setBadge('error');
+          // 차트/표는 유지 (마지막 정상 상태) — 단, 표는 placeholder 로 비울 수도 있음.
+          return;
+        }
+        errEl.hidden = true;
+
+        const rows = Array.isArray(d.rows) ? d.rows : [];
+        renderChart(rows);
+        renderTable(rows, d.total || 0);
+        setBadge('ok');
+      })
+      .catch(err => {
+        errEl.textContent = '네트워크 오류: ' + (err && err.message ? err.message : err);
+        errEl.hidden = false;
+        setBadge('error');
+      })
+      .finally(() => {
+        _inflight = false;
+        btnRefresh.disabled = false;
+        setSpinning(false);
+      });
+  }
+
+  /* ── 자동갱신 ───────────────────────────────────────── */
+  function startAuto() {
+    if (_autoTimer) return;
+    _autoTimer = setInterval(fetchData, AUTO_INTERVAL_MS);
+  }
+  function stopAuto() {
+    if (_autoTimer) {
+      clearInterval(_autoTimer);
+      _autoTimer = null;
+    }
+  }
+  autoToggle.addEventListener('change', () => {
+    if (autoToggle.checked) startAuto();
+    else                    stopAuto();
+  });
+
+  btnRefresh.addEventListener('click', fetchData);
+
+  // 페이지 탭이 백그라운드로 가면 자동갱신 일시정지 (서버 부하 절약)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopAuto();
+    else if (autoToggle.checked) startAuto();
+  });
+
+  /* ── 초기 자동 1회 조회 ────────────────────────────── */
+  fetchData();
+})();
+</script>
+{% endblock %}
