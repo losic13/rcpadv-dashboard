@@ -194,8 +194,11 @@
   }
 
   // ── 셀 하나 분 미니 차트 생성 ───────────────────────────
-  // cell = { date, index1, states:[...], index2_total }
-  function renderCellChart(canvas, cell, stateLabels) {
+  // cell        : { date, index1, states:[...], index2_total }
+  // stateLabels : [{key, label}, ...]
+  // rowMax      : 해당 행(product/maker) 7일 셀들의 막대 최대값
+  //               (셀 간 비교를 위해 Y축을 행 단위로 정규화)
+  function renderCellChart(canvas, cell, stateLabels, rowMax) {
     const ctx = canvas.getContext('2d');
 
     // Series A: index-1 단일막대 → 자기 자신만 있는 stack
@@ -208,9 +211,12 @@
       backgroundColor: COLOR_INDEX1,
       stack: 'a',
       borderWidth: 0,
-      borderRadius: 1,
-      categoryPercentage: 0.9,
-      barPercentage: 0.9,
+      borderRadius: 2,
+      // 두 stack(a, b) 이 같은 카테고리 안에 그룹(나란히) 배치되도록.
+      // categoryPercentage 작게 → 카테고리 양 옆 여백.
+      // barPercentage 적당히 → stack 두 그룹 사이 여백 확보.
+      categoryPercentage: 0.65,
+      barPercentage: 0.8,
     }];
     for (let i = 0; i < stateLabels.length; i++) {
       datasets.push({
@@ -220,11 +226,14 @@
         backgroundColor: colorForState(i),
         stack: 'b',
         borderWidth: 0,
-        borderRadius: 1,
-        categoryPercentage: 0.9,
-        barPercentage: 0.9,
+        borderRadius: 2,
+        categoryPercentage: 0.65,
+        barPercentage: 0.8,
       });
     }
+
+    // Y축 상한: rowMax 가 양수면 행 기준 정규화, 아니면 자동.
+    const yMaxOpt = (rowMax && rowMax > 0) ? { suggestedMax: rowMax } : {};
 
     const chart = new Chart(ctx, {
       type: 'bar',
@@ -236,6 +245,7 @@
         responsive: false,
         maintainAspectRatio: false,
         animation: false,
+        layout: { padding: { top: 2, right: 2, bottom: 2, left: 2 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -257,11 +267,28 @@
         },
         scales: {
           x: { stacked: true, display: false, grid: { display: false } },
-          y: { stacked: true, display: false, grid: { display: false }, beginAtZero: true },
+          y: {
+            stacked: true,
+            display: false,
+            grid: { display: false },
+            beginAtZero: true,
+            ...yMaxOpt,
+          },
         },
       },
     });
     _charts.set(canvas.id, chart);
+  }
+
+  // ── 행의 셀들 중 최대 막대 값 (둘 중 큰 쪽) 계산 ─────
+  function computeRowMax(row) {
+    let m = 0;
+    for (const c of row.cells) {
+      if (c.index1 > m) m = c.index1;
+      const i2 = c.index2_total || 0;
+      if (i2 > m) m = i2;
+    }
+    return m;
   }
 
   // ── 셀 비어 있는지 판단 (모두 0) ─────────────────────
@@ -293,33 +320,56 @@
     }
 
     rows.forEach((row, rIdx) => {
+      // 짝수 행 zebra (CSS 의 :nth-child(even) 으로도 가능하지만,
+      // 동적 렌더 후 sticky 컬럼 배경색 일관성을 위해 클래스로 마킹)
       const tr = document.createElement('tr');
+      if (rIdx % 2 === 1) tr.classList.add('hist-row-zebra');
 
       const tdP = document.createElement('td');
       tdP.className = 'hist-col-product';
       tdP.textContent = row.product || '—';
+      tdP.title = row.product || '';
       tr.appendChild(tdP);
 
       const tdM = document.createElement('td');
       tdM.className = 'hist-col-maker';
       tdM.textContent = row.maker || '—';
+      tdM.title = row.maker || '';
       tr.appendChild(tdM);
+
+      // 행 최대값 — 셀들 간 비교를 위해 Y축을 행 단위로 정규화
+      const rowMax = computeRowMax(row);
 
       row.cells.forEach((cell, cIdx) => {
         const td = document.createElement('td');
         td.className = 'hist-col-date hist-cell';
         if (isEmptyCell(cell)) {
           td.classList.add('hist-cell-empty');
-          // 빈 셀: 차트 안 그림
+          // 빈 셀: 차트 없이 가는 dashed 가로선 (CSS ::before)
         } else {
+          // ── 좌상단 mini-label: index-1 / index-2 합계 ──
+          const labelWrap = document.createElement('div');
+          labelWrap.className = 'hist-cell-label';
+          const tagA = document.createElement('span');
+          tagA.className = 'hist-cell-tag hist-cell-tag-a';
+          tagA.textContent = `①${(cell.index1 || 0).toLocaleString()}`;
+          tagA.title = `index-1: ${(cell.index1 || 0).toLocaleString()}`;
+          labelWrap.appendChild(tagA);
+          const tagB = document.createElement('span');
+          tagB.className = 'hist-cell-tag hist-cell-tag-b';
+          tagB.textContent = `②${(cell.index2_total || 0).toLocaleString()}`;
+          tagB.title = `index-2 합계: ${(cell.index2_total || 0).toLocaleString()}`;
+          labelWrap.appendChild(tagB);
+          td.appendChild(labelWrap);
+
           const canvas = document.createElement('canvas');
           canvas.id = `hist-c-${rIdx}-${cIdx}`;
           canvas.className = 'hist-cell-canvas';
-          canvas.width = 90;
-          canvas.height = 56;
+          canvas.width = 160;
+          canvas.height = 70;
           td.appendChild(canvas);
           // 차트는 DOM 부착 후 그려야 함
-          requestAnimationFrame(() => renderCellChart(canvas, cell, states));
+          requestAnimationFrame(() => renderCellChart(canvas, cell, states, rowMax));
         }
         tr.appendChild(td);
       });
