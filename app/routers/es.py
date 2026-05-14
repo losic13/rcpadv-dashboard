@@ -238,7 +238,7 @@ def history_page(request: Request):
             # [(key, label, attr)] → JSON 직렬화 가능한 dict 로
             "states":     [{"key": k, "label": lab, "attr": at}
                             for k, lab, at in state_triples],
-            "attr_order": ["stage", "regular", "complete", "check", ""],
+            "attr_order": ["stage", "normal", "complete", "check", ""],
             "index1":     settings.ES_HISTORY_INDEX1,
             "index2":     settings.ES_HISTORY_INDEX2,
         },

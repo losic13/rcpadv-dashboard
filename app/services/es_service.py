@@ -685,7 +685,7 @@ async def run_history_overview() -> dict[str, Any]:
             {"key": "WAITING", "label": "대기", "attr": "stage"},
             ...
           ],
-          "attr_order": ["stage", "regular", "complete", "check", ""],
+          "attr_order": ["stage", "normal", "complete", "check", ""],
                         # 보조 테이블/표에서 attr 그룹을 노출할 순서.
                         # "" 는 미지정(강조 없음) 그룹.
           "index1_by_date": {"2026-05-08": 123, ...},
@@ -694,14 +694,14 @@ async def run_history_overview() -> dict[str, Any]:
             "2026-05-08": {"WAITING": 10, "RUNNING": 20, ...}, ...
           },
           "index2_by_date_attr": {                     # 일자별 attr 그룹 합계
-            "2026-05-08": {"stage": 30, "regular": 0, "complete": 0,
+            "2026-05-08": {"stage": 30, "normal": 0, "complete": 0,
                             "check": 0, "": 0}, ...
           },
           "totals": {
             "index1": int,
             "index2": int,                             # filtered state 합
             "by_state": {"WAITING": 100, ...},
-            "by_attr":  {"stage": 100, "regular": 50, ...,
+            "by_attr":  {"stage": 100, "normal": 50, ...,
                           "": 0},                      # attr 그룹 합계 (""=미지정)
           },
           "index1":     str,    # index 이름
@@ -717,11 +717,11 @@ async def run_history_overview() -> dict[str, Any]:
     q2 = es_queries.HISTORY_INDEX2_AGG
     days = max(1, int(settings.ES_HISTORY_DAYS or 7))
     dates = _history_date_list(days)
-    # [(key, label, attr)] — attr ∈ {"stage","regular","complete","check",""}
+    # [(key, label, attr)] — attr ∈ {"stage","normal","complete","check",""}
     state_triples = settings.es_history_state_keys()
 
     # attr 노출 순서 — 미지정("")은 항상 마지막
-    ATTR_ORDER = ["stage", "regular", "complete", "check", ""]
+    ATTR_ORDER = ["stage", "normal", "complete", "check", ""]
 
     log.info(
         "[es/history] 쿼리 시작: days=%d index1=%s index2=%s states=%d",

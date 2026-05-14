@@ -5402,79 +5402,72 @@ table.eqp-table tbody tr:hover td {
   background: #fafafa;
 }
 
-/* ── 2단 헤더 (attr 그룹) ─────────────────────────────
- * thead 가 두 줄: 상단(.hist-detail-thead-attr) = attr 그룹 헤더,
- *               하단(.hist-detail-thead-state) = 개별 state 헤더.
- * 상단 attr 그룹 헤더는 attr 색의 100 톤, 하단/본문 셀은 50 톤. */
-.hist-detail-table thead .hist-detail-thead-attr th.hist-detail-th-attr {
-  text-align: center;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border-bottom: 1px solid #e2e8f0;
-}
+/* ── 1단 헤더 (선언 순서대로 state 컬럼 나열) ──────────
+ * 보조 테이블 ① 의 thead 는 한 줄. state 컬럼은 ES_HISTORY_STATE_KEYS
+ * 선언 순서 그대로 나열되며, attr 그룹은 셀 배경색으로만 식별한다. */
 .hist-detail-table thead .hist-detail-thead-state th.hist-detail-th-state {
   font-weight: 600;
 }
 
-/* ── attr 색 강조 (Tailwind 50/100 팔레트) ──────────── */
+/* ── attr 색 강조 (Tailwind 50/100 팔레트) ──────────────
+ * 헤더(.hist-detail-th-state)는 100 톤 + 진한 글자색,
+ * 본문 셀(tbody td) / tfoot 합계 셀(tfoot td) 은 50 톤.
+ *
+ * attr 매핑:
+ *   - stage    → 옅은 노랑
+ *   - normal   → 강조 없음 (정상 상태이므로 의도적으로 색 부여 안 함)
+ *   - complete → 옅은 파랑
+ *   - check    → 옅은 빨강
+ *   - ""(미지정) → 옅은 초록 ("기타 처리량" 강조용)
+ */
+
 /* stage = 옅은 노랑 */
-.hist-detail-table thead .hist-detail-th-attr[data-attr="stage"] {
+.hist-detail-table thead .hist-detail-th-state[data-attr="stage"] {
   background: #fef3c7; /* yellow-100 */
   color: #713f12;      /* yellow-900 */
 }
-.hist-detail-table thead .hist-detail-th-state[data-attr="stage"],
 .hist-detail-table tbody td[data-attr="stage"],
 .hist-detail-table tfoot td[data-attr="stage"] {
   background: #fefce8; /* yellow-50 */
 }
-/* regular = 옅은 초록 */
-.hist-detail-table thead .hist-detail-th-attr[data-attr="regular"] {
-  background: #dcfce7; /* green-100 */
-  color: #14532d;      /* green-900 */
-}
-.hist-detail-table thead .hist-detail-th-state[data-attr="regular"],
-.hist-detail-table tbody td[data-attr="regular"],
-.hist-detail-table tfoot td[data-attr="regular"] {
-  background: #f0fdf4; /* green-50 */
-}
+
+/* normal = 강조 없음 (의도적으로 background 룰 미정의 → 기본 배경 유지)
+ * 헤더는 색을 주지 않고 기본 thead 스타일을 그대로 사용한다. */
+
 /* complete = 옅은 파랑 */
-.hist-detail-table thead .hist-detail-th-attr[data-attr="complete"] {
+.hist-detail-table thead .hist-detail-th-state[data-attr="complete"] {
   background: #dbeafe; /* blue-100 */
   color: #1e3a8a;      /* blue-900 */
 }
-.hist-detail-table thead .hist-detail-th-state[data-attr="complete"],
 .hist-detail-table tbody td[data-attr="complete"],
 .hist-detail-table tfoot td[data-attr="complete"] {
   background: #eff6ff; /* blue-50 */
 }
+
 /* check = 옅은 빨강 */
-.hist-detail-table thead .hist-detail-th-attr[data-attr="check"] {
+.hist-detail-table thead .hist-detail-th-state[data-attr="check"] {
   background: #fee2e2; /* red-100 */
   color: #7f1d1d;      /* red-900 */
 }
-.hist-detail-table thead .hist-detail-th-state[data-attr="check"],
 .hist-detail-table tbody td[data-attr="check"],
 .hist-detail-table tfoot td[data-attr="check"] {
   background: #fef2f2; /* red-50 */
 }
-/* (미지정) = 무채색 — 기본 배경 유지하되 살짝 회색 톤 */
-.hist-detail-table thead .hist-detail-th-attr[data-attr=""] {
-  background: #f1f5f9; /* slate-100 */
-  color: #334155;      /* slate-700 */
+
+/* (미지정 "") = 옅은 초록 — 기존 regular 의 자리. "기타 처리량" 강조 */
+.hist-detail-table thead .hist-detail-th-state[data-attr=""] {
+  background: #dcfce7; /* green-100 */
+  color: #14532d;      /* green-900 */
 }
-.hist-detail-table thead .hist-detail-th-state[data-attr=""],
 .hist-detail-table tbody td[data-attr=""],
 .hist-detail-table tfoot td[data-attr=""] {
-  background: #f8fafc; /* slate-50 */
+  background: #f0fdf4; /* green-50 */
 }
 
 /* zebra 행에서 attr 셀이 더 진해 보이지 않도록 살짝 톤 조정.
  * (기본 zebra 배경 #f8fafc 보다 attr 50 톤이 시각적으로 자연스러움) */
 .hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="stage"] {
   background: #fdf6c2; /* yellow 50/100 사이 */
-}
-.hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="regular"] {
-  background: #e7fbeb; /* green 50/100 사이 */
 }
 .hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="complete"] {
   background: #e5efff; /* blue 50/100 사이 */
@@ -5483,16 +5476,14 @@ table.eqp-table tbody tr:hover td {
   background: #fde8e8; /* red 50/100 사이 */
 }
 .hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr=""] {
-  background: #eef2f7; /* slate 50/100 사이 */
+  background: #e7fbeb; /* green 50/100 사이 */
 }
+/* normal 은 zebra 톤도 별도 부여 안 함 — 일반 zebra 배경 사용 */
 
 /* tfoot 합계 행에서도 attr 색이 보이게: tfoot 의 진한 회색 배경을 덮어쓰기
  * 단, 합계 행은 굵게 — 살짝 더 진한 톤 사용 */
 .hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="stage"] {
   background: #fef3c7; /* yellow-100 */
-}
-.hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="regular"] {
-  background: #dcfce7; /* green-100 */
 }
 .hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="complete"] {
   background: #dbeafe; /* blue-100 */
@@ -5501,8 +5492,9 @@ table.eqp-table tbody tr:hover td {
   background: #fee2e2; /* red-100 */
 }
 .hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr=""] {
-  background: #e2e8f0; /* slate-200 */
+  background: #dcfce7; /* green-100 */
 }
+/* normal 의 tfoot 셀은 기본 tfoot 배경을 그대로 사용 (강조 없음) */
 
 /* ── 신규 보조 테이블 ② (attr 그룹 합계 표) ───────────
  * 행 = 날짜, 열 = attr 그룹들 + (미지정) + index-2 합 */
@@ -5577,9 +5569,7 @@ table.eqp-table tbody tr:hover td {
 .hist-attr-table thead th.hist-attr-th[data-attr="stage"] {
   background: #fef3c7; color: #713f12;
 }
-.hist-attr-table thead th.hist-attr-th[data-attr="regular"] {
-  background: #dcfce7; color: #14532d;
-}
+/* normal 은 의도적으로 색 부여 안 함 (정상 상태 강조 없음) */
 .hist-attr-table thead th.hist-attr-th[data-attr="complete"] {
   background: #dbeafe; color: #1e3a8a;
 }
@@ -5587,19 +5577,17 @@ table.eqp-table tbody tr:hover td {
   background: #fee2e2; color: #7f1d1d;
 }
 .hist-attr-table thead th.hist-attr-th[data-attr=""] {
-  background: #f1f5f9; color: #334155;
+  background: #dcfce7; color: #14532d;
 }
-.hist-attr-table tbody td.hist-attr-td[data-attr="stage"]  { background: #fefce8; }
-.hist-attr-table tbody td.hist-attr-td[data-attr="regular"]{ background: #f0fdf4; }
+.hist-attr-table tbody td.hist-attr-td[data-attr="stage"]   { background: #fefce8; }
 .hist-attr-table tbody td.hist-attr-td[data-attr="complete"]{ background: #eff6ff; }
-.hist-attr-table tbody td.hist-attr-td[data-attr="check"]  { background: #fef2f2; }
-.hist-attr-table tbody td.hist-attr-td[data-attr=""]       { background: #f8fafc; }
+.hist-attr-table tbody td.hist-attr-td[data-attr="check"]   { background: #fef2f2; }
+.hist-attr-table tbody td.hist-attr-td[data-attr=""]        { background: #f0fdf4; }
 /* hover 시에도 attr 셀 톤 유지 (살짝만 진하게) */
-.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="stage"]   { background: #fdf6c2; }
-.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="regular"] { background: #e7fbeb; }
-.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="complete"]{ background: #e5efff; }
-.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="check"]   { background: #fde8e8; }
-.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr=""]        { background: #eef2f7; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="stage"]    { background: #fdf6c2; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="complete"] { background: #e5efff; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="check"]    { background: #fde8e8; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr=""]         { background: #e7fbeb; }
 /* attr 표 tfoot 합계 행 — 진하게 */
 .hist-attr-table tfoot td,
 .hist-attr-table tfoot th {
@@ -5617,11 +5605,10 @@ table.eqp-table tbody tr:hover td {
 .hist-attr-table tfoot td.hist-attr-td-total {
   background: #e2e8f0;
 }
-.hist-attr-table tfoot td[data-attr="stage"]   { background: #fef3c7; }
-.hist-attr-table tfoot td[data-attr="regular"] { background: #dcfce7; }
-.hist-attr-table tfoot td[data-attr="complete"]{ background: #dbeafe; }
-.hist-attr-table tfoot td[data-attr="check"]   { background: #fee2e2; }
-.hist-attr-table tfoot td[data-attr=""]        { background: #e2e8f0; }
+.hist-attr-table tfoot td[data-attr="stage"]    { background: #fef3c7; }
+.hist-attr-table tfoot td[data-attr="complete"] { background: #dbeafe; }
+.hist-attr-table tfoot td[data-attr="check"]    { background: #fee2e2; }
+.hist-attr-table tfoot td[data-attr=""]         { background: #dcfce7; }
 /* 빈 상태 행 (attr 표) */
 .hist-attr-table .hist-attr-empty-row td.hist-attr-empty {
   text-align: center;
