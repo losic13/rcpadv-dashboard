@@ -609,6 +609,215 @@ async def run_pending_and_delay_dist() -> dict[str, Any]:
 
 
 # ============================================================
+# /es/history  (종합 처리 이력)
+# ============================================================
+
+def _history_date_list(days: int) -> list[str]:
+    """오늘을 포함한 최근 ``days`` 일을 ``yyyy-MM-dd`` 문자열 오름차순으로 반환."""
+    from datetime import date, timedelta
+
+    today = date.today()
+    return [
+        (today - timedelta(days=days - 1 - i)).isoformat()
+        for i in range(days)
+    ]
+
+
+def _history_parse_index1(resp: dict[str, Any]) -> dict[str, dict[tuple[str, str], int]]:
+    """parsing-index-1 응답을 ``{date: {(product, maker): count}}`` 로 평탄화."""
+    out: dict[str, dict[tuple[str, str], int]] = {}
+    date_buckets = (
+        resp.get("aggregations", {})
+            .get("group_by_date", {})
+            .get("buckets", [])
+    ) or []
+    for db in date_buckets:
+        d = str(db.get("key_as_string") or "")
+        if not d:
+            continue
+        cell = out.setdefault(d, {})
+        for pb in (db.get("group_by_product", {}).get("buckets", []) or []):
+            product = str(pb.get("key") or "")
+            for mb in (pb.get("group_by_maker", {}).get("buckets", []) or []):
+                maker = str(mb.get("key") or "")
+                c = int(mb.get("doc_count") or 0)
+                cell[(product, maker)] = cell.get((product, maker), 0) + c
+    return out
+
+
+def _history_parse_index2(
+    resp: dict[str, Any],
+) -> dict[str, dict[tuple[str, str], dict[str, int]]]:
+    """parsing-index-2 응답을 ``{date: {(product, maker): {state: count}}}`` 로 평탄화."""
+    out: dict[str, dict[tuple[str, str], dict[str, int]]] = {}
+    date_buckets = (
+        resp.get("aggregations", {})
+            .get("group_by_date", {})
+            .get("buckets", [])
+    ) or []
+    for db in date_buckets:
+        d = str(db.get("key_as_string") or "")
+        if not d:
+            continue
+        cell = out.setdefault(d, {})
+        for sb in (db.get("group_by_current_state", {}).get("buckets", []) or []):
+            state = str(sb.get("key") or "")
+            if not state:
+                continue
+            for pb in (sb.get("group_by_product", {}).get("buckets", []) or []):
+                product = str(pb.get("key") or "")
+                for mb in (pb.get("group_by_maker", {}).get("buckets", []) or []):
+                    maker = str(mb.get("key") or "")
+                    c = int(mb.get("doc_count") or 0)
+                    by_state = cell.setdefault((product, maker), {})
+                    by_state[state] = by_state.get(state, 0) + c
+    return out
+
+
+async def run_history_overview() -> dict[str, Any]:
+    """parsing-index-1 + parsing-index-2 를 병렬 조회해 종합 처리 이력 테이블 데이터 생성.
+
+    반환 구조:
+        {
+          "ok": bool,
+          "dates":     ["2026-05-08", ...],          # 오름차순 N일
+          "states":    [{"key": "WAITING", "label": "대기"}, ...],
+                                                       # ES_HISTORY_STATE_KEYS 순서
+          "rows": [
+            {
+              "product": str,
+              "maker":   str,
+              "total":   int,           # index-1 + index-2(필터링된 state 합) 의 7일 총합
+              "cells": [
+                {                                # dates 와 동일 순서
+                  "date": "2026-05-08",
+                  "index1": int,                 # parsing-index-1 doc_count
+                  "states": [int, int, ...],     # states 순서대로 index-2 doc_count
+                  "index2_total": int,           # states 합
+                },
+                ...
+              ]
+            }, ...
+          ],
+          "index1":     str,
+          "index2":     str,
+          "days":       int,
+          "elapsed_ms": int,
+          "queried_at": str,
+          "error":      str | None,         # 두 쿼리 중 하나라도 실패하면 사유
+          "errors":     {"index1": str|None, "index2": str|None},
+        }
+    """
+    q1 = es_queries.HISTORY_INDEX1_AGG
+    q2 = es_queries.HISTORY_INDEX2_AGG
+    days = max(1, int(settings.ES_HISTORY_DAYS or 7))
+    dates = _history_date_list(days)
+    state_pairs = settings.es_history_state_keys()  # [(key, label), ...]
+
+    log.info(
+        "[es/history] 쿼리 시작: days=%d index1=%s index2=%s states=%d",
+        days, q1.index, q2.index, len(state_pairs),
+    )
+    start = time.perf_counter()
+
+    async def _one(qdef: EsQueryDef, tag: str) -> tuple[dict[str, Any] | None, str | None]:
+        try:
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(es_client.search, qdef.index, qdef.body),
+                timeout=settings.QUERY_TIMEOUT_SECONDS,
+            )
+            return resp, None
+        except asyncio.TimeoutError:
+            log.error("[es/history] %s 쿼리 타임아웃 (>%ds)", tag, settings.QUERY_TIMEOUT_SECONDS)
+            return None, "쿼리 타임아웃"
+        except Exception as e:
+            log.error("[es/history] %s 쿼리 실패: %s", tag, e)
+            return None, str(e)
+
+    (resp1, err1), (resp2, err2) = await asyncio.gather(
+        _one(q1, "index1"),
+        _one(q2, "index2"),
+    )
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    queried_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    base_payload = {
+        "ok": (err1 is None and err2 is None),
+        "dates": dates,
+        "states": [{"key": k, "label": lab} for k, lab in state_pairs],
+        "rows": [],
+        "index1": q1.index,
+        "index2": q2.index,
+        "days": days,
+        "elapsed_ms": elapsed_ms,
+        "queried_at": queried_at,
+        "error": err1 or err2,
+        "errors": {"index1": err1, "index2": err2},
+    }
+
+    # 둘 다 실패하면 빈 결과로 종료
+    if resp1 is None and resp2 is None:
+        return base_payload
+
+    # 응답 평탄화
+    by_date_idx1 = _history_parse_index1(resp1) if resp1 else {}
+    by_date_idx2 = _history_parse_index2(resp2) if resp2 else {}
+
+    # (product, maker) 합집합 수집 — 두 인덱스 양쪽에서 등장한 모든 조합
+    pairs: set[tuple[str, str]] = set()
+    for cell in by_date_idx1.values():
+        pairs.update(cell.keys())
+    for cell in by_date_idx2.values():
+        pairs.update(cell.keys())
+
+    # state_pairs 가 비어 있으면 → 응답에 등장한 state 를 그대로 사용 (등장 순서)
+    if not state_pairs:
+        seen_states: list[str] = []
+        seen_set: set[str] = set()
+        for cell in by_date_idx2.values():
+            for _, by_state in cell.items():
+                for st in by_state.keys():
+                    if st not in seen_set:
+                        seen_set.add(st)
+                        seen_states.append(st)
+        state_pairs = [(s, s) for s in seen_states]
+        base_payload["states"] = [{"key": k, "label": lab} for k, lab in state_pairs]
+
+    # rows 생성 — alphabetical (product, maker)
+    rows: list[dict[str, Any]] = []
+    for product, maker in sorted(pairs, key=lambda x: (x[0].lower(), x[1].lower())):
+        cells: list[dict[str, Any]] = []
+        row_total = 0
+        for d in dates:
+            v1 = int(by_date_idx1.get(d, {}).get((product, maker), 0))
+            states_map = by_date_idx2.get(d, {}).get((product, maker), {})
+            state_counts = [int(states_map.get(k, 0)) for k, _ in state_pairs]
+            v2_total = sum(state_counts)
+            cells.append({
+                "date": d,
+                "index1": v1,
+                "states": state_counts,
+                "index2_total": v2_total,
+            })
+            row_total += v1 + v2_total
+        rows.append({
+            "product": product,
+            "maker": maker,
+            "total": row_total,
+            "cells": cells,
+        })
+
+    log.info(
+        "[es/history] 완료: %d rows × %d days × %d states, %dms (err1=%s, err2=%s)",
+        len(rows), len(dates), len(state_pairs), elapsed_ms, err1, err2,
+    )
+
+    base_payload["rows"] = rows
+    return base_payload
+
+
+# ============================================================
 # 공통 내부 유틸
 # ============================================================
 
