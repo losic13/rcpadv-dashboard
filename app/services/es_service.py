@@ -648,10 +648,19 @@ def _history_parse_index1(resp: dict[str, Any]) -> dict[str, dict[tuple[str, str
 def _history_parse_index2(
     resp: dict[str, Any],
 ) -> dict[str, dict[tuple[str, str], dict[str, int]]]:
-    """parsing-index-2 응답을 ``{date: {(product, maker): {state: count}}}`` 로 평탄화."""
+    """parsing-index-2 응답을 ``{date: {(product, maker): {state: count}}}`` 로 평탄화.
+
+    응답 구조 가정 (index-1 과 달리 ``last_7_days`` 래퍼 한 단계 포함):
+
+        aggregations.last_7_days.group_by_date.buckets[…]
+
+    하위 트리는 index-1 과 동일한 패턴
+    (group_by_current_state → group_by_product → group_by_maker).
+    """
     out: dict[str, dict[tuple[str, str], dict[str, int]]] = {}
     date_buckets = (
         resp.get("aggregations", {})
+            .get("last_7_days", {})
             .get("group_by_date", {})
             .get("buckets", [])
     ) or []

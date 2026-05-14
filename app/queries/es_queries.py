@@ -272,28 +272,35 @@ PENDING_AND_DELAY_DIST = EsQueryDef(
 #
 # [HISTORY_INDEX2_AGG  — parsing-index-2, current_state 포함]
 #
+# ⚠️ index-2 는 index-1 과 달리 ``group_by_date`` 위에 ``last_7_days``
+#    래퍼 단일 버킷이 한 단계 더 들어간다.  서비스는 이 경로를 따라
+#    내려가도록 구현되어 있다.
+#
 #   aggregations:
-#     group_by_date:
-#       buckets:
-#         - key_as_string: "yyyy-MM-dd"
-#           doc_count:      <int>
-#           group_by_current_state:
-#             buckets:
-#               - key:       <state>
-#                 doc_count: <int>
-#                 group_by_product:
-#                   buckets:
-#                     - key:       <product>
-#                       doc_count: <int>
-#                       group_by_maker:
-#                         buckets:
-#                           - key:       <maker>
-#                             doc_count: <int>
+#     last_7_days:                # filter / date_range 등 단일 버킷
+#       doc_count: <int>
+#       group_by_date:
+#         buckets:
+#           - key_as_string: "yyyy-MM-dd"
+#             doc_count:      <int>
+#             group_by_current_state:
+#               buckets:
+#                 - key:       <state>
+#                   doc_count: <int>
+#                   group_by_product:
+#                     buckets:
+#                       - key:       <product>
+#                         doc_count: <int>
+#                         group_by_maker:
+#                           buckets:
+#                             - key:       <maker>
+#                               doc_count: <int>
 #
 # ⚠️ 아래 두 body 는 더미 — 사용자가 실 운영용 DSL 로 덮어쓸 것.
 #    서비스 코드가 다음 이름들을 그대로 참조하므로 유지해야 함:
-#      group_by_date / group_by_current_state /
-#      group_by_product / group_by_maker
+#      [index-1] group_by_date / group_by_product / group_by_maker
+#      [index-2] last_7_days / group_by_date / group_by_current_state /
+#                group_by_product / group_by_maker
 #    + buckets 의 ``key_as_string`` / ``key`` / ``doc_count`` 필드명
 # ──────────────────────────────────────────────────────────────
 
@@ -354,37 +361,46 @@ HISTORY_INDEX2_AGG = EsQueryDef(
     index="parsing-index-2-*",
     body={
         # ── ⚠️ 아래 DSL 은 더미. 실제 필드명/range/size 는 수정 필요 ──
+        # 응답 구조:
+        #   aggregations.last_7_days.group_by_date.buckets[…]
+        # ``last_7_days`` 는 단일 버킷 (filter / date_range 등) 으로
+        # group_by_date 를 한 번 더 감싸는 래퍼다.  서비스 코드도 이
+        # 경로를 따라 내려간다.
         "size": 0,
-        "query": {
-            "range": {
-                "@timestamp": {
-                    "gte": "now-7d/d",
-                    "lte": "now/d",
-                }
-            }
-        },
         "aggs": {
-            "group_by_date": {
-                "date_histogram": {
-                    "field": "@timestamp",
-                    "calendar_interval": "day",
-                    "format": "yyyy-MM-dd",
-                    "min_doc_count": 0,
-                    "extended_bounds": {
-                        "min": "now-7d/d",
-                        "max": "now/d",
-                    },
-                    "order": {"_key": "asc"},
+            "last_7_days": {
+                "filter": {
+                    "range": {
+                        "@timestamp": {
+                            "gte": "now-7d/d",
+                            "lte": "now/d",
+                        }
+                    }
                 },
                 "aggs": {
-                    "group_by_current_state": {
-                        "terms": {"field": "current_state.keyword", "size": 100},
+                    "group_by_date": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "calendar_interval": "day",
+                            "format": "yyyy-MM-dd",
+                            "min_doc_count": 0,
+                            "extended_bounds": {
+                                "min": "now-7d/d",
+                                "max": "now/d",
+                            },
+                            "order": {"_key": "asc"},
+                        },
                         "aggs": {
-                            "group_by_product": {
-                                "terms": {"field": "product.keyword", "size": 100},
+                            "group_by_current_state": {
+                                "terms": {"field": "current_state.keyword", "size": 100},
                                 "aggs": {
-                                    "group_by_maker": {
-                                        "terms": {"field": "maker.keyword", "size": 100},
+                                    "group_by_product": {
+                                        "terms": {"field": "product.keyword", "size": 100},
+                                        "aggs": {
+                                            "group_by_maker": {
+                                                "terms": {"field": "maker.keyword", "size": 100},
+                                            }
+                                        },
                                     }
                                 },
                             }
