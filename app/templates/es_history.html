@@ -1,12 +1,13 @@
 {#
   ── 종합 처리 이력 (/es/history) ─────────────────────────────────
   parsing-index-1 + parsing-index-2 두 쿼리를 병렬로 실행해
-  (product × maker × 날짜) 매트릭스 테이블을 만든다.
+  최근 N일 동안의 일자별 처리량을 단일 큰 막대 차트로 표시한다.
 
-  각 셀에는 미니 막대차트가 그려진다 (셀당 Chart.js 인스턴스):
-    Series A : index-1 단일 막대 (date 별 doc_count)
-    Series B : index-2 의 current_state 별 누적 막대
-  Series A 와 Series B 는 한 셀 차트 안에서 **그룹(나란히)** 으로 배치됨.
+  날짜 하나마다 막대 두 개 (grouped) 가 나란히 배치된다:
+    Series A : parsing-index-1 단일 막대 (전체 처리량)
+    Series B : parsing-index-2 의 current_state 별 누적(stacked) 막대
+
+  하단에는 정확한 수치 확인용 보조 테이블이 함께 제공된다.
 
   데이터: GET /es/history/data → run_history_overview()
   컨텍스트:
@@ -29,7 +30,7 @@
   <header class="card-header">
     <div class="card-title">
       <span class="badge">ES Agg</span>
-      <strong>최근 {{ days }}일 · product × maker × date</strong>
+      <strong>최근 {{ days }}일 · 일자별 처리량</strong>
     </div>
     <div class="card-controls">
       <button class="btn btn-run" id="hist-btn-refresh" title="조회">
@@ -71,18 +72,13 @@
         <span class="disk-meta-key">index-2</span>
         <code>{{ index2 }}</code>
       </span>
-      <span class="disk-meta-sep">·</span>
-      <span class="disk-meta-item">
-        <span class="disk-meta-key">행</span>
-        <span id="hist-row-count">—</span>
-      </span>
     </div>
 
     <!-- ── 범례 ──────────────────────────────────────────── -->
     <div class="hist-legend" id="hist-legend">
       <span class="hist-legend-item">
         <span class="hist-legend-swatch" style="background:#3b82f6"></span>
-        <span class="hist-legend-label">index-1</span>
+        <span class="hist-legend-label">index-1 <code class="hist-legend-key">(전체)</code></span>
       </span>
       {% for s in states %}
       <span class="hist-legend-item">
@@ -92,29 +88,41 @@
       {% endfor %}
     </div>
 
-    <!-- ── 테이블 ─────────────────────────────────────────── -->
-    <div class="hist-table-wrap">
-      <table class="hist-table" id="hist-table">
+    <!-- ── 단일 큰 차트 ──────────────────────────────────── -->
+    <div class="hist-chart-wrap">
+      <canvas id="hist-chart"></canvas>
+    </div>
+
+    <!-- ── 하단 보조 테이블 (정확한 수치 확인용) ────────── -->
+    <div class="hist-detail-wrap">
+      <table class="hist-detail-table" id="hist-detail-table">
         <thead>
           <tr>
-            <th class="hist-col-product">product</th>
-            <th class="hist-col-maker">maker</th>
-            {% for d in dates %}
-            <th class="hist-col-date" title="{{ d }}">
-              {# yyyy-MM-dd → MM/DD (요일) #}
-              <span class="hist-th-date" data-iso="{{ d }}">{{ d }}</span>
-            </th>
+            <th class="hist-detail-th-date">날짜</th>
+            <th class="hist-detail-th-idx1" title="parsing-index-1 전체 처리량">index-1</th>
+            {% for s in states %}
+            <th class="hist-detail-th-state" title="{{ s.key }}">{{ s.label }}</th>
             {% endfor %}
-            <th class="hist-col-total" title="7일 합계 (index-1 + index-2)">합계</th>
+            <th class="hist-detail-th-idx2" title="parsing-index-2 (current_state 필터링 합)">index-2 합</th>
           </tr>
         </thead>
-        <tbody id="hist-tbody">
-          <tr class="hist-empty-row">
-            <td colspan="{{ 2 + dates|length + 1 }}" class="hist-empty">
-              조회 버튼을 누르거나 페이지 로드를 기다려주세요…
+        <tbody id="hist-detail-tbody">
+          <tr class="hist-detail-empty-row">
+            <td colspan="{{ 2 + states|length + 1 }}" class="hist-detail-empty">
+              조회 중…
             </td>
           </tr>
         </tbody>
+        <tfoot>
+          <tr class="hist-detail-tfoot-row">
+            <th class="hist-detail-th-date">합계</th>
+            <td class="hist-detail-td-num" id="hist-foot-idx1">—</td>
+            {% for s in states %}
+            <td class="hist-detail-td-num" data-state-idx="{{ loop.index0 }}">—</td>
+            {% endfor %}
+            <td class="hist-detail-td-num" id="hist-foot-idx2">—</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
 
@@ -131,9 +139,11 @@
   const errorBox    = document.getElementById('hist-error');
   const elQueriedAt = document.getElementById('hist-queried-at');
   const elElapsed   = document.getElementById('hist-elapsed');
-  const elRowCount  = document.getElementById('hist-row-count');
-  const tbody       = document.getElementById('hist-tbody');
   const legend      = document.getElementById('hist-legend');
+  const chartCanvas = document.getElementById('hist-chart');
+  const detailTbody = document.getElementById('hist-detail-tbody');
+  const footIdx1    = document.getElementById('hist-foot-idx1');
+  const footIdx2    = document.getElementById('hist-foot-idx2');
 
   // 초기 컨텍스트 (서버 SSR 로 주입)
   const DAYS    = parseInt(root.dataset.days || '7', 10);
@@ -141,9 +151,7 @@
   const STATES  = JSON.parse(root.dataset.stateKeys || '[]');     // [{key,label}, ...]
 
   // ── 색상 팔레트 ─────────────────────────────────────────
-  // index-1 = 단일색(파랑)
   const COLOR_INDEX1 = '#3b82f6';
-  // state 별 색상 (10색 순환)
   const STATE_PALETTE = [
     '#ef4444', // red
     '#f59e0b', // amber
@@ -164,17 +172,14 @@
     el.style.background = colorForState(idx);
   });
 
-  // ── 날짜 헤더 포맷: yyyy-MM-dd → MM/DD (요일) ────────────
+  // ── 날짜 라벨 포맷: yyyy-MM-dd → MM/DD (요일) ────────────
   const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
-  function fmtDateHeader(iso) {
+  function fmtDateLabel(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
     if (!m) return iso;
     const d = new Date(`${iso}T00:00:00`);
     return `${m[2]}/${m[3]} (${DOW_KO[d.getDay()]})`;
   }
-  document.querySelectorAll('.hist-th-date').forEach(el => {
-    el.textContent = fmtDateHeader(el.dataset.iso);
-  });
 
   // ── 상태 배지 ──────────────────────────────────────────
   function setStatus(state, text) {
@@ -185,201 +190,208 @@
   // ── 중복 요청 가드 ──────────────────────────────────────
   let _inflight = false;
 
-  // ── 셀별 Chart.js 인스턴스 추적 (재조회 시 destroy) ────
-  const _charts = new Map();   // canvasId -> Chart instance
-
-  function destroyAllCharts() {
-    _charts.forEach(ch => { try { ch.destroy(); } catch (_) {} });
-    _charts.clear();
+  // ── 단일 Chart.js 인스턴스 ─────────────────────────────
+  let _chart = null;
+  function destroyChart() {
+    if (_chart) { try { _chart.destroy(); } catch (_) {} _chart = null; }
   }
 
-  // ── 셀 하나 분 미니 차트 생성 ───────────────────────────
-  // cell        : { date, index1, states:[...], index2_total }
-  // stateLabels : [{key, label}, ...]
-  // rowMax      : 해당 행(product/maker) 7일 셀들의 막대 최대값
-  //               (셀 간 비교를 위해 Y축을 행 단위로 정규화)
-  function renderCellChart(canvas, cell, stateLabels, rowMax) {
-    const ctx = canvas.getContext('2d');
+  // ── 메인 차트 렌더 ─────────────────────────────────────
+  // payload.dates           : ["yyyy-MM-dd", ...]
+  // payload.states          : [{key,label}, ...]
+  // payload.index1_by_date  : {"yyyy-MM-dd": count}
+  // payload.index2_by_date  : {"yyyy-MM-dd": {state_key: count, ...}}
+  function renderChart(payload) {
+    destroyChart();
+    const dates  = payload.dates  || DATES;
+    const states = payload.states || STATES;
+    const idx1Map = payload.index1_by_date || {};
+    const idx2Map = payload.index2_by_date || {};
 
-    // Series A: index-1 단일막대 → 자기 자신만 있는 stack
-    // Series B: index-2 state 별 누적 → 모두 같은 stack 에 들어감
-    // → datasets 구성:
-    //   [{label:'index-1', stack:'a', data:[v1]}, ...state별 dataset(stack:'b')...]
+    // X축: 날짜 라벨 (요일 포함)
+    const labels = dates.map(fmtDateLabel);
+
+    // Series A: index-1 단일 막대 (자기 자신만 있는 stack 'a')
     const datasets = [{
       label: 'index-1',
-      data: [cell.index1],
+      data: dates.map(d => Number(idx1Map[d] || 0)),
       backgroundColor: COLOR_INDEX1,
       stack: 'a',
       borderWidth: 0,
       borderRadius: 2,
-      // 두 stack(a, b) 이 같은 카테고리 안에 그룹(나란히) 배치되도록.
-      // categoryPercentage 작게 → 카테고리 양 옆 여백.
-      // barPercentage 적당히 → stack 두 그룹 사이 여백 확보.
-      categoryPercentage: 0.65,
-      barPercentage: 0.8,
+      categoryPercentage: 0.7,
+      barPercentage: 0.85,
     }];
-    for (let i = 0; i < stateLabels.length; i++) {
+
+    // Series B: parsing-index-2 의 state 별 누적 (모두 stack 'b')
+    for (let i = 0; i < states.length; i++) {
+      const s = states[i];
       datasets.push({
-        label: stateLabels[i].label,
-        _stateKey: stateLabels[i].key,
-        data: [cell.states[i] || 0],
+        label: s.label,
+        _stateKey: s.key,
+        data: dates.map(d => Number((idx2Map[d] || {})[s.key] || 0)),
         backgroundColor: colorForState(i),
         stack: 'b',
         borderWidth: 0,
         borderRadius: 2,
-        categoryPercentage: 0.65,
-        barPercentage: 0.8,
+        categoryPercentage: 0.7,
+        barPercentage: 0.85,
       });
     }
 
-    // Y축 상한: rowMax 가 양수면 행 기준 정규화, 아니면 자동.
-    const yMaxOpt = (rowMax && rowMax > 0) ? { suggestedMax: rowMax } : {};
-
-    const chart = new Chart(ctx, {
+    const ctx = chartCanvas.getContext('2d');
+    _chart = new Chart(ctx, {
       type: 'bar',
-      data: {
-        labels: [''],
-        datasets,
-      },
+      data: { labels, datasets },
       options: {
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        layout: { padding: { top: 2, right: 2, bottom: 2, left: 2 } },
+        interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: true,
+            position: 'bottom',
+            labels: { boxWidth: 12, boxHeight: 12, padding: 10, font: { size: 12 } },
+          },
           tooltip: {
             callbacks: {
-              title: () => cell.date,
+              title: (items) => {
+                if (!items || !items.length) return '';
+                const i = items[0].dataIndex;
+                return dates[i] || items[0].label;
+              },
               label: (ctx) => {
                 const ds = ctx.dataset;
                 const v = ctx.parsed.y || 0;
-                if (ds.stack === 'a') return `index-1: ${v.toLocaleString()}`;
+                if (ds.stack === 'a') {
+                  return `index-1 (전체): ${v.toLocaleString()}`;
+                }
                 return `${ds.label} (${ds._stateKey}): ${v.toLocaleString()}`;
               },
-              footer: () => {
-                const i1 = cell.index1 || 0;
-                const i2 = cell.index2_total || 0;
-                return `합계  index-1=${i1.toLocaleString()}  index-2=${i2.toLocaleString()}`;
+              footer: (items) => {
+                if (!items || !items.length) return '';
+                const i = items[0].dataIndex;
+                const d = dates[i];
+                const i1 = Number(idx1Map[d] || 0);
+                const i2map = idx2Map[d] || {};
+                let i2 = 0;
+                for (const s of states) i2 += Number(i2map[s.key] || 0);
+                return `index-1=${i1.toLocaleString()}  ·  index-2 합=${i2.toLocaleString()}`;
               },
             },
           },
         },
         scales: {
-          x: { stacked: true, display: false, grid: { display: false } },
+          x: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { font: { size: 12 } },
+          },
           y: {
             stacked: true,
-            display: false,
-            grid: { display: false },
             beginAtZero: true,
-            ...yMaxOpt,
+            grid: { color: '#f1f5f9' },
+            ticks: {
+              font: { size: 11 },
+              callback: (v) => Number(v).toLocaleString(),
+            },
           },
         },
       },
     });
-    _charts.set(canvas.id, chart);
   }
 
-  // ── 행의 셀들 중 최대 막대 값 (둘 중 큰 쪽) 계산 ─────
-  function computeRowMax(row) {
-    let m = 0;
-    for (const c of row.cells) {
-      if (c.index1 > m) m = c.index1;
-      const i2 = c.index2_total || 0;
-      if (i2 > m) m = i2;
-    }
-    return m;
-  }
-
-  // ── 셀 비어 있는지 판단 (모두 0) ─────────────────────
-  function isEmptyCell(cell) {
-    if (cell.index1 > 0) return false;
-    for (const v of cell.states) if (v > 0) return false;
-    return true;
-  }
-
-  // ── 테이블 렌더 ────────────────────────────────────────
-  function renderRows(payload) {
-    destroyAllCharts();
-    tbody.innerHTML = '';
-
-    const rows = payload.rows || [];
+  // ── 하단 보조 테이블 렌더 ───────────────────────────────
+  function renderDetailTable(payload) {
+    const dates  = payload.dates  || DATES;
     const states = payload.states || STATES;
-    elRowCount.textContent = rows.length.toLocaleString();
+    const idx1Map = payload.index1_by_date || {};
+    const idx2Map = payload.index2_by_date || {};
 
-    if (rows.length === 0) {
+    detailTbody.innerHTML = '';
+
+    if (!dates.length) {
       const tr = document.createElement('tr');
-      tr.className = 'hist-empty-row';
+      tr.className = 'hist-detail-empty-row';
       const td = document.createElement('td');
-      td.colSpan = 2 + DATES.length + 1;
-      td.className = 'hist-empty';
+      td.colSpan = 2 + states.length + 1;
+      td.className = 'hist-detail-empty';
       td.textContent = '표시할 데이터가 없습니다.';
       tr.appendChild(td);
-      tbody.appendChild(tr);
+      detailTbody.appendChild(tr);
       return;
     }
 
-    rows.forEach((row, rIdx) => {
-      // 짝수 행 zebra (CSS 의 :nth-child(even) 으로도 가능하지만,
-      // 동적 렌더 후 sticky 컬럼 배경색 일관성을 위해 클래스로 마킹)
+    dates.forEach((d, rIdx) => {
       const tr = document.createElement('tr');
-      if (rIdx % 2 === 1) tr.classList.add('hist-row-zebra');
+      if (rIdx % 2 === 1) tr.classList.add('hist-detail-row-zebra');
 
-      const tdP = document.createElement('td');
-      tdP.className = 'hist-col-product';
-      tdP.textContent = row.product || '—';
-      tdP.title = row.product || '';
-      tr.appendChild(tdP);
+      // 날짜
+      const tdDate = document.createElement('th');
+      tdDate.scope = 'row';
+      tdDate.className = 'hist-detail-th-date';
+      tdDate.title = d;
+      tdDate.textContent = fmtDateLabel(d);
+      tr.appendChild(tdDate);
 
-      const tdM = document.createElement('td');
-      tdM.className = 'hist-col-maker';
-      tdM.textContent = row.maker || '—';
-      tdM.title = row.maker || '';
-      tr.appendChild(tdM);
+      // index-1
+      const tdI1 = document.createElement('td');
+      tdI1.className = 'hist-detail-td-num hist-detail-td-idx1';
+      const v1 = Number(idx1Map[d] || 0);
+      tdI1.textContent = v1.toLocaleString();
+      tr.appendChild(tdI1);
 
-      // 행 최대값 — 셀들 간 비교를 위해 Y축을 행 단위로 정규화
-      const rowMax = computeRowMax(row);
-
-      row.cells.forEach((cell, cIdx) => {
+      // states
+      const i2map = idx2Map[d] || {};
+      let i2sum = 0;
+      for (const s of states) {
         const td = document.createElement('td');
-        td.className = 'hist-col-date hist-cell';
-        if (isEmptyCell(cell)) {
-          td.classList.add('hist-cell-empty');
-          // 빈 셀: 차트 없이 가는 dashed 가로선 (CSS ::before)
-        } else {
-          // ── 좌상단 mini-label: index-1 / index-2 합계 ──
-          const labelWrap = document.createElement('div');
-          labelWrap.className = 'hist-cell-label';
-          const tagA = document.createElement('span');
-          tagA.className = 'hist-cell-tag hist-cell-tag-a';
-          tagA.textContent = `①${(cell.index1 || 0).toLocaleString()}`;
-          tagA.title = `index-1: ${(cell.index1 || 0).toLocaleString()}`;
-          labelWrap.appendChild(tagA);
-          const tagB = document.createElement('span');
-          tagB.className = 'hist-cell-tag hist-cell-tag-b';
-          tagB.textContent = `②${(cell.index2_total || 0).toLocaleString()}`;
-          tagB.title = `index-2 합계: ${(cell.index2_total || 0).toLocaleString()}`;
-          labelWrap.appendChild(tagB);
-          td.appendChild(labelWrap);
-
-          const canvas = document.createElement('canvas');
-          canvas.id = `hist-c-${rIdx}-${cIdx}`;
-          canvas.className = 'hist-cell-canvas';
-          canvas.width = 160;
-          canvas.height = 70;
-          td.appendChild(canvas);
-          // 차트는 DOM 부착 후 그려야 함
-          requestAnimationFrame(() => renderCellChart(canvas, cell, states, rowMax));
-        }
+        td.className = 'hist-detail-td-num';
+        const v = Number(i2map[s.key] || 0);
+        i2sum += v;
+        td.textContent = v.toLocaleString();
         tr.appendChild(td);
-      });
+      }
 
-      const tdT = document.createElement('td');
-      tdT.className = 'hist-col-total';
-      tdT.textContent = (row.total || 0).toLocaleString();
-      tr.appendChild(tdT);
+      // index-2 합
+      const tdI2 = document.createElement('td');
+      tdI2.className = 'hist-detail-td-num hist-detail-td-idx2';
+      tdI2.textContent = i2sum.toLocaleString();
+      tr.appendChild(tdI2);
 
-      tbody.appendChild(tr);
+      detailTbody.appendChild(tr);
+    });
+
+    // tfoot: 총합 (서버 totals 우선, 없으면 즉석 계산)
+    const tot = payload.totals || {};
+    const totalIdx1 = (tot.index1 != null)
+      ? Number(tot.index1)
+      : dates.reduce((acc, d) => acc + Number(idx1Map[d] || 0), 0);
+    const totalIdx2 = (tot.index2 != null)
+      ? Number(tot.index2)
+      : dates.reduce((acc, d) => {
+          const m = idx2Map[d] || {};
+          let s = 0;
+          for (const sk of states) s += Number(m[sk.key] || 0);
+          return acc + s;
+        }, 0);
+    footIdx1.textContent = totalIdx1.toLocaleString();
+    footIdx2.textContent = totalIdx2.toLocaleString();
+
+    // state별 합계 (tfoot 가운데 셀들)
+    const byState = tot.by_state || {};
+    document.querySelectorAll('.hist-detail-tfoot-row td[data-state-idx]').forEach(td => {
+      const i = parseInt(td.dataset.stateIdx, 10);
+      const sk = (states[i] && states[i].key) || '';
+      if (byState[sk] != null) {
+        td.textContent = Number(byState[sk]).toLocaleString();
+      } else {
+        // fallback: 즉석 계산
+        let s = 0;
+        for (const d of dates) s += Number((idx2Map[d] || {})[sk] || 0);
+        td.textContent = s.toLocaleString();
+      }
     });
   }
 
@@ -411,13 +423,19 @@
         errorBox.textContent = `조회 실패: ${msg}`;
         errorBox.hidden = false;
         setStatus('error', '오류');
-        // rows 가 있어도 ok=false 일 수 있으니, 비어있지 않으면 그려준다
-        if (data.rows && data.rows.length > 0) renderRows(data);
+        // 데이터가 일부라도 있으면 그려준다 (부분 성공)
+        if (data.dates && data.dates.length) {
+          renderChart(data);
+          renderDetailTable(data);
+        }
         return;
       }
 
-      renderRows(data);
-      setStatus('ok', `${(data.rows || []).length}행`);
+      renderChart(data);
+      renderDetailTable(data);
+      const totalIdx1 = (data.totals && data.totals.index1) || 0;
+      const totalIdx2 = (data.totals && data.totals.index2) || 0;
+      setStatus('ok', `①${totalIdx1.toLocaleString()} · ②${totalIdx2.toLocaleString()}`);
     } catch (e) {
       errorBox.textContent = `네트워크 오류: ${e.message || e}`;
       errorBox.hidden = false;

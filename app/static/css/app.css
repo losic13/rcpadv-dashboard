@@ -5238,7 +5238,10 @@ table.eqp-table tbody tr:hover td {
 
 /* ============================================================
  * /es/history  (종합 처리 이력) — .hist-*
- * product × maker × date 매트릭스 테이블 + 셀당 미니 차트
+ * 날짜별 단일 큰 grouped+stacked 막대 차트 + 하단 보조 테이블
+ *   - Series A: parsing-index-1 단일 막대 (전체 처리량)
+ *   - Series B: parsing-index-2 의 current_state 별 누적 막대
+ *   - product / maker 차원 없음
  * ============================================================ */
 
 /* ── 범례 ─────────────────────────────────────────────── */
@@ -5270,205 +5273,128 @@ table.eqp-table tbody tr:hover td {
 .hist-legend-label { font-size: 12px; color: #334155; }
 .hist-legend-key   { font-size: 11px; color: #64748b; }
 
-/* ── 테이블 래퍼 (가로 스크롤) ──────────────────────── */
-.hist-table-wrap {
+/* ── 메인 차트 래퍼 ───────────────────────────────────
+ * 가로 100% / 세로 약 400px 고정 — 다른 페이지의 큰 차트와 일관성.
+ * Chart.js 는 responsive:true + maintainAspectRatio:false 사용. */
+.hist-chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 400px;
+  margin: 6px 0 18px;
+  padding: 8px 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+}
+.hist-chart-wrap > canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* ── 하단 보조 테이블 ───────────────────────────────── */
+.hist-detail-wrap {
   overflow-x: auto;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   background: #fff;
 }
-
-/* ── 테이블 ─────────────────────────────────────────── */
-.hist-table {
-  width: max-content;          /* 가로 스크롤을 자연스럽게 — 셀 폭 보존 */
-  min-width: 100%;
+.hist-detail-table {
+  width: 100%;
+  min-width: 640px;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
   color: #1e293b;
-  table-layout: fixed;
 }
-
-.hist-table thead th {
+.hist-detail-table thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 1;
   background: #f1f5f9;
   color: #334155;
   font-weight: 600;
   font-size: 12px;
   padding: 8px 10px;
   border-bottom: 1px solid #cbd5e1;
-  text-align: center;
+  text-align: right;
   white-space: nowrap;
 }
+/* 가장 왼쪽(날짜) 열만 좌측 정렬 */
+.hist-detail-table thead .hist-detail-th-date {
+  text-align: left;
+}
 
-.hist-table tbody td {
-  padding: 6px 8px;
+.hist-detail-table tbody td,
+.hist-detail-table tbody th {
+  padding: 6px 10px;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
 }
-.hist-table tbody tr:hover td {
-  background: #f8fafc;
-}
-.hist-table tbody tr:last-child td {
+.hist-detail-table tbody tr:last-child td,
+.hist-detail-table tbody tr:last-child th {
   border-bottom: none;
 }
-
-/* ── 컬럼별 스타일 ───────────────────────────────────── */
-.hist-col-product,
-.hist-col-maker {
-  font-weight: 500;
-  text-align: left;
-  white-space: nowrap;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  position: sticky;
-  background: #fff;
-  z-index: 1;
-}
-.hist-table thead .hist-col-product,
-.hist-table thead .hist-col-maker {
-  text-align: left;
-  background: #f1f5f9;
-}
-.hist-col-product { left: 0;     width: 140px; }
-.hist-col-maker   { left: 140px; width: 120px; }
-/* 좌측 sticky 영역(maker)의 오른쪽에 살짝 그림자를 줘서
-   가로 스크롤이 가능한 데이터 영역을 시각적으로 구분 */
-.hist-col-maker {
-  border-right: 1px solid #e2e8f0;
-  box-shadow: 2px 0 4px -2px rgba(15, 23, 42, 0.08);
-}
-.hist-table thead .hist-col-maker { border-right: 1px solid #cbd5e1; }
-.hist-table tbody tr:hover .hist-col-product,
-.hist-table tbody tr:hover .hist-col-maker {
+.hist-detail-table tbody tr:hover td,
+.hist-detail-table tbody tr:hover th {
   background: #f8fafc;
 }
 
-.hist-col-date {
-  width: 180px;            /* canvas 160 + 좌우 padding/여백 */
-  min-width: 180px;
-  text-align: center;
-  padding: 4px;
-}
-.hist-th-date {
-  display: inline-block;
+/* 날짜 열(th[scope=row]) */
+.hist-detail-table .hist-detail-th-date {
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  color: #1e293b;
   font-variant-numeric: tabular-nums;
 }
 
-.hist-col-total {
-  width: 90px;
-  min-width: 90px;
+/* 숫자 셀 — 우측 정렬 + tabular-nums */
+.hist-detail-td-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  background: #fafafa;
-  position: sticky;
-  right: 0;
-  z-index: 1;
-  /* 우측 sticky 합계열의 왼쪽 그림자 — 좌측과 대칭 */
-  border-left: 1px solid #e2e8f0;
-  box-shadow: -2px 0 4px -2px rgba(15, 23, 42, 0.08);
-}
-.hist-table thead .hist-col-total {
-  background: #e2e8f0;
-}
-.hist-table tbody tr:hover .hist-col-total {
-  background: #f1f5f9;
-}
-
-/* ── 셀(차트가 들어가는 데이터 셀) ───────────────────── */
-.hist-cell {
-  text-align: center;
-  padding: 4px 6px;
-  height: 120px;
-  min-height: 120px;
-  vertical-align: top;
-}
-
-/* 좌상단 mini-label: ①index-1 / ②index-2 합계 */
-.hist-cell-label {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 4px;
-  margin: 0 0 3px;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-.hist-cell-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 9px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
   white-space: nowrap;
-  border: 1px solid transparent;
 }
-/* ① index-1 — 파란 계열 (COLOR_INDEX1 = #3b82f6) */
-.hist-cell-tag-a {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
+/* index-1 / index-2 합 열은 살짝 강조 */
+.hist-detail-td-idx1 { color: #1d4ed8; font-weight: 600; }
+.hist-detail-td-idx2 { color: #0f172a; font-weight: 600; background: #fafafa; }
+
+/* ── tfoot (총합) ───────────────────────────────────── */
+.hist-detail-table tfoot .hist-detail-tfoot-row th,
+.hist-detail-table tfoot .hist-detail-tfoot-row td {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-top: 1px solid #cbd5e1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-/* ② index-2 합계 — 중립 회색 (state 별 색은 차트에서 표현) */
-.hist-cell-tag-b {
-  background: #f1f5f9;
+.hist-detail-table tfoot .hist-detail-tfoot-row th {
+  text-align: left;
   color: #334155;
-  border-color: #e2e8f0;
+}
+.hist-detail-table tfoot .hist-detail-tfoot-row td {
+  text-align: right;
+  color: #0f172a;
 }
 
-.hist-cell-canvas {
-  display: block;
-  margin: 0 auto;
-  /* width / height 는 inline 으로 설정 (160 × 70) */
-}
-.hist-cell-empty {
-  color: #cbd5e1;
-  position: relative;
-}
-/* 빈 셀: 가운데 옅은 dashed 가로선 — '·' 대비 시각 노이즈 최소 */
-.hist-cell-empty::after {
-  content: '';
-  display: block;
-  width: 60%;
-  margin: 56px auto 0;     /* 셀 세로 중앙 부근 */
-  border-top: 1px dashed #cbd5e1;
-}
-
-/* ── Zebra (홀수 인덱스 = 짝수 행) ─────────────────────
- * sticky 컬럼(product/maker/total)도 동일한 줄무늬 배경을 유지해야
- * 가로 스크롤 중 행 추적이 자연스럽다.
- * tbody tr:hover 가 zebra 보다 우선이어야 하므로 specificity 동일하게 유지. */
-.hist-table tbody tr.hist-row-zebra td {
+/* ── Zebra (보조 테이블) ──────────────────────────────
+ * 작은 테이블이지만 7~10행 정도이므로 줄무늬가 가독성에 도움.
+ * JS 가 hist-detail-row-zebra 를 홀수 인덱스 행에 부여한다. */
+.hist-detail-table tbody tr.hist-detail-row-zebra td,
+.hist-detail-table tbody tr.hist-detail-row-zebra th {
   background: #f8fafc;
 }
-.hist-table tbody tr.hist-row-zebra .hist-col-product,
-.hist-table tbody tr.hist-row-zebra .hist-col-maker {
-  background: #f8fafc;
-}
-.hist-table tbody tr.hist-row-zebra .hist-col-total {
+.hist-detail-table tbody tr.hist-detail-row-zebra td.hist-detail-td-idx2 {
   background: #f1f5f9;
 }
-/* hover 시 zebra 위에 한 단계 더 강조 */
-.hist-table tbody tr.hist-row-zebra:hover td {
+.hist-detail-table tbody tr.hist-detail-row-zebra:hover td,
+.hist-detail-table tbody tr.hist-detail-row-zebra:hover th {
   background: #eef2f7;
-}
-.hist-table tbody tr.hist-row-zebra:hover .hist-col-product,
-.hist-table tbody tr.hist-row-zebra:hover .hist-col-maker {
-  background: #eef2f7;
-}
-.hist-table tbody tr.hist-row-zebra:hover .hist-col-total {
-  background: #e2e8f0;
 }
 
 /* ── 빈 상태 ────────────────────────────────────────── */
-.hist-empty-row td.hist-empty {
+.hist-detail-empty-row td.hist-detail-empty {
   text-align: center;
   color: #64748b;
   padding: 24px 12px;
@@ -5476,16 +5402,14 @@ table.eqp-table tbody tr:hover td {
   background: #fafafa;
 }
 
-/* ── 작은 화면 (가로 스크롤로 처리) ─────────────────── *
- * 셀 폭/높이는 줄이지 않는다 — '스크롤이 발생하더라도 각 데이터를
- * 보는데 문제가 없도록' 가독성을 우선시. sticky 헤더/컬럼만 좁힘. */
+/* ── 작은 화면 ──────────────────────────────────────── */
 @media (max-width: 900px) {
   .hist-legend { font-size: 11px; gap: 10px; }
-  .hist-col-product { width: 100px; }
-  .hist-col-maker   { left: 100px; width: 100px; }
-  .hist-table thead th { padding: 6px 8px; font-size: 11px; }
-  .hist-table tbody td { padding: 4px 6px; font-size: 11px; }
-  /* 데이터 셀(차트) 자체는 동일 폭/높이 유지 */
-  .hist-col-date { width: 180px; min-width: 180px; padding: 4px; }
-  .hist-cell { padding: 4px 6px; height: 120px; min-height: 120px; }
+  .hist-chart-wrap { height: 320px; }
+  .hist-detail-table thead th,
+  .hist-detail-table tbody td,
+  .hist-detail-table tbody th { padding: 5px 8px; font-size: 12px; }
+}
+@media (max-width: 640px) {
+  .hist-chart-wrap { height: 280px; }
 }
