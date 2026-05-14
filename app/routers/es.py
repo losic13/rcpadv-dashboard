@@ -204,11 +204,12 @@ def targets_page(request: Request):
 # ── 신규: /es/history (종합 처리 이력) ────────────────────────────────────
 @router.get("/history")
 def history_page(request: Request):
-    """종합 처리 이력 페이지 — product × maker × 날짜 매트릭스.
+    """종합 처리 이력 페이지 — 최근 N일 일자별 처리량.
 
-    각 셀에는 미니 막대차트가 그려진다:
-        Series A: parsing-index-1 단일 막대 (해당 product/maker/date 의 doc_count)
+    하나의 큰 grouped-stacked 막대 차트로 표시한다 (날짜 = X축):
+        Series A: parsing-index-1 단일 막대 (전체 처리량)
         Series B: parsing-index-2 의 current_state 별 누적 막대
+    하단 보조 테이블로 정확한 수치도 확인 가능.
 
     설정:
         - ``ES_HISTORY_DAYS``        : 최근 N일 (기본 7, 오늘 포함)
@@ -246,7 +247,7 @@ async def history_data(request: Request):
     """종합 처리 이력 데이터 API (JSON).
 
     parsing-index-1 + parsing-index-2 두 쿼리를 병렬로 실행해
-    (product × maker × 날짜) 매트릭스를 만들어 반환한다.
+    날짜별 처리량을 반환한다 (product/maker 차원 없음).
     응답 스키마는 :func:`app.services.es_service.run_history_overview` 참고.
     """
     result = await es_service.run_history_overview()

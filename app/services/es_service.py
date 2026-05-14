@@ -623,41 +623,14 @@ def _history_date_list(days: int) -> list[str]:
     ]
 
 
-def _history_parse_index1(resp: dict[str, Any]) -> dict[str, dict[tuple[str, str], int]]:
-    """parsing-index-1 응답을 ``{date: {(product, maker): count}}`` 로 평탄화."""
-    out: dict[str, dict[tuple[str, str], int]] = {}
-    date_buckets = (
-        resp.get("aggregations", {})
-            .get("group_by_date", {})
-            .get("buckets", [])
-    ) or []
-    for db in date_buckets:
-        d = str(db.get("key_as_string") or "")
-        if not d:
-            continue
-        cell = out.setdefault(d, {})
-        for pb in (db.get("group_by_product", {}).get("buckets", []) or []):
-            product = str(pb.get("key") or "")
-            for mb in (pb.get("group_by_maker", {}).get("buckets", []) or []):
-                maker = str(mb.get("key") or "")
-                c = int(mb.get("doc_count") or 0)
-                cell[(product, maker)] = cell.get((product, maker), 0) + c
-    return out
+def _history_parse_index1(resp: dict[str, Any]) -> dict[str, int]:
+    """parsing-index-1 응답을 ``{date: count}`` 로 평탄화.
 
-
-def _history_parse_index2(
-    resp: dict[str, Any],
-) -> dict[str, dict[tuple[str, str], dict[str, int]]]:
-    """parsing-index-2 응답을 ``{date: {(product, maker): {state: count}}}`` 로 평탄화.
-
-    응답 구조 가정 (index-1 과 달리 ``last_7_days`` 래퍼 한 단계 포함):
+    응답 구조 가정 (index-1, index-2 동일하게 ``last_7_days`` 래퍼 포함):
 
         aggregations.last_7_days.group_by_date.buckets[…]
-
-    하위 트리는 index-1 과 동일한 패턴
-    (group_by_current_state → group_by_product → group_by_maker).
     """
-    out: dict[str, dict[tuple[str, str], dict[str, int]]] = {}
+    out: dict[str, int] = {}
     date_buckets = (
         resp.get("aggregations", {})
             .get("last_7_days", {})
@@ -668,52 +641,64 @@ def _history_parse_index2(
         d = str(db.get("key_as_string") or "")
         if not d:
             continue
-        cell = out.setdefault(d, {})
+        out[d] = int(db.get("doc_count") or 0)
+    return out
+
+
+def _history_parse_index2(resp: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """parsing-index-2 응답을 ``{date: {state: count}}`` 로 평탄화.
+
+    응답 구조 가정:
+
+        aggregations.last_7_days.group_by_date.buckets[].group_by_current_state.buckets[]
+    """
+    out: dict[str, dict[str, int]] = {}
+    date_buckets = (
+        resp.get("aggregations", {})
+            .get("last_7_days", {})
+            .get("group_by_date", {})
+            .get("buckets", [])
+    ) or []
+    for db in date_buckets:
+        d = str(db.get("key_as_string") or "")
+        if not d:
+            continue
+        by_state: dict[str, int] = out.setdefault(d, {})
         for sb in (db.get("group_by_current_state", {}).get("buckets", []) or []):
             state = str(sb.get("key") or "")
             if not state:
                 continue
-            for pb in (sb.get("group_by_product", {}).get("buckets", []) or []):
-                product = str(pb.get("key") or "")
-                for mb in (pb.get("group_by_maker", {}).get("buckets", []) or []):
-                    maker = str(mb.get("key") or "")
-                    c = int(mb.get("doc_count") or 0)
-                    by_state = cell.setdefault((product, maker), {})
-                    by_state[state] = by_state.get(state, 0) + c
+            c = int(sb.get("doc_count") or 0)
+            by_state[state] = by_state.get(state, 0) + c
     return out
 
 
 async def run_history_overview() -> dict[str, Any]:
-    """parsing-index-1 + parsing-index-2 를 병렬 조회해 종합 처리 이력 테이블 데이터 생성.
+    """parsing-index-1 + parsing-index-2 를 병렬 조회해 종합 처리 이력 데이터 생성.
 
-    반환 구조:
+    응답 구조 (날짜별 단일 큰 차트용, product/maker 차원 없음):
+
         {
           "ok": bool,
           "dates":     ["2026-05-08", ...],          # 오름차순 N일
           "states":    [{"key": "WAITING", "label": "대기"}, ...],
                                                        # ES_HISTORY_STATE_KEYS 순서
-          "rows": [
-            {
-              "product": str,
-              "maker":   str,
-              "total":   int,           # index-1 + index-2(필터링된 state 합) 의 7일 총합
-              "cells": [
-                {                                # dates 와 동일 순서
-                  "date": "2026-05-08",
-                  "index1": int,                 # parsing-index-1 doc_count
-                  "states": [int, int, ...],     # states 순서대로 index-2 doc_count
-                  "index2_total": int,           # states 합
-                },
-                ...
-              ]
-            }, ...
-          ],
-          "index1":     str,
+          "index1_by_date": {"2026-05-08": 123, ...},
+                                                       # parsing-index-1 일자별 카운트
+          "index2_by_date": {                          # parsing-index-2 일자×state 카운트
+            "2026-05-08": {"WAITING": 10, "RUNNING": 20, ...}, ...
+          },
+          "totals": {
+            "index1": int,
+            "index2": int,                             # filtered state 합
+            "by_state": {"WAITING": 100, ...},
+          },
+          "index1":     str,    # index 이름
           "index2":     str,
           "days":       int,
           "elapsed_ms": int,
           "queried_at": str,
-          "error":      str | None,         # 두 쿼리 중 하나라도 실패하면 사유
+          "error":      str | None,
           "errors":     {"index1": str|None, "index2": str|None},
         }
     """
@@ -751,11 +736,17 @@ async def run_history_overview() -> dict[str, Any]:
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     queried_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    base_payload = {
+    base_payload: dict[str, Any] = {
         "ok": (err1 is None and err2 is None),
         "dates": dates,
         "states": [{"key": k, "label": lab} for k, lab in state_pairs],
-        "rows": [],
+        "index1_by_date": {d: 0 for d in dates},
+        "index2_by_date": {d: {} for d in dates},
+        "totals": {
+            "index1": 0,
+            "index2": 0,
+            "by_state": {k: 0 for k, _ in state_pairs},
+        },
         "index1": q1.index,
         "index2": q2.index,
         "days": days,
@@ -773,56 +764,55 @@ async def run_history_overview() -> dict[str, Any]:
     by_date_idx1 = _history_parse_index1(resp1) if resp1 else {}
     by_date_idx2 = _history_parse_index2(resp2) if resp2 else {}
 
-    # (product, maker) 합집합 수집 — 두 인덱스 양쪽에서 등장한 모든 조합
-    pairs: set[tuple[str, str]] = set()
-    for cell in by_date_idx1.values():
-        pairs.update(cell.keys())
-    for cell in by_date_idx2.values():
-        pairs.update(cell.keys())
-
     # state_pairs 가 비어 있으면 → 응답에 등장한 state 를 그대로 사용 (등장 순서)
     if not state_pairs:
         seen_states: list[str] = []
         seen_set: set[str] = set()
-        for cell in by_date_idx2.values():
-            for _, by_state in cell.items():
-                for st in by_state.keys():
-                    if st not in seen_set:
-                        seen_set.add(st)
-                        seen_states.append(st)
+        for by_state in by_date_idx2.values():
+            for st in by_state.keys():
+                if st not in seen_set:
+                    seen_set.add(st)
+                    seen_states.append(st)
         state_pairs = [(s, s) for s in seen_states]
         base_payload["states"] = [{"key": k, "label": lab} for k, lab in state_pairs]
+        base_payload["totals"]["by_state"] = {k: 0 for k, _ in state_pairs}
 
-    # rows 생성 — alphabetical (product, maker)
-    rows: list[dict[str, Any]] = []
-    for product, maker in sorted(pairs, key=lambda x: (x[0].lower(), x[1].lower())):
-        cells: list[dict[str, Any]] = []
-        row_total = 0
-        for d in dates:
-            v1 = int(by_date_idx1.get(d, {}).get((product, maker), 0))
-            states_map = by_date_idx2.get(d, {}).get((product, maker), {})
-            state_counts = [int(states_map.get(k, 0)) for k, _ in state_pairs]
-            v2_total = sum(state_counts)
-            cells.append({
-                "date": d,
-                "index1": v1,
-                "states": state_counts,
-                "index2_total": v2_total,
-            })
-            row_total += v1 + v2_total
-        rows.append({
-            "product": product,
-            "maker": maker,
-            "total": row_total,
-            "cells": cells,
-        })
+    # 날짜별 카운트 채움 — dates 순서대로 모두 채우되, 응답에 없는 날짜는 0
+    index1_by_date: dict[str, int] = {}
+    index2_by_date: dict[str, dict[str, int]] = {}
+    total_idx1 = 0
+    total_idx2 = 0
+    total_by_state: dict[str, int] = {k: 0 for k, _ in state_pairs}
+
+    for d in dates:
+        v1 = int(by_date_idx1.get(d, 0))
+        index1_by_date[d] = v1
+        total_idx1 += v1
+
+        states_map_raw = by_date_idx2.get(d, {}) or {}
+        # state_pairs 순서대로 값을 채워 dict 직렬화 시 순서 안정성 확보
+        states_map: dict[str, int] = {}
+        for k, _ in state_pairs:
+            c = int(states_map_raw.get(k, 0))
+            states_map[k] = c
+            total_by_state[k] += c
+            total_idx2 += c
+        index2_by_date[d] = states_map
+
+    base_payload["index1_by_date"] = index1_by_date
+    base_payload["index2_by_date"] = index2_by_date
+    base_payload["totals"] = {
+        "index1": total_idx1,
+        "index2": total_idx2,
+        "by_state": total_by_state,
+    }
 
     log.info(
-        "[es/history] 완료: %d rows × %d days × %d states, %dms (err1=%s, err2=%s)",
-        len(rows), len(dates), len(state_pairs), elapsed_ms, err1, err2,
+        "[es/history] 완료: %d days × %d states, idx1=%d idx2=%d, %dms (err1=%s, err2=%s)",
+        len(dates), len(state_pairs), total_idx1, total_idx2,
+        elapsed_ms, err1, err2,
     )
 
-    base_payload["rows"] = rows
     return base_payload
 
 
