@@ -225,7 +225,7 @@ def history_page(request: Request):
         (today - timedelta(days=days - 1 - i)).isoformat()
         for i in range(days)
     ]
-    state_pairs = settings.es_history_state_keys()
+    state_triples = settings.es_history_state_keys()
     return templates.TemplateResponse(
         request,
         "es_history.html",
@@ -235,7 +235,10 @@ def history_page(request: Request):
             "page_title": "종합 처리 이력",
             "days":       days,
             "dates":      dates,
-            "states":     [{"key": k, "label": lab} for k, lab in state_pairs],
+            # [(key, label, attr)] → JSON 직렬화 가능한 dict 로
+            "states":     [{"key": k, "label": lab, "attr": at}
+                            for k, lab, at in state_triples],
+            "attr_order": ["stage", "regular", "complete", "check", ""],
             "index1":     settings.ES_HISTORY_INDEX1,
             "index2":     settings.ES_HISTORY_INDEX2,
         },

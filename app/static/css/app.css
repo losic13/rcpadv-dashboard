@@ -5402,6 +5402,235 @@ table.eqp-table tbody tr:hover td {
   background: #fafafa;
 }
 
+/* ── 2단 헤더 (attr 그룹) ─────────────────────────────
+ * thead 가 두 줄: 상단(.hist-detail-thead-attr) = attr 그룹 헤더,
+ *               하단(.hist-detail-thead-state) = 개별 state 헤더.
+ * 상단 attr 그룹 헤더는 attr 색의 100 톤, 하단/본문 셀은 50 톤. */
+.hist-detail-table thead .hist-detail-thead-attr th.hist-detail-th-attr {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid #e2e8f0;
+}
+.hist-detail-table thead .hist-detail-thead-state th.hist-detail-th-state {
+  font-weight: 600;
+}
+
+/* ── attr 색 강조 (Tailwind 50/100 팔레트) ──────────── */
+/* stage = 옅은 노랑 */
+.hist-detail-table thead .hist-detail-th-attr[data-attr="stage"] {
+  background: #fef3c7; /* yellow-100 */
+  color: #713f12;      /* yellow-900 */
+}
+.hist-detail-table thead .hist-detail-th-state[data-attr="stage"],
+.hist-detail-table tbody td[data-attr="stage"],
+.hist-detail-table tfoot td[data-attr="stage"] {
+  background: #fefce8; /* yellow-50 */
+}
+/* regular = 옅은 초록 */
+.hist-detail-table thead .hist-detail-th-attr[data-attr="regular"] {
+  background: #dcfce7; /* green-100 */
+  color: #14532d;      /* green-900 */
+}
+.hist-detail-table thead .hist-detail-th-state[data-attr="regular"],
+.hist-detail-table tbody td[data-attr="regular"],
+.hist-detail-table tfoot td[data-attr="regular"] {
+  background: #f0fdf4; /* green-50 */
+}
+/* complete = 옅은 파랑 */
+.hist-detail-table thead .hist-detail-th-attr[data-attr="complete"] {
+  background: #dbeafe; /* blue-100 */
+  color: #1e3a8a;      /* blue-900 */
+}
+.hist-detail-table thead .hist-detail-th-state[data-attr="complete"],
+.hist-detail-table tbody td[data-attr="complete"],
+.hist-detail-table tfoot td[data-attr="complete"] {
+  background: #eff6ff; /* blue-50 */
+}
+/* check = 옅은 빨강 */
+.hist-detail-table thead .hist-detail-th-attr[data-attr="check"] {
+  background: #fee2e2; /* red-100 */
+  color: #7f1d1d;      /* red-900 */
+}
+.hist-detail-table thead .hist-detail-th-state[data-attr="check"],
+.hist-detail-table tbody td[data-attr="check"],
+.hist-detail-table tfoot td[data-attr="check"] {
+  background: #fef2f2; /* red-50 */
+}
+/* (미지정) = 무채색 — 기본 배경 유지하되 살짝 회색 톤 */
+.hist-detail-table thead .hist-detail-th-attr[data-attr=""] {
+  background: #f1f5f9; /* slate-100 */
+  color: #334155;      /* slate-700 */
+}
+.hist-detail-table thead .hist-detail-th-state[data-attr=""],
+.hist-detail-table tbody td[data-attr=""],
+.hist-detail-table tfoot td[data-attr=""] {
+  background: #f8fafc; /* slate-50 */
+}
+
+/* zebra 행에서 attr 셀이 더 진해 보이지 않도록 살짝 톤 조정.
+ * (기본 zebra 배경 #f8fafc 보다 attr 50 톤이 시각적으로 자연스러움) */
+.hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="stage"] {
+  background: #fdf6c2; /* yellow 50/100 사이 */
+}
+.hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="regular"] {
+  background: #e7fbeb; /* green 50/100 사이 */
+}
+.hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="complete"] {
+  background: #e5efff; /* blue 50/100 사이 */
+}
+.hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr="check"] {
+  background: #fde8e8; /* red 50/100 사이 */
+}
+.hist-detail-table tbody tr.hist-detail-row-zebra td[data-attr=""] {
+  background: #eef2f7; /* slate 50/100 사이 */
+}
+
+/* tfoot 합계 행에서도 attr 색이 보이게: tfoot 의 진한 회색 배경을 덮어쓰기
+ * 단, 합계 행은 굵게 — 살짝 더 진한 톤 사용 */
+.hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="stage"] {
+  background: #fef3c7; /* yellow-100 */
+}
+.hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="regular"] {
+  background: #dcfce7; /* green-100 */
+}
+.hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="complete"] {
+  background: #dbeafe; /* blue-100 */
+}
+.hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr="check"] {
+  background: #fee2e2; /* red-100 */
+}
+.hist-detail-table tfoot .hist-detail-tfoot-row td[data-attr=""] {
+  background: #e2e8f0; /* slate-200 */
+}
+
+/* ── 신규 보조 테이블 ② (attr 그룹 합계 표) ───────────
+ * 행 = 날짜, 열 = attr 그룹들 + (미지정) + index-2 합 */
+.hist-attr-wrap {
+  margin-top: 20px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.hist-attr-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin: 0 0 8px 0;
+  padding: 0;
+}
+.hist-attr-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  min-width: 520px;
+}
+.hist-attr-table thead th {
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 600;
+  text-align: right;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.hist-attr-table thead th.hist-attr-th-date {
+  text-align: left;
+  width: 1%;
+  white-space: nowrap;
+}
+.hist-attr-table thead th.hist-attr-th-total {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.hist-attr-table tbody td,
+.hist-attr-table tbody th {
+  padding: 7px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.hist-attr-table tbody th {
+  text-align: left;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fafafa;
+}
+.hist-attr-table tbody tr:last-child td,
+.hist-attr-table tbody tr:last-child th {
+  border-bottom: none;
+}
+.hist-attr-table tbody td.hist-attr-td-total {
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+}
+.hist-attr-table tbody tr:hover td,
+.hist-attr-table tbody tr:hover th {
+  background: #eef2f7;
+}
+.hist-attr-table tbody tr:hover td.hist-attr-td-total {
+  background: #e2e8f0;
+}
+/* 합계 표에서도 attr 색 강조 (헤더는 100 톤, 셀은 50 톤) */
+.hist-attr-table thead th.hist-attr-th[data-attr="stage"] {
+  background: #fef3c7; color: #713f12;
+}
+.hist-attr-table thead th.hist-attr-th[data-attr="regular"] {
+  background: #dcfce7; color: #14532d;
+}
+.hist-attr-table thead th.hist-attr-th[data-attr="complete"] {
+  background: #dbeafe; color: #1e3a8a;
+}
+.hist-attr-table thead th.hist-attr-th[data-attr="check"] {
+  background: #fee2e2; color: #7f1d1d;
+}
+.hist-attr-table thead th.hist-attr-th[data-attr=""] {
+  background: #f1f5f9; color: #334155;
+}
+.hist-attr-table tbody td.hist-attr-td[data-attr="stage"]  { background: #fefce8; }
+.hist-attr-table tbody td.hist-attr-td[data-attr="regular"]{ background: #f0fdf4; }
+.hist-attr-table tbody td.hist-attr-td[data-attr="complete"]{ background: #eff6ff; }
+.hist-attr-table tbody td.hist-attr-td[data-attr="check"]  { background: #fef2f2; }
+.hist-attr-table tbody td.hist-attr-td[data-attr=""]       { background: #f8fafc; }
+/* hover 시에도 attr 셀 톤 유지 (살짝만 진하게) */
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="stage"]   { background: #fdf6c2; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="regular"] { background: #e7fbeb; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="complete"]{ background: #e5efff; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr="check"]   { background: #fde8e8; }
+.hist-attr-table tbody tr:hover td.hist-attr-td[data-attr=""]        { background: #eef2f7; }
+/* attr 표 tfoot 합계 행 — 진하게 */
+.hist-attr-table tfoot td,
+.hist-attr-table tfoot th {
+  padding: 8px 10px;
+  background: #f1f5f9;
+  border-top: 1px solid #cbd5e1;
+  font-weight: 700;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.hist-attr-table tfoot th {
+  text-align: left;
+}
+.hist-attr-table tfoot td.hist-attr-td-total {
+  background: #e2e8f0;
+}
+.hist-attr-table tfoot td[data-attr="stage"]   { background: #fef3c7; }
+.hist-attr-table tfoot td[data-attr="regular"] { background: #dcfce7; }
+.hist-attr-table tfoot td[data-attr="complete"]{ background: #dbeafe; }
+.hist-attr-table tfoot td[data-attr="check"]   { background: #fee2e2; }
+.hist-attr-table tfoot td[data-attr=""]        { background: #e2e8f0; }
+/* 빈 상태 행 (attr 표) */
+.hist-attr-table .hist-attr-empty-row td.hist-attr-empty {
+  text-align: center;
+  color: #64748b;
+  padding: 20px 12px;
+  font-size: 13px;
+  background: #fafafa;
+}
+
 /* ── 작은 화면 ──────────────────────────────────────── */
 @media (max-width: 900px) {
   .hist-legend { font-size: 11px; gap: 10px; }
@@ -5409,6 +5638,12 @@ table.eqp-table tbody tr:hover td {
   .hist-detail-table thead th,
   .hist-detail-table tbody td,
   .hist-detail-table tbody th { padding: 5px 8px; font-size: 12px; }
+  .hist-attr-table thead th,
+  .hist-attr-table tbody td,
+  .hist-attr-table tbody th,
+  .hist-attr-table tfoot td,
+  .hist-attr-table tfoot th { padding: 6px 8px; font-size: 12px; }
+  .hist-attr-title { font-size: 12px; }
 }
 @media (max-width: 640px) {
   .hist-chart-wrap { height: 280px; }
