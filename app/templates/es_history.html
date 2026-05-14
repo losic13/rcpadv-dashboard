@@ -8,15 +8,15 @@
     Series B : parsing-index-2 의 current_state 별 누적(stacked) 막대
 
   하단에는 정확한 수치 확인용 보조 테이블이 함께 제공된다.
-  보조 테이블은 attr(stage/regular/complete/check/미지정) 그룹으로
-  thead 2 단 헤더 + 셀 색 강조로 묶어 보여준다.
-  그 아래에는 attr 그룹별 합계만 모아 보여주는 표가 하나 더 있다.
+  보조 테이블 ①은 ES_HISTORY_STATE_KEYS 선언 순서 그대로 state 컬럼을 나열하되,
+  attr (stage/normal/complete/check/미지정) 별 셀 색 강조로 그룹을 식별한다 (1단 헤더).
+  그 아래에는 attr 그룹별 합계만 모아 보여주는 표가 하나 더 있다 (attr_order 순).
 
   데이터: GET /es/history/data → run_history_overview()
   컨텍스트:
     days, dates[],
     states[ {key, label, attr} ],  ← Series B 의 카테고리 순서/라벨/속성
-    attr_order[ str ]              ← attr 노출 순서 (마지막 "" = 미지정)
+    attr_order[ str ]              ← attr 합계 표의 노출 순서 (마지막 "" = 미지정)
     index1, index2
 #}
 {% extends "base.html" %}
@@ -24,10 +24,12 @@
 {% block title %}{{ page_title }}{% endblock %}
 {% block page_heading %}{{ page_title }}{% endblock %}
 
-{# attr → 사용자에게 보이는 라벨 (한국어) #}
+{# attr → 사용자에게 보이는 라벨 (한국어)
+   - 'normal' 은 정상 상태(강조 없음)
+   - ''       은 미지정 (이제 옅은 초록으로 강조) #}
 {% set attr_label_map = {
   'stage':    '준비',
-  'regular':  '정상',
+  'normal':   '정상',
   'complete': '완료',
   'check':    '점검',
   '':         '미지정',
@@ -110,44 +112,24 @@
       <canvas id="hist-chart"></canvas>
     </div>
 
-    {# ── attr 그룹별로 states 를 재정렬해 둔 리스트 (SSR thead 2단 헤더 용) #}
-    {% set states_by_attr = [] %}
-    {% for a in attr_order %}
-      {% set group = [] %}
-      {% for s in states %}
-        {% if s.attr == a %}{% set _ = group.append(s) %}{% endif %}
-      {% endfor %}
-      {% if group|length > 0 %}
-        {% set _ = states_by_attr.append({'attr': a, 'items': group}) %}
-      {% endif %}
-    {% endfor %}
-
-    <!-- ── 보조 테이블 ① : 날짜 × current_state (attr 그룹 헤더) ── -->
+    <!-- ── 보조 테이블 ① : 날짜 × current_state ──
+         state 컬럼 순서는 ES_HISTORY_STATE_KEYS 선언 순서 그대로 (섞지 않음).
+         attr 그룹은 셀 배경색으로만 구분 (1단 헤더). -->
     <div class="hist-detail-wrap">
       <table class="hist-detail-table" id="hist-detail-table">
         <thead>
-          {# 1행: attr 그룹 헤더 (계층 1) #}
-          <tr class="hist-detail-thead-attr">
-            <th class="hist-detail-th-date" rowspan="2">날짜</th>
-            <th class="hist-detail-th-idx1 hist-detail-th-num" rowspan="2"
-                title="parsing-index-1 전체 처리량">index-1</th>
-            <th class="hist-detail-th-idx2 hist-detail-th-num" rowspan="2"
-                title="parsing-index-2 (current_state 필터링 합)">index-2 합</th>
-            {% for g in states_by_attr %}
-            <th class="hist-detail-th-attr"
-                colspan="{{ g['items']|length }}"
-                data-attr="{{ g['attr'] }}">
-              {{ attr_label_map.get(g['attr'], g['attr']) }}
-            </th>
-            {% endfor %}
-          </tr>
-          {# 2행: 개별 state 헤더 (계층 2) #}
           <tr class="hist-detail-thead-state">
-            {% for g in states_by_attr %}
-              {% for s in g['items'] %}
-              <th class="hist-detail-th-state hist-detail-th-num"
-                  data-attr="{{ s.attr }}" title="{{ s.key }}">{{ s.label }}</th>
-              {% endfor %}
+            <th class="hist-detail-th-date">날짜</th>
+            <th class="hist-detail-th-idx1 hist-detail-th-num"
+                title="parsing-index-1 전체 처리량">index-1</th>
+            <th class="hist-detail-th-idx2 hist-detail-th-num"
+                title="parsing-index-2 (current_state 필터링 합)">index-2 합</th>
+            {% for s in states %}
+            <th class="hist-detail-th-state hist-detail-th-num"
+                data-attr="{{ s.attr }}"
+                title="{{ s.key }}{% if s.attr %} · {{ attr_label_map.get(s.attr, s.attr) }}{% endif %}">
+              {{ s.label }}
+            </th>
             {% endfor %}
           </tr>
         </thead>
@@ -163,12 +145,10 @@
             <th class="hist-detail-th-date">합계</th>
             <td class="hist-detail-td-num hist-detail-td-idx1" id="hist-foot-idx1">—</td>
             <td class="hist-detail-td-num hist-detail-td-idx2" id="hist-foot-idx2">—</td>
-            {% for g in states_by_attr %}
-              {% for s in g['items'] %}
-              <td class="hist-detail-td-num"
-                  data-state-key="{{ s.key }}"
-                  data-attr="{{ s.attr }}">—</td>
-              {% endfor %}
+            {% for s in states %}
+            <td class="hist-detail-td-num"
+                data-state-key="{{ s.key }}"
+                data-attr="{{ s.attr }}">—</td>
             {% endfor %}
           </tr>
         </tfoot>
@@ -227,8 +207,6 @@
   const legend      = document.getElementById('hist-legend');
   const chartCanvas = document.getElementById('hist-chart');
   const detailTbody = document.getElementById('hist-detail-tbody');
-  const footIdx1    = document.getElementById('hist-foot-idx1');
-  const footIdx2    = document.getElementById('hist-foot-idx2');
   const attrTbody   = document.getElementById('hist-attr-tbody');
   const attrFootTot = document.getElementById('hist-attr-foot-total');
 
@@ -241,7 +219,7 @@
   // attr → 라벨 (서버 attr_label_map 과 동기화)
   const ATTR_LABEL = {
     'stage':    '준비',
-    'regular':  '정상',
+    'normal':   '정상',
     'complete': '완료',
     'check':    '점검',
     '':         '미지정',
@@ -284,21 +262,6 @@
   let _chart = null;
   function destroyChart() {
     if (_chart) { try { _chart.destroy(); } catch (_) {} _chart = null; }
-  }
-
-  // ── attr 순서대로 states 를 그룹핑 ─────────────────────
-  function groupStatesByAttr(states, attrOrder) {
-    // 결과 형식: [{attr, items: [state, ...]}, ...]  (빈 그룹은 제외)
-    const groups = [];
-    for (const a of attrOrder) {
-      const items = states.filter(s => (s.attr || '') === a);
-      if (items.length > 0) groups.push({ attr: a, items });
-    }
-    // attrOrder 에 없는 attr (정의 외값) 가 있으면 마지막에 별도 그룹으로 부착
-    const known = new Set(attrOrder);
-    const orphan = states.filter(s => !known.has(s.attr || ''));
-    if (orphan.length > 0) groups.push({ attr: '', items: orphan });
-    return groups;
   }
 
   // ── 메인 차트 렌더 ─────────────────────────────────────
@@ -395,67 +358,49 @@
     });
   }
 
-  // ── 보조 테이블 ① — thead 재구성 ───────────────────────
-  // 서버 SSR 이 attr 순서로 thead 를 만들지만, AJAX 응답에 따라 states 구성이
-  // 달라질 가능성에 대비해 클라이언트도 thead 를 다시 그린다.
-  function renderDetailThead(states, attrOrder) {
+  // ── 보조 테이블 ① — thead/tfoot 재구성 ──────────────────
+  // 서버 SSR 이 이미 1단 헤더로 그린 상태이지만, AJAX 응답에 따라 states 구성이
+  // 달라질 수 있어 클라이언트도 재구성한다. states 배열 선언 순서 그대로 사용.
+  function renderDetailThead(states) {
     const thead = document.querySelector('#hist-detail-table thead');
-    if (!thead) return [];
-    const groups = groupStatesByAttr(states, attrOrder);
+    if (!thead) return;
 
-    // 1행: 고정 3열(날짜/index-1/index-2 합) + attr 그룹
-    const tr1 = document.createElement('tr');
-    tr1.className = 'hist-detail-thead-attr';
+    const tr = document.createElement('tr');
+    tr.className = 'hist-detail-thead-state';
+
     const thDate = document.createElement('th');
     thDate.className = 'hist-detail-th-date';
-    thDate.rowSpan = 2;
     thDate.textContent = '날짜';
-    tr1.appendChild(thDate);
+    tr.appendChild(thDate);
+
     const thI1 = document.createElement('th');
     thI1.className = 'hist-detail-th-idx1 hist-detail-th-num';
-    thI1.rowSpan = 2;
     thI1.title = 'parsing-index-1 전체 처리량';
     thI1.textContent = 'index-1';
-    tr1.appendChild(thI1);
+    tr.appendChild(thI1);
+
     const thI2 = document.createElement('th');
     thI2.className = 'hist-detail-th-idx2 hist-detail-th-num';
-    thI2.rowSpan = 2;
     thI2.title = 'parsing-index-2 (current_state 필터링 합)';
     thI2.textContent = 'index-2 합';
-    tr1.appendChild(thI2);
+    tr.appendChild(thI2);
 
-    for (const g of groups) {
+    for (const s of states) {
       const th = document.createElement('th');
-      th.className = 'hist-detail-th-attr';
-      th.colSpan = g.items.length;
-      th.dataset.attr = g.attr;
-      th.textContent = attrLabel(g.attr);
-      tr1.appendChild(th);
-    }
-
-    // 2행: 각 state 헤더
-    const tr2 = document.createElement('tr');
-    tr2.className = 'hist-detail-thead-state';
-    for (const g of groups) {
-      for (const s of g.items) {
-        const th = document.createElement('th');
-        th.className = 'hist-detail-th-state hist-detail-th-num';
-        th.dataset.attr = s.attr || '';
-        th.title = s.key;
-        th.textContent = s.label;
-        tr2.appendChild(th);
-      }
+      th.className = 'hist-detail-th-state hist-detail-th-num';
+      th.dataset.attr = s.attr || '';
+      const attrTxt = s.attr ? ` · ${attrLabel(s.attr)}` : '';
+      th.title = `${s.key}${attrTxt}`;
+      th.textContent = s.label;
+      tr.appendChild(th);
     }
 
     thead.innerHTML = '';
-    thead.appendChild(tr1);
-    thead.appendChild(tr2);
+    thead.appendChild(tr);
 
     // tfoot 도 동일 state 순서로 재구성
     const tfootRow = document.querySelector('#hist-detail-table tfoot .hist-detail-tfoot-row');
     if (tfootRow) {
-      // 고정 3개 (합계 셀 / idx1 / idx2) 만 남기고 뒤를 새로 그린다
-      // 가장 안정적인 방법: 전체를 다시 그리되 합계 셀의 id 보존
       tfootRow.innerHTML = '';
       const thTot = document.createElement('th');
       thTot.className = 'hist-detail-th-date';
@@ -474,37 +419,26 @@
       tdI2.textContent = '—';
       tfootRow.appendChild(tdI2);
 
-      for (const g of groups) {
-        for (const s of g.items) {
-          const td = document.createElement('td');
-          td.className = 'hist-detail-td-num';
-          td.dataset.stateKey = s.key;
-          td.dataset.attr = s.attr || '';
-          td.textContent = '—';
-          tfootRow.appendChild(td);
-        }
+      for (const s of states) {
+        const td = document.createElement('td');
+        td.className = 'hist-detail-td-num';
+        td.dataset.stateKey = s.key;
+        td.dataset.attr = s.attr || '';
+        td.textContent = '—';
+        tfootRow.appendChild(td);
       }
     }
-
-    return groups;
   }
 
   // ── 보조 테이블 ① 렌더 ────────────────────────────────
   function renderDetailTable(payload) {
     const dates  = payload.dates  || DATES;
     const states = payload.states || STATES;
-    const attrOrder = payload.attr_order || ATTR_ORDER;
     const idx1Map = payload.index1_by_date || {};
     const idx2Map = payload.index2_by_date || {};
 
-    // thead/tfoot 재구성 (그룹 순서대로 state 열 정렬)
-    const groups = renderDetailThead(states, attrOrder);
-
-    // 평면화된 state 순서 (그룹 순서에 따라)
-    const flatStates = [];
-    for (const g of groups) {
-      for (const s of g.items) flatStates.push(s);
-    }
+    // thead/tfoot 재구성 (states 선언 순서 그대로)
+    renderDetailThead(states);
 
     detailTbody.innerHTML = '';
 
@@ -512,7 +446,7 @@
       const tr = document.createElement('tr');
       tr.className = 'hist-detail-empty-row';
       const td = document.createElement('td');
-      td.colSpan = 3 + flatStates.length;
+      td.colSpan = 3 + states.length;
       td.className = 'hist-detail-empty';
       td.textContent = '표시할 데이터가 없습니다.';
       tr.appendChild(td);
@@ -539,20 +473,21 @@
       tdI1.textContent = v1.toLocaleString();
       tr.appendChild(tdI1);
 
-      // index-2 합 (요청: index-1 바로 옆에 배치)
+      // index-2 합 (index-1 바로 옆)
       const i2map = idx2Map[d] || {};
       let i2sum = 0;
-      for (const s of flatStates) i2sum += Number(i2map[s.key] || 0);
+      for (const s of states) i2sum += Number(i2map[s.key] || 0);
       const tdI2 = document.createElement('td');
       tdI2.className = 'hist-detail-td-num hist-detail-td-idx2';
       tdI2.textContent = i2sum.toLocaleString();
       tr.appendChild(tdI2);
 
-      // 각 state (attr 그룹 순서대로) — attr 별 셀 색 강조
-      for (const s of flatStates) {
+      // 각 state (선언 순서 그대로) — attr 별 셀 색 강조
+      for (const s of states) {
         const td = document.createElement('td');
         td.className = 'hist-detail-td-num';
         if (s.attr) td.dataset.attr = s.attr;
+        else        td.dataset.attr = '';   // 미지정도 셀 색을 받도록 빈 값으로 명시
         const v = Number(i2map[s.key] || 0);
         td.textContent = v.toLocaleString();
         tr.appendChild(td);
@@ -571,7 +506,7 @@
       : dates.reduce((acc, d) => {
           const m = idx2Map[d] || {};
           let s = 0;
-          for (const sk of flatStates) s += Number(m[sk.key] || 0);
+          for (const sk of states) s += Number(m[sk.key] || 0);
           return acc + s;
         }, 0);
     const elFootIdx1 = document.getElementById('hist-foot-idx1');
@@ -631,7 +566,7 @@
       for (const a of attrOrder) {
         const td = document.createElement('td');
         td.className = 'hist-detail-td-num hist-attr-td';
-        if (a) td.dataset.attr = a;
+        td.dataset.attr = a || '';
         const v = Number(dayMap[a] || 0);
         rowSum += v;
         td.textContent = v.toLocaleString();

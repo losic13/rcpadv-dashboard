@@ -87,18 +87,18 @@ class Settings(BaseSettings):
     #         · ``KEY::속성``           → label=KEY, attr=속성 (label 생략 표기)
     #     - attr 값 (보조 테이블 셀 강조용):
     #         · ``stage``    → 옅은 노랑
-    #         · ``regular``  → 옅은 초록
+    #         · ``normal``   → 강조 없음 (정상 상태이므로 굳이 색 없음)
     #         · ``complete`` → 옅은 파랑
     #         · ``check``    → 옅은 붉은색
-    #         · 그 외 / 빈 값 → 강조 없음 (미지정 그룹으로 묶임)
+    #         · 그 외 / 빈 값 → 미지정 그룹 (옅은 초록으로 강조 — "기타 처리량")
     #
-    #   예) "WAITING:대기:stage,RUNNING:실행 중:regular,DONE:완료:complete,FAILED:실패:check"
+    #   예) "WAITING:대기:stage,RUNNING:실행 중:normal,DONE:완료:complete,FAILED:실패:check"
     ES_HISTORY_INDEX1: str = "parsing-index-1-*"
     ES_HISTORY_INDEX2: str = "parsing-index-2-*"
     ES_HISTORY_DAYS: int = 7
     ES_HISTORY_STATE_KEYS: str = (
         "WAITING:대기:stage,"
-        "RUNNING:실행 중:regular,"
+        "RUNNING:실행 중:normal,"
         "STUCK:정체:check,"
         "RETRY:재시도:check,"
         "FAILED:실패:check"
@@ -181,7 +181,7 @@ class Settings(BaseSettings):
     # 표/차트에서 셀 강조 색을 결정하며, 그 외 값은 미지정(강조 없음)으로 처리.
     HISTORY_STATE_ATTR_VALUES: ClassVar[frozenset[str]] = frozenset({
         "stage",     # 옅은 노랑
-        "regular",   # 옅은 초록
+        "normal",    # 강조 없음 (정상)
         "complete",  # 옅은 파랑
         "check",     # 옅은 붉은색
     })
