@@ -201,17 +201,57 @@ def targets_page(request: Request):
     )
 
 
+# ── 신규: /es/history (종합 처리 이력) ────────────────────────────────────
 @router.get("/history")
 def history_page(request: Request):
+    """종합 처리 이력 페이지 — product × maker × 날짜 매트릭스.
+
+    각 셀에는 미니 막대차트가 그려진다:
+        Series A: parsing-index-1 단일 막대 (해당 product/maker/date 의 doc_count)
+        Series B: parsing-index-2 의 current_state 별 누적 막대
+
+    설정:
+        - ``ES_HISTORY_DAYS``        : 최근 N일 (기본 7, 오늘 포함)
+        - ``ES_HISTORY_STATE_KEYS``  : Series B 에 노출할 state (key,label)
+        - ``ES_HISTORY_INDEX1/2``    : 각 인덱스 패턴
+    """
+    from datetime import date, timedelta
+    from app.config import settings
+
+    days = max(1, int(settings.ES_HISTORY_DAYS or 7))
+    today = date.today()
+    dates = [
+        (today - timedelta(days=days - 1 - i)).isoformat()
+        for i in range(days)
+    ]
+    state_pairs = settings.es_history_state_keys()
     return templates.TemplateResponse(
         request,
-        "es_stub.html",
+        "es_history.html",
         {
-            "nav_items": NAV_ITEMS,
+            "nav_items":  NAV_ITEMS,
             "active_nav": "es_history",
             "page_title": "종합 처리 이력",
+            "days":       days,
+            "dates":      dates,
+            "states":     [{"key": k, "label": lab} for k, lab in state_pairs],
+            "index1":     settings.ES_HISTORY_INDEX1,
+            "index2":     settings.ES_HISTORY_INDEX2,
         },
     )
+
+
+@router.get("/history/data")
+async def history_data(request: Request):
+    """종합 처리 이력 데이터 API (JSON).
+
+    parsing-index-1 + parsing-index-2 두 쿼리를 병렬로 실행해
+    (product × maker × 날짜) 매트릭스를 만들어 반환한다.
+    응답 스키마는 :func:`app.services.es_service.run_history_overview` 참고.
+    """
+    result = await es_service.run_history_overview()
+    status = 200 if result["ok"] else 500
+    return JSONResponse(result, status_code=status)
 
 
 @router.get("/delay")

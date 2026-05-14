@@ -68,6 +68,27 @@ class Settings(BaseSettings):
         "FAILED:실패"
     )
 
+    # ---- ES "종합 처리 이력" 페이지 (/es/history) ----
+    # · ES_HISTORY_INDEX1 / ES_HISTORY_INDEX2 :
+    #   각각 parsing-index-1, parsing-index-2 의 인덱스 패턴.
+    # · ES_HISTORY_DAYS :
+    #   집계 대상 기간. 오늘을 포함한 최근 N일.  (기본 7일)
+    # · ES_HISTORY_STATE_KEYS :
+    #   parsing-index-2 의 current_state 값을 어떤 키만, 어떤 순서로,
+    #   어떤 라벨로 보여줄지 정의.  포맷은 ``ES_PENDING_DELAY_DISPLAY_KEYS``
+    #   와 동일 (``"KEY1[:label1],KEY2[:label2],..."``).
+    #   기본값은 작업 대기 및 지연 페이지와 동일하게 시작.
+    ES_HISTORY_INDEX1: str = "parsing-index-1-*"
+    ES_HISTORY_INDEX2: str = "parsing-index-2-*"
+    ES_HISTORY_DAYS: int = 7
+    ES_HISTORY_STATE_KEYS: str = (
+        "WAITING:대기,"
+        "RUNNING:실행 중,"
+        "STUCK:정체,"
+        "RETRY:재시도,"
+        "FAILED:실패"
+    )
+
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"
@@ -106,15 +127,16 @@ class Settings(BaseSettings):
     def es_hosts_list(self) -> list[str]:
         return [h.strip() for h in self.ES_HOSTS.split(",") if h.strip()]
 
-    def es_pending_delay_display_keys(self) -> list[tuple[str, str]]:
-        """``ES_PENDING_DELAY_DISPLAY_KEYS`` 문자열을 [(key, label)] 리스트로 파싱.
+    @staticmethod
+    def _parse_key_label_csv(raw: str) -> list[tuple[str, str]]:
+        """``"KEY1[:label1],KEY2[:label2],..."`` 형식 문자열을 [(key, label)] 로 파싱.
 
         - 콤마(,)로 항목 구분, 콜론(:)으로 key:label 구분.
         - label 생략 시 key 가 label.
         - 빈 항목/빈 key 는 무시.
         - 중복 key 는 처음 등장한 것만 유지 (선언 순서 보존).
         """
-        raw = (self.ES_PENDING_DELAY_DISPLAY_KEYS or "").strip()
+        raw = (raw or "").strip()
         if not raw:
             return []
         out: list[tuple[str, str]] = []
@@ -135,6 +157,14 @@ class Settings(BaseSettings):
             seen.add(key)
             out.append((key, label))
         return out
+
+    def es_pending_delay_display_keys(self) -> list[tuple[str, str]]:
+        """``ES_PENDING_DELAY_DISPLAY_KEYS`` 를 [(key, label)] 로 파싱."""
+        return self._parse_key_label_csv(self.ES_PENDING_DELAY_DISPLAY_KEYS)
+
+    def es_history_state_keys(self) -> list[tuple[str, str]]:
+        """``ES_HISTORY_STATE_KEYS`` 를 [(key, label)] 로 파싱."""
+        return self._parse_key_label_csv(self.ES_HISTORY_STATE_KEYS)
 
 
 settings = Settings()

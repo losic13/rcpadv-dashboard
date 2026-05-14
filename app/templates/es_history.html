@@ -1,0 +1,389 @@
+{#
+  ── 종합 처리 이력 (/es/history) ─────────────────────────────────
+  parsing-index-1 + parsing-index-2 두 쿼리를 병렬로 실행해
+  (product × maker × 날짜) 매트릭스 테이블을 만든다.
+
+  각 셀에는 미니 막대차트가 그려진다 (셀당 Chart.js 인스턴스):
+    Series A : index-1 단일 막대 (date 별 doc_count)
+    Series B : index-2 의 current_state 별 누적 막대
+  Series A 와 Series B 는 한 셀 차트 안에서 **그룹(나란히)** 으로 배치됨.
+
+  데이터: GET /es/history/data → run_history_overview()
+  컨텍스트:
+    days, dates[],
+    states[ {key, label} ],   ← Series B 의 카테고리 순서/라벨
+    index1, index2
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card history-page" id="history-page"
+         data-days="{{ days }}"
+         data-state-keys='{{ states | tojson | safe }}'
+         data-dates='{{ dates | tojson | safe }}'>
+
+  <!-- ── 헤더 ──────────────────────────────────────────────── -->
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES Agg</span>
+      <strong>최근 {{ days }}일 · product × maker × date</strong>
+    </div>
+    <div class="card-controls">
+      <button class="btn btn-run" id="hist-btn-refresh" title="조회">
+        <span class="btn-run-icon" id="hist-spinner" aria-hidden="true">↻</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+      <span class="status-badge" id="hist-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+
+    <!-- ── 오류 표시 ──────────────────────────────────────── -->
+    <div id="hist-error" class="disk-error" hidden></div>
+
+    <!-- ── 메타바 ─────────────────────────────────────────── -->
+    <div class="disk-meta" id="hist-meta">
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="hist-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="hist-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">기간</span>
+        <span id="hist-period">{{ dates[0] }} ~ {{ dates[-1] }} ({{ days }}일)</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">index-1</span>
+        <code>{{ index1 }}</code>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">index-2</span>
+        <code>{{ index2 }}</code>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">행</span>
+        <span id="hist-row-count">—</span>
+      </span>
+    </div>
+
+    <!-- ── 범례 ──────────────────────────────────────────── -->
+    <div class="hist-legend" id="hist-legend">
+      <span class="hist-legend-item">
+        <span class="hist-legend-swatch" style="background:#3b82f6"></span>
+        <span class="hist-legend-label">index-1</span>
+      </span>
+      {% for s in states %}
+      <span class="hist-legend-item">
+        <span class="hist-legend-swatch" data-state-idx="{{ loop.index0 }}"></span>
+        <span class="hist-legend-label">{{ s.label }} <code class="hist-legend-key">({{ s.key }})</code></span>
+      </span>
+      {% endfor %}
+    </div>
+
+    <!-- ── 테이블 ─────────────────────────────────────────── -->
+    <div class="hist-table-wrap">
+      <table class="hist-table" id="hist-table">
+        <thead>
+          <tr>
+            <th class="hist-col-product">product</th>
+            <th class="hist-col-maker">maker</th>
+            {% for d in dates %}
+            <th class="hist-col-date" title="{{ d }}">
+              {# yyyy-MM-dd → MM/DD (요일) #}
+              <span class="hist-th-date" data-iso="{{ d }}">{{ d }}</span>
+            </th>
+            {% endfor %}
+            <th class="hist-col-total" title="7일 합계 (index-1 + index-2)">합계</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody">
+          <tr class="hist-empty-row">
+            <td colspan="{{ 2 + dates|length + 1 }}" class="hist-empty">
+              조회 버튼을 누르거나 페이지 로드를 기다려주세요…
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</section>
+
+<script>
+(() => {
+  // ── DOM ────────────────────────────────────────────────
+  const root        = document.getElementById('history-page');
+  const btn         = document.getElementById('hist-btn-refresh');
+  const spinner     = document.getElementById('hist-spinner');
+  const badge       = document.getElementById('hist-status-badge');
+  const errorBox    = document.getElementById('hist-error');
+  const elQueriedAt = document.getElementById('hist-queried-at');
+  const elElapsed   = document.getElementById('hist-elapsed');
+  const elRowCount  = document.getElementById('hist-row-count');
+  const tbody       = document.getElementById('hist-tbody');
+  const legend      = document.getElementById('hist-legend');
+
+  // 초기 컨텍스트 (서버 SSR 로 주입)
+  const DAYS    = parseInt(root.dataset.days || '7', 10);
+  const DATES   = JSON.parse(root.dataset.dates || '[]');         // ["yyyy-MM-dd", ...]
+  const STATES  = JSON.parse(root.dataset.stateKeys || '[]');     // [{key,label}, ...]
+
+  // ── 색상 팔레트 ─────────────────────────────────────────
+  // index-1 = 단일색(파랑)
+  const COLOR_INDEX1 = '#3b82f6';
+  // state 별 색상 (10색 순환)
+  const STATE_PALETTE = [
+    '#ef4444', // red
+    '#f59e0b', // amber
+    '#10b981', // emerald
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#14b8a6', // teal
+    '#f97316', // orange
+    '#6366f1', // indigo
+    '#84cc16', // lime
+    '#06b6d4', // cyan
+  ];
+  const colorForState = (i) => STATE_PALETTE[i % STATE_PALETTE.length];
+
+  // 범례 swatch 색 채우기
+  legend.querySelectorAll('.hist-legend-swatch[data-state-idx]').forEach(el => {
+    const idx = parseInt(el.dataset.stateIdx, 10);
+    el.style.background = colorForState(idx);
+  });
+
+  // ── 날짜 헤더 포맷: yyyy-MM-dd → MM/DD (요일) ────────────
+  const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
+  function fmtDateHeader(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return iso;
+    const d = new Date(`${iso}T00:00:00`);
+    return `${m[2]}/${m[3]} (${DOW_KO[d.getDay()]})`;
+  }
+  document.querySelectorAll('.hist-th-date').forEach(el => {
+    el.textContent = fmtDateHeader(el.dataset.iso);
+  });
+
+  // ── 상태 배지 ──────────────────────────────────────────
+  function setStatus(state, text) {
+    badge.dataset.state = state;
+    badge.textContent = text || '';
+  }
+
+  // ── 중복 요청 가드 ──────────────────────────────────────
+  let _inflight = false;
+
+  // ── 셀별 Chart.js 인스턴스 추적 (재조회 시 destroy) ────
+  const _charts = new Map();   // canvasId -> Chart instance
+
+  function destroyAllCharts() {
+    _charts.forEach(ch => { try { ch.destroy(); } catch (_) {} });
+    _charts.clear();
+  }
+
+  // ── 셀 하나 분 미니 차트 생성 ───────────────────────────
+  // cell = { date, index1, states:[...], index2_total }
+  function renderCellChart(canvas, cell, stateLabels) {
+    const ctx = canvas.getContext('2d');
+
+    // Series A: index-1 단일막대 → 자기 자신만 있는 stack
+    // Series B: index-2 state 별 누적 → 모두 같은 stack 에 들어감
+    // → datasets 구성:
+    //   [{label:'index-1', stack:'a', data:[v1]}, ...state별 dataset(stack:'b')...]
+    const datasets = [{
+      label: 'index-1',
+      data: [cell.index1],
+      backgroundColor: COLOR_INDEX1,
+      stack: 'a',
+      borderWidth: 0,
+      borderRadius: 1,
+      categoryPercentage: 0.9,
+      barPercentage: 0.9,
+    }];
+    for (let i = 0; i < stateLabels.length; i++) {
+      datasets.push({
+        label: stateLabels[i].label,
+        _stateKey: stateLabels[i].key,
+        data: [cell.states[i] || 0],
+        backgroundColor: colorForState(i),
+        stack: 'b',
+        borderWidth: 0,
+        borderRadius: 1,
+        categoryPercentage: 0.9,
+        barPercentage: 0.9,
+      });
+    }
+
+    const chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: [''],
+        datasets,
+      },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: () => cell.date,
+              label: (ctx) => {
+                const ds = ctx.dataset;
+                const v = ctx.parsed.y || 0;
+                if (ds.stack === 'a') return `index-1: ${v.toLocaleString()}`;
+                return `${ds.label} (${ds._stateKey}): ${v.toLocaleString()}`;
+              },
+              footer: () => {
+                const i1 = cell.index1 || 0;
+                const i2 = cell.index2_total || 0;
+                return `합계  index-1=${i1.toLocaleString()}  index-2=${i2.toLocaleString()}`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: { stacked: true, display: false, grid: { display: false } },
+          y: { stacked: true, display: false, grid: { display: false }, beginAtZero: true },
+        },
+      },
+    });
+    _charts.set(canvas.id, chart);
+  }
+
+  // ── 셀 비어 있는지 판단 (모두 0) ─────────────────────
+  function isEmptyCell(cell) {
+    if (cell.index1 > 0) return false;
+    for (const v of cell.states) if (v > 0) return false;
+    return true;
+  }
+
+  // ── 테이블 렌더 ────────────────────────────────────────
+  function renderRows(payload) {
+    destroyAllCharts();
+    tbody.innerHTML = '';
+
+    const rows = payload.rows || [];
+    const states = payload.states || STATES;
+    elRowCount.textContent = rows.length.toLocaleString();
+
+    if (rows.length === 0) {
+      const tr = document.createElement('tr');
+      tr.className = 'hist-empty-row';
+      const td = document.createElement('td');
+      td.colSpan = 2 + DATES.length + 1;
+      td.className = 'hist-empty';
+      td.textContent = '표시할 데이터가 없습니다.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    rows.forEach((row, rIdx) => {
+      const tr = document.createElement('tr');
+
+      const tdP = document.createElement('td');
+      tdP.className = 'hist-col-product';
+      tdP.textContent = row.product || '—';
+      tr.appendChild(tdP);
+
+      const tdM = document.createElement('td');
+      tdM.className = 'hist-col-maker';
+      tdM.textContent = row.maker || '—';
+      tr.appendChild(tdM);
+
+      row.cells.forEach((cell, cIdx) => {
+        const td = document.createElement('td');
+        td.className = 'hist-col-date hist-cell';
+        if (isEmptyCell(cell)) {
+          td.classList.add('hist-cell-empty');
+          // 빈 셀: 차트 안 그림
+        } else {
+          const canvas = document.createElement('canvas');
+          canvas.id = `hist-c-${rIdx}-${cIdx}`;
+          canvas.className = 'hist-cell-canvas';
+          canvas.width = 90;
+          canvas.height = 56;
+          td.appendChild(canvas);
+          // 차트는 DOM 부착 후 그려야 함
+          requestAnimationFrame(() => renderCellChart(canvas, cell, states));
+        }
+        tr.appendChild(td);
+      });
+
+      const tdT = document.createElement('td');
+      tdT.className = 'hist-col-total';
+      tdT.textContent = (row.total || 0).toLocaleString();
+      tr.appendChild(tdT);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── fetch ──────────────────────────────────────────────
+  async function fetchData() {
+    if (_inflight) return;
+    _inflight = true;
+    btn.disabled = true;
+    spinner.classList.add('disk-spin');
+    setStatus('loading', '조회 중…');
+    errorBox.hidden = true;
+    errorBox.textContent = '';
+
+    try {
+      const res = await fetch('/es/history/data', {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+
+      // 메타 갱신
+      elQueriedAt.textContent = data.queried_at || '—';
+      elElapsed.textContent   = data.elapsed_ms != null ? `${data.elapsed_ms} ms` : '—';
+
+      if (!res.ok || !data.ok) {
+        const msg = data.error
+          || (data.errors && (data.errors.index1 || data.errors.index2))
+          || `요청 실패 (HTTP ${res.status})`;
+        errorBox.textContent = `조회 실패: ${msg}`;
+        errorBox.hidden = false;
+        setStatus('error', '오류');
+        // rows 가 있어도 ok=false 일 수 있으니, 비어있지 않으면 그려준다
+        if (data.rows && data.rows.length > 0) renderRows(data);
+        return;
+      }
+
+      renderRows(data);
+      setStatus('ok', `${(data.rows || []).length}행`);
+    } catch (e) {
+      errorBox.textContent = `네트워크 오류: ${e.message || e}`;
+      errorBox.hidden = false;
+      setStatus('error', '오류');
+    } finally {
+      _inflight = false;
+      btn.disabled = false;
+      spinner.classList.remove('disk-spin');
+    }
+  }
+
+  // ── 이벤트 ────────────────────────────────────────────
+  btn.addEventListener('click', fetchData);
+
+  // ── 초기 1회 자동 조회 ─────────────────────────────────
+  fetchData();
+})();
+</script>
+{% endblock %}
