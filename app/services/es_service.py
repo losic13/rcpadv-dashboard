@@ -681,17 +681,28 @@ async def run_history_overview() -> dict[str, Any]:
         {
           "ok": bool,
           "dates":     ["2026-05-08", ...],          # 오름차순 N일
-          "states":    [{"key": "WAITING", "label": "대기"}, ...],
-                                                       # ES_HISTORY_STATE_KEYS 순서
+          "states":    [                              # ES_HISTORY_STATE_KEYS 순서
+            {"key": "WAITING", "label": "대기", "attr": "stage"},
+            ...
+          ],
+          "attr_order": ["stage", "regular", "complete", "check", ""],
+                        # 보조 테이블/표에서 attr 그룹을 노출할 순서.
+                        # "" 는 미지정(강조 없음) 그룹.
           "index1_by_date": {"2026-05-08": 123, ...},
                                                        # parsing-index-1 일자별 카운트
           "index2_by_date": {                          # parsing-index-2 일자×state 카운트
             "2026-05-08": {"WAITING": 10, "RUNNING": 20, ...}, ...
           },
+          "index2_by_date_attr": {                     # 일자별 attr 그룹 합계
+            "2026-05-08": {"stage": 30, "regular": 0, "complete": 0,
+                            "check": 0, "": 0}, ...
+          },
           "totals": {
             "index1": int,
             "index2": int,                             # filtered state 합
             "by_state": {"WAITING": 100, ...},
+            "by_attr":  {"stage": 100, "regular": 50, ...,
+                          "": 0},                      # attr 그룹 합계 (""=미지정)
           },
           "index1":     str,    # index 이름
           "index2":     str,
@@ -706,11 +717,15 @@ async def run_history_overview() -> dict[str, Any]:
     q2 = es_queries.HISTORY_INDEX2_AGG
     days = max(1, int(settings.ES_HISTORY_DAYS or 7))
     dates = _history_date_list(days)
-    state_pairs = settings.es_history_state_keys()  # [(key, label), ...]
+    # [(key, label, attr)] — attr ∈ {"stage","regular","complete","check",""}
+    state_triples = settings.es_history_state_keys()
+
+    # attr 노출 순서 — 미지정("")은 항상 마지막
+    ATTR_ORDER = ["stage", "regular", "complete", "check", ""]
 
     log.info(
         "[es/history] 쿼리 시작: days=%d index1=%s index2=%s states=%d",
-        days, q1.index, q2.index, len(state_pairs),
+        days, q1.index, q2.index, len(state_triples),
     )
     start = time.perf_counter()
 
@@ -736,16 +751,22 @@ async def run_history_overview() -> dict[str, Any]:
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     queried_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    def _states_payload(triples: list[tuple[str, str, str]]) -> list[dict[str, str]]:
+        return [{"key": k, "label": lab, "attr": at} for k, lab, at in triples]
+
     base_payload: dict[str, Any] = {
         "ok": (err1 is None and err2 is None),
         "dates": dates,
-        "states": [{"key": k, "label": lab} for k, lab in state_pairs],
+        "states": _states_payload(state_triples),
+        "attr_order": ATTR_ORDER,
         "index1_by_date": {d: 0 for d in dates},
         "index2_by_date": {d: {} for d in dates},
+        "index2_by_date_attr": {d: {a: 0 for a in ATTR_ORDER} for d in dates},
         "totals": {
             "index1": 0,
             "index2": 0,
-            "by_state": {k: 0 for k, _ in state_pairs},
+            "by_state": {k: 0 for k, _, _ in state_triples},
+            "by_attr":  {a: 0 for a in ATTR_ORDER},
         },
         "index1": q1.index,
         "index2": q2.index,
@@ -764,8 +785,8 @@ async def run_history_overview() -> dict[str, Any]:
     by_date_idx1 = _history_parse_index1(resp1) if resp1 else {}
     by_date_idx2 = _history_parse_index2(resp2) if resp2 else {}
 
-    # state_pairs 가 비어 있으면 → 응답에 등장한 state 를 그대로 사용 (등장 순서)
-    if not state_pairs:
+    # state_triples 가 비어 있으면 → 응답에 등장한 state 를 attr=""(미지정)로 사용
+    if not state_triples:
         seen_states: list[str] = []
         seen_set: set[str] = set()
         for by_state in by_date_idx2.values():
@@ -773,16 +794,21 @@ async def run_history_overview() -> dict[str, Any]:
                 if st not in seen_set:
                     seen_set.add(st)
                     seen_states.append(st)
-        state_pairs = [(s, s) for s in seen_states]
-        base_payload["states"] = [{"key": k, "label": lab} for k, lab in state_pairs]
-        base_payload["totals"]["by_state"] = {k: 0 for k, _ in state_pairs}
+        state_triples = [(s, s, "") for s in seen_states]
+        base_payload["states"] = _states_payload(state_triples)
+        base_payload["totals"]["by_state"] = {k: 0 for k, _, _ in state_triples}
+
+    # key → attr 매핑
+    attr_of: dict[str, str] = {k: at for k, _, at in state_triples}
 
     # 날짜별 카운트 채움 — dates 순서대로 모두 채우되, 응답에 없는 날짜는 0
     index1_by_date: dict[str, int] = {}
     index2_by_date: dict[str, dict[str, int]] = {}
+    index2_by_date_attr: dict[str, dict[str, int]] = {}
     total_idx1 = 0
     total_idx2 = 0
-    total_by_state: dict[str, int] = {k: 0 for k, _ in state_pairs}
+    total_by_state: dict[str, int] = {k: 0 for k, _, _ in state_triples}
+    total_by_attr: dict[str, int] = {a: 0 for a in ATTR_ORDER}
 
     for d in dates:
         v1 = int(by_date_idx1.get(d, 0))
@@ -790,26 +816,34 @@ async def run_history_overview() -> dict[str, Any]:
         total_idx1 += v1
 
         states_map_raw = by_date_idx2.get(d, {}) or {}
-        # state_pairs 순서대로 값을 채워 dict 직렬화 시 순서 안정성 확보
+        # state_triples 순서대로 값을 채워 dict 직렬화 시 순서 안정성 확보
         states_map: dict[str, int] = {}
-        for k, _ in state_pairs:
+        attr_map: dict[str, int] = {a: 0 for a in ATTR_ORDER}
+        for k, _, at in state_triples:
             c = int(states_map_raw.get(k, 0))
             states_map[k] = c
             total_by_state[k] += c
             total_idx2 += c
+            # attr 그룹 누적 (허용값 외이면 ""(미지정) 으로 묶임 — 파서에서 이미 정규화됨)
+            bucket = at if at in attr_map else ""
+            attr_map[bucket] += c
+            total_by_attr[bucket] += c
         index2_by_date[d] = states_map
+        index2_by_date_attr[d] = attr_map
 
     base_payload["index1_by_date"] = index1_by_date
     base_payload["index2_by_date"] = index2_by_date
+    base_payload["index2_by_date_attr"] = index2_by_date_attr
     base_payload["totals"] = {
         "index1": total_idx1,
         "index2": total_idx2,
         "by_state": total_by_state,
+        "by_attr": total_by_attr,
     }
 
     log.info(
         "[es/history] 완료: %d days × %d states, idx1=%d idx2=%d, %dms (err1=%s, err2=%s)",
-        len(dates), len(state_pairs), total_idx1, total_idx2,
+        len(dates), len(state_triples), total_idx1, total_idx2,
         elapsed_ms, err1, err2,
     )
 
