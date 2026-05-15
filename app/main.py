@@ -38,7 +38,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.logger import get_logger, setup_logging
-from app.repositories import es_client, mariadb
+from app.repositories import es_client, mariadb, postgres
 from app.routers import (
     amat,
     auth,
@@ -48,6 +48,7 @@ from app.routers import (
     es,
     files,
     home,
+    llm_ui_history,
     log_search,
     login_history,
     logs,
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI):
     yield
     log.info("앱 종료 — 커넥션 정리 중...")
     mariadb.dispose_all()
+    postgres.dispose_all()
     es_client.close()
     log.info("앱 종료 완료")
 
@@ -135,6 +137,7 @@ app.include_router(auth.router)   # /login, /logout (공개)
 app.include_router(well_known.router)  # /.well-known/* (브라우저 자동 요청, 공개)
 app.include_router(home.router)
 app.include_router(login_history.router)
+app.include_router(llm_ui_history.router)
 app.include_router(log_search.router)
 app.include_router(files.router)
 app.include_router(parser_flow.router)  # /infra/parser-flow  (Infra > 파서 처리 절차)

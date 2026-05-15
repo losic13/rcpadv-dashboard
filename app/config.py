@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     DRAM_DB_PASSWORD: str = ""
     DRAM_DB_NAME: str = "dram"
 
+    # ---- LLM UI 사용 이력 (PostgreSQL) ----
+    # 사이드바 'UI Client > LLM UI 사용 이력' 페이지가 조회하는 PostgreSQL DB.
+    # MariaDB(VNAND/DRAM) 와 별도 인스턴스이며 드라이버도 다르다 (psycopg2).
+    # 운영에서는 .env 로 실제 호스트/계정 값을 주입한다.
+    LLM_PG_HOST: str = "localhost"
+    LLM_PG_PORT: int = 5432
+    LLM_PG_USER: str = "readonly"
+    LLM_PG_PASSWORD: str = ""
+    LLM_PG_NAME: str = "llm_ui"
+
     # Elasticsearch
     ES_HOSTS: str = "http://localhost:9200"  # 콤마 구분
     ES_USERNAME: str = ""
@@ -137,6 +147,13 @@ class Settings(BaseSettings):
         return (
             f"mysql+pymysql://{self.DRAM_DB_USER}:{self.DRAM_DB_PASSWORD}"
             f"@{self.DRAM_DB_HOST}:{self.DRAM_DB_PORT}/{self.DRAM_DB_NAME}?charset=utf8mb4"
+        )
+
+    def llm_pg_db_url(self) -> str:
+        # SQLAlchemy URL for the LLM UI PostgreSQL DB (psycopg2 driver).
+        return (
+            f"postgresql+psycopg2://{self.LLM_PG_USER}:{self.LLM_PG_PASSWORD}"
+            f"@{self.LLM_PG_HOST}:{self.LLM_PG_PORT}/{self.LLM_PG_NAME}"
         )
 
     def es_hosts_list(self) -> list[str]:
