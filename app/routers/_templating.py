@@ -81,7 +81,8 @@ NAV_ITEMS = [
         "label": "UI Client",
         "icon":  "👤",
         "children": [
-            {"key": "login_history", "label": "사용자 접속 이력", "url": "/login-history"},
+            {"key": "login_history",  "label": "사용자 접속 이력", "url": "/login-history"},
+            {"key": "llm_ui_history", "label": "LLM UI 사용 이력", "url": "/llm-ui-history"},
         ],
     },
 

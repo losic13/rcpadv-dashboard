@@ -1,0 +1,438 @@
+{#
+  LLM UI 사용 이력 페이지.
+
+  login_history.html 의 구조를 그대로 따른다 — 데이터 소스만 MariaDB(VNAND) →
+  PostgreSQL(LLM_PG) 로 변경. CSS 클래스/ID(``lh-*``, ``login-history-page``) 는
+  공유하여 동일한 룩앤필을 재사용한다 (페이지 단위 격리이므로 충돌 없음).
+
+  - 기간 선택 (start/end + 빠른 선택 버튼: 7/14/30/90일)
+  - 차트 1: 고객만 (개발자 제외)      — 누적 막대 (접속자 / 총 사용)
+  - 차트 2: 전체 (개발자 포함)        — 동일 형태
+  - Tooltip: 날짜 / 총 사용 / 고유 사용자 수 + 사용자별 사용 횟수 (상위 10명)
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card login-history-page llm-ui-history-page">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">LLM PG</span>
+      <strong>LLM UI 사용 이력</strong>
+      <span class="card-sub">LLM UI 사용 로그 · 일자별 집계</span>
+    </div>
+    <div class="card-controls">
+      <span class="login-history-status" data-role="status" hidden></span>
+      {# 개발자 ID 보기 — login_history 와 동일하게 카드 헤더 우측에 작게 배치 #}
+      <button type="button" class="lh-dev-toggle"
+              id="lh-dev-toggle"
+              aria-label="제외 중인 개발자 ID 목록 보기"
+              aria-expanded="false"
+              aria-describedby="lh-dev-tip"
+              title="제외 중인 개발자 ID">
+        <span aria-hidden="true">👤</span>
+        <span class="lh-dev-toggle-label">개발자 ID</span>
+      </button>
+      <span class="lh-dev-tip" id="lh-dev-tip" role="tooltip" hidden>
+        <strong class="lh-dev-tip-title">제외 중인 개발자 ID</strong>
+        <span class="lh-dev-tip-body" data-role="dev-list">—</span>
+      </span>
+    </div>
+  </header>
+
+  <div class="card-body">
+    <form id="lh-form" class="login-history-form" autocomplete="off"
+          onsubmit="return false;">
+      <label class="lh-field">
+        <span class="lh-field-label">시작일</span>
+        <input type="date" id="lh-start" name="start"
+               value="{{ default_start }}" max="{{ today }}" required>
+      </label>
+      <label class="lh-field">
+        <span class="lh-field-label">종료일</span>
+        <input type="date" id="lh-end" name="end"
+               value="{{ default_end }}" max="{{ today }}" required>
+      </label>
+
+      <div class="lh-quick">
+        <button type="button" class="btn-ghost" data-quick="7">최근 7일</button>
+        <button type="button" class="btn-ghost" data-quick="14">최근 14일</button>
+        <button type="button" class="btn-ghost" data-quick="30">최근 30일</button>
+        <button type="button" class="btn-ghost" data-quick="90">최근 90일</button>
+      </div>
+
+      <button type="submit" class="btn btn-run" id="lh-run" title="기간으로 조회">
+        <span class="btn-run-icon" aria-hidden="true">📊</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+    </form>
+
+    <p class="lh-hint">
+      LLM UI 사용 로그를 일자별로 집계해 누적 막대 차트로 보여줍니다.
+      막대 하단(짙은 색)이 <strong>사용자</strong>(고유 사용자 수)이며,
+      그 위에 쌓이는 부분을 합쳐 막대 전체 길이가 곧
+      <strong>총 사용</strong> 수입니다.
+      막대에 마우스를 올리면 누가 사용했는지 상위
+      <span data-role="topn">10</span>명이 함께 표시됩니다.
+    </p>
+
+    <div class="error-msg" id="lh-error" hidden></div>
+
+    <!-- 차트 1: 고객만 (위) -->
+    <section class="lh-chart-block">
+      <header class="lh-chart-header">
+        <h2 class="lh-chart-title">고객 사용 (개발자 제외)</h2>
+        <div class="lh-chart-stats" data-role="stats-customer">—</div>
+      </header>
+      <div class="lh-chart-wrap">
+        <canvas id="lh-chart-customer"></canvas>
+      </div>
+    </section>
+
+    <!-- 차트 2: 전체 (아래) -->
+    <section class="lh-chart-block">
+      <header class="lh-chart-header">
+        <h2 class="lh-chart-title">전체 사용 (개발자 포함)</h2>
+        <div class="lh-chart-stats" data-role="stats-all">—</div>
+      </header>
+      <div class="lh-chart-wrap">
+        <canvas id="lh-chart-all"></canvas>
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    'use strict';
+
+    const formEl   = document.getElementById('lh-form');
+    const startEl  = document.getElementById('lh-start');
+    const endEl    = document.getElementById('lh-end');
+    const runBtn   = document.getElementById('lh-run');
+    const statusEl = document.querySelector('.llm-ui-history-page [data-role="status"]');
+    const errorEl  = document.getElementById('lh-error');
+    const topNEl    = document.querySelector('[data-role="topn"]');
+    const statsAllEl = document.querySelector('[data-role="stats-all"]');
+    const statsCustEl = document.querySelector('[data-role="stats-customer"]');
+    const canvasAll  = document.getElementById('lh-chart-all');
+    const canvasCust = document.getElementById('lh-chart-customer');
+    const devToggleEl = document.getElementById('lh-dev-toggle');
+    const devTipEl    = document.getElementById('lh-dev-tip');
+    const devListEl   = devTipEl ? devTipEl.querySelector('[data-role="dev-list"]') : null;
+
+    const TODAY = '{{ today }}';
+
+    let chartAll = null;
+    let chartCust = null;
+    let inFlight = null;
+    let runToken = 0;
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+    }
+
+    function setStatus(msg, kind) {
+      if (!statusEl) return;
+      if (!msg) { statusEl.hidden = true; statusEl.textContent = ''; return; }
+      statusEl.hidden = false;
+      statusEl.textContent = msg;
+      statusEl.dataset.kind = kind || '';
+    }
+    function setError(msg) {
+      if (!errorEl) return;
+      if (!msg) { errorEl.hidden = true; errorEl.textContent = ''; return; }
+      errorEl.hidden = false;
+      errorEl.textContent = msg;
+    }
+
+    function setQuickRange(days) {
+      const today = new Date(TODAY + 'T00:00:00');
+      const start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+      const fmt = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+      startEl.value = fmt(start);
+      endEl.value   = fmt(today);
+    }
+
+    document.querySelectorAll('.lh-quick [data-quick]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const days = parseInt(btn.getAttribute('data-quick'), 10);
+        if (!Number.isFinite(days) || days <= 0) return;
+        setQuickRange(days);
+        runSearch();
+      });
+    });
+
+    function destroyChart(c) {
+      if (c) { try { c.destroy(); } catch (_) {} }
+      return null;
+    }
+
+    function buildTooltipFooter(tooltipItem) {
+      const ctx = tooltipItem[0];
+      const meta = ctx.chart.$lhMeta;
+      if (!meta) return '';
+      const data = meta.tooltips[ctx.dataIndex] || {};
+      const lines = [];
+      // 라벨을 LLM UI 맥락에 맞게 "사용자 / 총 사용" 으로
+      lines.push(`사용자: ${data.distinct ?? 0}명 / 총 사용: ${data.total ?? 0}회`);
+      const users = data.users || [];
+      if (users.length === 0) {
+        lines.push('(사용 없음)');
+      } else {
+        for (const u of users) {
+          lines.push(`  · ${u.user_id} (${u.count})`);
+        }
+        if (data.extra_users && data.extra_users > 0) {
+          lines.push(`  · … 외 ${data.extra_users}명`);
+        }
+      }
+      return lines;
+    }
+
+    function renderChart(canvas, title, days, series, meta, yMax) {
+      // 누적 막대:
+      //   하단(짙은 녹) = 고유 사용자 수 (= distinct) → 라벨 "사용자"
+      //   상단(보라)    = 추가 중복분    (= total - distinct, ≥ 0)
+      //                 → 막대 전체 = 총 사용 횟수
+      const distinctData = (series.distinct || []).map((v) => v || 0);
+      const totalData    = (series.total    || []).map((v) => v || 0);
+      const extraData    = totalData.map((t, i) => Math.max(0, t - (distinctData[i] || 0)));
+
+      const ctx = canvas.getContext('2d');
+      const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: days,
+          datasets: [
+            {
+              label: '사용자',
+              data: distinctData,
+              backgroundColor: 'rgba(16, 185, 129, 0.75)',
+              borderColor:    'rgba(5, 122, 85, 0.95)',
+              borderWidth: 1,
+              stack: 'usage',
+            },
+            {
+              label: '총 사용',
+              data: extraData,
+              backgroundColor: 'rgba(99, 102, 241, 0.55)',
+              borderColor:    'rgba(67, 56, 202, 0.85)',
+              borderWidth: 1,
+              stack: 'usage',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top' },
+            title:  { display: false, text: title },
+            tooltip: {
+              callbacks: {
+                title: (items) => items && items[0] ? items[0].label : '',
+                label: () => null,
+                afterBody: buildTooltipFooter,
+              },
+              padding: 10,
+              boxPadding: 4,
+              titleFont: { weight: '700' },
+              footerFont: { weight: '400' },
+            },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              ticks: { autoSkip: true, maxRotation: 0 },
+              grid:  { display: false },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              suggestedMax: (yMax && yMax > 0) ? yMax : undefined,
+              ticks: { precision: 0 },
+            },
+          },
+        },
+      });
+      chart.$lhMeta = meta;
+      return chart;
+    }
+
+    function summaryText(series) {
+      const total = (series.total || []).reduce((a, b) => a + b, 0);
+      const distinct = (series.distinct || []).reduce((a, b) => Math.max(a, b), 0);
+      return `합계 ${total}회 / 일 최대 고유 사용자 ${distinct}명`;
+    }
+
+    function computeSharedYMax(allTotals, custTotals) {
+      const arr = [].concat(allTotals || [], custTotals || []);
+      let m = 0;
+      for (const v of arr) {
+        const n = Number(v) || 0;
+        if (n > m) m = n;
+      }
+      if (m <= 0) return 0;
+      return Math.ceil(m * 1.10);
+    }
+
+    function renderAll(data) {
+      const days = data.days || [];
+
+      chartAll  = destroyChart(chartAll);
+      chartCust = destroyChart(chartCust);
+
+      const yMax = computeSharedYMax(
+        (data.all && data.all.total) || [],
+        (data.customer && data.customer.total) || []
+      );
+
+      chartAll = renderChart(
+        canvasAll, '전체',
+        days, data.all,
+        { tooltips: data.all.tooltip || [] },
+        yMax
+      );
+      chartCust = renderChart(
+        canvasCust, '고객',
+        days, data.customer,
+        { tooltips: data.customer.tooltip || [] },
+        yMax
+      );
+
+      if (statsAllEl)  statsAllEl.textContent  = summaryText(data.all);
+      if (statsCustEl) statsCustEl.textContent = summaryText(data.customer);
+
+      updateDevList(data.developer_ids || []);
+      if (topNEl && data.tooltip_top_n) topNEl.textContent = data.tooltip_top_n;
+    }
+
+    function updateDevList(devs) {
+      if (!devListEl) return;
+      if (!devs || devs.length === 0) {
+        devListEl.innerHTML =
+          '<em class="lh-dev-empty">' +
+          '(개발자 ID 화이트리스트가 비어 있습니다. ' +
+          '<code>app/queries/developer_ids.py</code> 에서 추가)' +
+          '</em>';
+        return;
+      }
+      const items = devs.map((d) =>
+        '<span class="lh-dev-id">' + escapeHtml(d) + '</span>'
+      );
+      devListEl.innerHTML =
+        '<span class="lh-dev-count">총 ' + devs.length + '명</span>' +
+        '<span class="lh-dev-items">' + items.join('') + '</span>';
+    }
+
+    if (devToggleEl && devTipEl) {
+      const showTip = () => {
+        devTipEl.hidden = false;
+        devToggleEl.setAttribute('aria-expanded', 'true');
+      };
+      const hideTip = () => {
+        devTipEl.hidden = true;
+        devToggleEl.setAttribute('aria-expanded', 'false');
+      };
+      devToggleEl.addEventListener('mouseenter', showTip);
+      devToggleEl.addEventListener('focus',     showTip);
+      devTipEl.addEventListener('mouseenter',   showTip);
+      devToggleEl.addEventListener('mouseleave', () => {
+        setTimeout(() => {
+          if (!devTipEl.matches(':hover')) hideTip();
+        }, 80);
+      });
+      devToggleEl.addEventListener('blur',      hideTip);
+      devTipEl.addEventListener('mouseleave',   hideTip);
+      devToggleEl.addEventListener('click', () => {
+        if (devTipEl.hidden) showTip(); else hideTip();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !devTipEl.hidden) hideTip();
+      });
+    }
+
+    async function runSearch() {
+      setError(null);
+      const start = (startEl.value || '').trim();
+      const end   = (endEl.value || '').trim();
+      if (!start || !end) {
+        setError('시작일과 종료일을 모두 입력해 주세요.');
+        return;
+      }
+      if (end < start) {
+        setError('종료일이 시작일보다 빠를 수 없습니다.');
+        return;
+      }
+
+      if (inFlight) { try { inFlight.abort(); } catch (_) {} }
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      inFlight = ctrl;
+      const myToken = ++runToken;
+
+      runBtn.disabled = true;
+      setStatus('조회 중...', 'loading');
+
+      try {
+        const url = '/llm-ui-history/run?start=' + encodeURIComponent(start)
+                  + '&end=' + encodeURIComponent(end);
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (myToken !== runToken) return;
+
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const j = await res.json();
+            if (j && j.detail) detail = j.detail;
+          } catch (_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        if (myToken !== runToken) return;
+
+        renderAll(data);
+        setStatus(
+          `완료 · ${data.days.length}일 · ${data.elapsed_ms || 0}ms`,
+          'ok'
+        );
+      } catch (e) {
+        if (e && (e.name === 'AbortError' || e.code === 20)) return;
+        if (myToken !== runToken) return;
+        setError(e && e.message ? e.message : String(e));
+        setStatus('실패', 'error');
+      } finally {
+        if (myToken === runToken) {
+          runBtn.disabled = false;
+          inFlight = null;
+        }
+      }
+    }
+
+    formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      runSearch();
+    });
+
+    // 첫 진입 시 자동 1회 조회
+    setTimeout(() => { runSearch(); }, 30);
+  })();
+</script>
+{% endblock %}
