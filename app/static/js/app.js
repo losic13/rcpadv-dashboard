@@ -1539,14 +1539,17 @@
 
   // ============================================================
   // LoginTodayCard
-  //   - 통합 대시보드의 "오늘 접속자수" 카드 전용 컨트롤러.
+  //   - 통합 대시보드의 "오늘 …" 류 카드 전용 컨트롤러.
   //   - 한 카드 안에 [전체 / 고객] 두 컬럼을 동시에 표시한다.
-  //   - GET /login-history/today 한 번 호출 → 응답에서
-  //       data.all.distinct      → 좌측 큰 숫자 (전체 접속자)
-  //       data.all.total         → 좌측 보조 숫자 (전체 총 로그인)
-  //       data.customer.distinct → 우측 큰 숫자 (고객 접속자)
-  //       data.customer.total    → 우측 보조 숫자 (고객 총 로그인)
+  //   - GET <dataUrl> 한 번 호출 → 응답에서
+  //       data.all.distinct      → 좌측 큰 숫자 (distinct = 전체 사용자/접속자)
+  //       data.all.total         → 좌측 보조 숫자 (전체 총 횟수)
+  //       data.customer.distinct → 우측 큰 숫자 (고객 사용자/접속자)
+  //       data.customer.total    → 우측 보조 숫자 (고객 총 횟수)
   //     양쪽 컬럼을 같은 응답에서 동시에 채운다.
+  //   - 응답 스키마는 /login-history/today 와 /llm-ui-history/today 가 동일.
+  //     fetch URL 만 카드별로 외부 주입(opts.dataUrl)하면 같은 컨트롤러를
+  //     재사용해 'login_today' 카드와 'llm_today' 카드 모두에 쓴다.
   //   - CountCard 와 동일한 race-UI 패턴(in-flight abort, supersede 배지,
   //     누적 취소 카운터)을 재활용하기 위해 같은 형태로 구현한다.
   //   - "오늘" 의 카운트는 빠르게 변하지 않으므로 자동 갱신 기본 1분.
@@ -1555,12 +1558,16 @@
     /**
      * @param {Object} opts
      * @param {HTMLElement} opts.rootEl
-     * @param {number} [opts.autoRefreshIntervalMs=60000]
+     * @param {string}  [opts.dataUrl='/login-history/today']
+     *        fetch 할 today snapshot 엔드포인트.  LLM 카드는
+     *        '/llm-ui-history/today' 를 넘긴다.
+     * @param {number}  [opts.autoRefreshIntervalMs=60000]
      * @param {boolean} [opts.showRaceToast=false]   - 한 페이지에 여러 카드가
      *        동시에 갱신되면서 같은 토스트가 두 번 뜨는 것을 막기 위해 기본 false.
      */
     constructor(opts) {
       this.root = opts.rootEl;
+      this.dataUrl = opts.dataUrl || '/login-history/today';
       this.intervalMs = opts.autoRefreshIntervalMs || 60000;
       this.showRaceToast = !!opts.showRaceToast;
 
@@ -1806,7 +1813,7 @@
         }, 1500);
         if (this.showRaceToast) {
           Toast.show(
-            '이전 오늘 접속자수 카드 요청을 취소하고 다시 불러옵니다.',
+            '이전 "오늘" 카드 요청을 취소하고 다시 불러옵니다.',
             { level: 'warn', icon: '⚠', durationMs: 2800 }
           );
         }
@@ -1822,7 +1829,7 @@
       this._setLoadingDim(true);
       if (!hadInFlight) this._setStatusBadge('loading');
 
-      const url = '/login-history/today';
+      const url = this.dataUrl;
       const startedAt = performance.now();
       try {
         const res = await fetch(url, {
