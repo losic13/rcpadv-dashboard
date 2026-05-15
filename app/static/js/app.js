@@ -1383,6 +1383,16 @@
         });
         this._hoverHandlers = [];
       }
+      // floating tip 강제 종료 + scroll/resize 리스너 정리
+      // (LoginTodayCard 에만 있는 필드 — CountCard 는 if 가드로 안전)
+      if (this._activeFloating && typeof this._hideFloatingTip === 'function') {
+        try { this._hideFloatingTip(this._activeFloating.col); } catch (_) {}
+        this._activeFloating = null;
+      }
+      if (this._onReposition) {
+        window.removeEventListener('scroll', this._onReposition, true);
+        window.removeEventListener('resize', this._onReposition);
+      }
       if (this.elapsedEl) this.elapsedEl.textContent = '';
       if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }
       if (this.spinner) this.spinner.hidden = true;
@@ -1620,18 +1630,104 @@
       // 접속자 ID Top N tooltip — primary 영역 hover/focus 시 표시,
       // 떠날 때 숨김. CSS 만으로도 :hover 안전망이 있지만, JS 로 명시 토글
       // 하면 keyboard focus 와 모바일 터치(focus-within) 에도 견고하다.
+      //
+      // ⚠️ 카드 컨테이너 chain 에 overflow:hidden 이 있어서 tip 이 카드 밖으로
+      // 넘치면 잘리는 문제가 있었음. 해결책: hover 시 tip 을 position:fixed
+      // 로 전환하고 (viewport 기준) trigger 의 getBoundingClientRect() 으로
+      // 매번 좌표 계산. 우측 초과 시 좌측으로 클램프, 화살표 위치는
+      // CSS custom property(--arrow-left-px) 로 보정.
+      this._activeFloating = null;       // 현재 floating 중인 { col, scope } | null
+      this._onReposition = () => {       // scroll / resize 리스너 핸들러
+        if (this._activeFloating) this._repositionTip(this._activeFloating.col);
+      };
       this._hoverHandlers = [];
       ['all', 'customer'].forEach((scope) => {
         const col = this.cols[scope];
         if (!col || !col.primary || !col.usersTip) return;
-        const show = () => { if (col.usersTip) col.usersTip.hidden = false; };
-        const hide = () => { if (col.usersTip) col.usersTip.hidden = true;  };
+        const show = () => {
+          if (!col.usersTip) return;
+          // 다른 컬럼이 떠 있던 경우 정리 (마우스 빠르게 이동 케이스)
+          if (this._activeFloating && this._activeFloating.col !== col) {
+            this._hideFloatingTip(this._activeFloating.col);
+          }
+          col.usersTip.hidden = false;
+          col.usersTip.classList.add('is-floating');
+          this._activeFloating = { col, scope };
+          this._repositionTip(col);
+          // scroll/resize 시 위치 재계산 — capture:true 로 어떤 조상에서
+          // 스크롤하든 잡음 (FilePathActions 와 동일 패턴)
+          window.addEventListener('scroll',  this._onReposition, true);
+          window.addEventListener('resize',  this._onReposition);
+        };
+        const hide = () => { this._hideFloatingTip(col); };
         col.primary.addEventListener('mouseenter', show);
         col.primary.addEventListener('mouseleave', hide);
         col.primary.addEventListener('focusin',    show);
         col.primary.addEventListener('focusout',   hide);
         this._hoverHandlers.push({ el: col.primary, show, hide });
       });
+    }
+
+    /** floating tip 의 위치를 trigger(col.primary) 아래에 fixed 좌표로 배치. */
+    _repositionTip(col) {
+      if (!col || !col.primary || !col.usersTip) return;
+      const tip     = col.usersTip;
+      const trigger = col.primary;
+      const tRect   = trigger.getBoundingClientRect();
+      const vw      = window.innerWidth  || document.documentElement.clientWidth;
+      const margin  = 8;   // viewport 가장자리 여백
+      const gap     = 6;   // trigger 와 tip 사이 수직 간격
+
+      // tip 의 실측 너비. 클램프되지 않은 자연 너비를 얻기 위해 일단 좌표만
+      // 측정용으로 잡고 측정 후 재배치.
+      const tipW    = tip.offsetWidth  || 240;
+      const tipH    = tip.offsetHeight || 0;
+
+      // 기본: trigger 가로 중앙에 tip 중앙 정렬
+      const triggerCenter = tRect.left + tRect.width / 2;
+      let left = Math.round(triggerCenter - tipW / 2);
+
+      // viewport 좌/우 클램프
+      const minLeft = margin;
+      const maxLeft = Math.max(margin, vw - tipW - margin);
+      if (left < minLeft) left = minLeft;
+      if (left > maxLeft) left = maxLeft;
+
+      // 화살표 위치: trigger 중앙을 가리키도록, tip 좌측 기준 px 로 계산
+      let arrowLeft = Math.round(triggerCenter - left);
+      // 화살표가 tip 안에 머물도록 클램프 (좌우 8px 여유)
+      const arrowMin = 8;
+      const arrowMax = Math.max(arrowMin, tipW - 8);
+      if (arrowLeft < arrowMin) arrowLeft = arrowMin;
+      if (arrowLeft > arrowMax) arrowLeft = arrowMax;
+
+      // 세로: trigger 바로 아래. 화면 하단 초과 시(드물지만) 위쪽으로 띄움.
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      let top  = Math.round(tRect.bottom + gap);
+      if (tipH && top + tipH + margin > vh) {
+        const above = Math.round(tRect.top - gap - tipH);
+        if (above >= margin) top = above;
+      }
+
+      tip.style.left = left + 'px';
+      tip.style.top  = top  + 'px';
+      tip.style.setProperty('--arrow-left-px', arrowLeft + 'px');
+    }
+
+    /** floating tip 숨기기 + scroll/resize 리스너 해제. */
+    _hideFloatingTip(col) {
+      if (!col || !col.usersTip) return;
+      col.usersTip.hidden = true;
+      col.usersTip.classList.remove('is-floating');
+      // inline 좌표 초기화 (다음 hover 시 깔끔히 재계산)
+      col.usersTip.style.left = '';
+      col.usersTip.style.top  = '';
+      col.usersTip.style.removeProperty('--arrow-left-px');
+      if (this._activeFloating && this._activeFloating.col === col) {
+        this._activeFloating = null;
+        window.removeEventListener('scroll', this._onReposition, true);
+        window.removeEventListener('resize', this._onReposition);
+      }
     }
 
     init({ runOnLoad = true } = {}) {
@@ -1666,6 +1762,16 @@
           el.removeEventListener('focusout',   hide);
         });
         this._hoverHandlers = [];
+      }
+      // floating tip 강제 종료 + scroll/resize 리스너 정리
+      // (LoginTodayCard 에만 있는 필드 — CountCard 는 if 가드로 안전)
+      if (this._activeFloating && typeof this._hideFloatingTip === 'function') {
+        try { this._hideFloatingTip(this._activeFloating.col); } catch (_) {}
+        this._activeFloating = null;
+      }
+      if (this._onReposition) {
+        window.removeEventListener('scroll', this._onReposition, true);
+        window.removeEventListener('resize', this._onReposition);
       }
       if (this.elapsedEl) this.elapsedEl.textContent = '';
       if (this.errorEl) { this.errorEl.textContent = ''; this.errorEl.hidden = true; }

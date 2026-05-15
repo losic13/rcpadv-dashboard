@@ -1688,6 +1688,24 @@ table[data-role="table"].is-loading {
   text-align: left;
 }
 .login-today-tip[hidden] { display: none; }
+
+/* ── floating 모드 ─────────────────────────────────────────
+   JS 가 hover/focus 시 .is-floating 을 토글한다. 이 모드에선
+   .login-today-tip 이 viewport 기준 fixed 로 떠올라서
+   카드 조상의 overflow:hidden 에 잘리지 않는다.
+   top/left 는 JS 가 getBoundingClientRect() 기준으로 inline
+   style 로 직접 지정하므로 기본 좌표는 0,0 으로만 둔다.
+   화살표(::before)의 가로 위치도 JS 가 --arrow-left-px
+   커스텀 프로퍼티로 지정한다 (클램프 발생 시 화살표가 trigger
+   중앙을 가리키도록 유지). */
+.login-today-tip.is-floating {
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: none;
+  z-index: 1000;
+}
+
 /* 작은 화살표 (북쪽 방향, 가운데 정렬) */
 .login-today-tip::before {
   content: "";
@@ -1700,6 +1718,10 @@ table[data-role="table"].is-loading {
   background: #1e293b;
   transform: rotate(45deg);
   border-radius: 1px;
+}
+/* floating 모드에선 JS 가 지정한 위치 사용 (viewport 클램프 대응) */
+.login-today-tip.is-floating::before {
+  left: var(--arrow-left-px, 50%);
 }
 .login-today-tip-title {
   display: block;
