@@ -121,8 +121,9 @@ NAV_ITEMS = [
         "label": "Elastic Search",
         "icon":  "🔍",
         "children": [
-            {"key": "es_document",      "label": "Document 조회",  "url": "/es/document"},
-            {"key": "es_eqp_status",    "label": "설비별 처리현황", "url": "/es/eqp-status"},
+            {"key": "es_document",       "label": "Document 조회",      "url": "/es/document"},
+            {"key": "es_document_state", "label": "Document State 변경", "url": "/es/document-state"},
+            {"key": "es_eqp_status",     "label": "설비별 처리현황",     "url": "/es/eqp-status"},
             {"key": "es_pending_delay", "label": "작업 대기 및 지연", "url": "/es/pending-delay"},
             {"key": "es_history",       "label": "종합 처리 이력",  "url": "/es/history"},
             {"key": "es_targets",       "label": "대상 설비",      "url": "/es/targets",  "disabled": True},

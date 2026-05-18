@@ -54,6 +54,22 @@ class Settings(BaseSettings):
     ES_DOCUMENT_LOOKUP_INDEX: str = "parsing-index-2-*"
     ES_DOCUMENT_LOOKUP_MAX_IDS: int = 1000
 
+    # ---- ES Document State 변경 페이지 (/es/document-state) ----
+    # _id 1개를 조회한 뒤 current_state 를 콤보박스로 변경할 수 있는 페이지.
+    # 변경 시 ES `update` API 로 partial update 를 수행하므로 동일 페이지에서
+    # 다음 두 항목이 함께 갱신된다:
+    #   · doc.current_state         ← 새 값
+    #   · doc.pipeline_state[새값]  ← {"updated_at": "YYYY-MM-DD HH:MM:SS",
+    #                                    "comment":    "document-state-change(web)"}
+    #   · doc.updated_at            ← 변경 시각으로 같이 갱신
+    #
+    # · ES_DOCUMENT_STATE_ALLOWED :
+    #   콤보박스에 노출할 사전 정의 state 화이트리스트. 콤마 구분.
+    #   - 화이트리스트에 없는 값으로의 변경은 서버가 422 로 거절.
+    #   - 빈 문자열이면 빈 콤보(=어떤 변경도 불가) — 운영 보호.
+    #   - 운영팀이 .env 에서 값을 수정해 추가/제거할 수 있다.
+    ES_DOCUMENT_STATE_ALLOWED: str = "received,copy-need"
+
     # ---- ES "작업 대기 및 지연" 페이지 (/es/pending-delay) ----
     # ES 집계 응답(`current_state_distribution.buckets`)에는 모든 상태 키가
     # 들어있지만, 페이지에는 운영팀이 관심 있는 키만 골라 정해진 순서대로
@@ -235,6 +251,26 @@ class Settings(BaseSettings):
             attr_norm = attr if attr in cls.HISTORY_STATE_ATTR_VALUES else ""
             seen.add(key)
             out.append((key, label, attr_norm))
+        return out
+
+    def es_document_state_allowed(self) -> list[str]:
+        """``ES_DOCUMENT_STATE_ALLOWED`` 를 [state, ...] 로 파싱.
+
+        - 콤마(,)로 항목 구분.
+        - 각 항목은 양옆 공백 제거 후 빈 문자열이면 제외.
+        - 입력 순서 보존, 중복은 첫 등장만 유지.
+        """
+        raw = (self.ES_DOCUMENT_STATE_ALLOWED or "").strip()
+        if not raw:
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in raw.split(","):
+            s = item.strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
         return out
 
     def es_history_state_keys(self) -> list[tuple[str, str, str]]:
