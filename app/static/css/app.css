@@ -3912,6 +3912,28 @@ body.ls-dl-modal-open { overflow: hidden; }
 .kw-btn-register:hover:not(:disabled) { background: #4f46e5; }
 .kw-btn-register:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* ── "확인" 버튼 — secondary(outline) 스타일 ─────────────────────
+   등록 버튼은 primary(인디고 채움), 확인 버튼은 outline(흰 배경 + 인디고 테두리)
+   로 시각적 위계를 분리. 입력 박스와 등록 버튼 사이에 위치. */
+.kw-btn-check {
+  height: 38px;
+  padding: 0 16px;
+  background: #fff;
+  color: #4f46e5;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.kw-btn-check:hover:not(:disabled) {
+  background: #eef2ff;     /* indigo-50 */
+  border-color: #a5b4fc;   /* indigo-300 */
+}
+.kw-btn-check:disabled { opacity: 0.55; cursor: not-allowed; }
+
 /* ── 라이브 중복 체크 인라인 status ─────────────────────────────
    입력 박스와 등록 버튼 사이에 표시되는 작은 배지.
    JS 가 variant 클래스(kw-status-{checking|available|duplicate|error})

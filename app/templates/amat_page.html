@@ -137,6 +137,13 @@
                 placeholder="등록할 키워드를 입력하세요"
                 maxlength="255"
                 autocomplete="off" />
+        {# "확인" 버튼 — 입력값의 존재 여부만 명시적으로 체크 (등록 안 함).
+           자동 라이브 체크의 즉시 실행 트리거 — debounce 기다리지 않고
+           바로 /amat/keyword/exists 를 호출해 결과를 인라인 status 에 반영. #}
+        <button type="button" id="kw-check-btn" class="btn kw-btn-check"
+                title="입력한 키워드의 존재 여부만 확인합니다 (등록 안 함)">
+          확인
+        </button>
         {# 입력 도중 라이브 중복 체크 결과 — JS 가 상태 클래스 토글 #}
         <span id="kw-status-inline"
               class="kw-status-inline"
@@ -650,6 +657,7 @@
       // ── DOM refs ──
       const kwInput       = () => document.getElementById('kw-input');
       const kwRegBtn      = () => document.getElementById('kw-register-btn');
+      const kwCheckBtn    = () => document.getElementById('kw-check-btn');
       const kwRefreshBtn  = () => document.getElementById('kw-refresh-btn');
       const kwListStatus  = () => document.getElementById('kw-list-status');
       const kwStatusInline= () => document.getElementById('kw-status-inline');
@@ -664,11 +672,13 @@
       //   - _liveDebounce  : input 이벤트 debounce 타이머 핸들
       //   - _liveLastName  : 현재 화면에 표시 중인 status 가 어느 name 에 대한 결과인지
       //   - _liveBlocked   : 중복이라 등록 버튼이 비활성화되어 있는지 (등록 시점 가드)
+      //   - _liveChecking  : 현재 fetch in-flight 상태인지 ("확인" 버튼 disable 용)
       const LIVE_DEBOUNCE_MS = 350;
       let _liveAbortCtrl = null;
       let _liveDebounce  = null;
       let _liveLastName  = null;
       let _liveBlocked   = false;
+      let _liveChecking  = false;
 
       // ── 상태 표시 ──
       function setStatus(msg, type) {   // type: '' | 'ok' | 'err'
@@ -807,9 +817,20 @@
         }, LIVE_DEBOUNCE_MS);
       }
 
+      // ── "확인" 버튼 활성/비활성 토글 ─────────────────────────
+      //   in-flight (_liveChecking=true) 일 때만 disable.
+      //   빈 입력에서도 클릭 가능 — 클릭 시 Toast 안내.
+      function setCheckBtnEnabled(enabled) {
+        const btn = kwCheckBtn();
+        if (!btn) return;
+        btn.disabled = !enabled;
+      }
+
       async function runLiveCheck(name) {
         const ctrl = new AbortController();
         _liveAbortCtrl = ctrl;
+        _liveChecking  = true;
+        setCheckBtnEnabled(false);
         try {
           const url = '/amat/keyword/exists?name=' + encodeURIComponent(name);
           const res = await fetch(url, { signal: ctrl.signal });
@@ -843,8 +864,43 @@
           setInlineStatus('error', '⚠ 확인 실패 (등록 시 서버에서 재검증)');
           setRegisterBtnEnabled(true);
         } finally {
-          if (_liveAbortCtrl === ctrl) _liveAbortCtrl = null;
+          // ctrl 이 abort 로 교체된 경우 (race) 에는 후속 fetch 가 _liveChecking 을 관리하므로 건너뜀
+          if (_liveAbortCtrl === ctrl) {
+            _liveAbortCtrl = null;
+            _liveChecking  = false;
+            setCheckBtnEnabled(true);
+          }
         }
+      }
+
+      // ── "확인" 버튼 핸들러 ────────────────────────────────────
+      //   자동 라이브 체크의 즉시 실행 트리거.
+      //   - 빈 입력: Toast 경고 + status 숨김
+      //   - debounce 대기 중인 타이머는 취소하고 바로 fetch
+      //   - in-flight 직전 요청은 AbortController 가 취소
+      function requestCheck() {
+        const inp = kwInput();
+        if (!inp) return;
+        const trimmed = (inp.value || '').trim();
+
+        if (!trimmed) {
+          Toast.show('키워드를 입력해 주세요.', 'error');
+          _liveBlocked  = false;
+          _liveLastName = '';
+          setInlineStatus(null, null);
+          setRegisterBtnEnabled(true);
+          return;
+        }
+
+        // 직전 debounce 취소 (즉시 실행)
+        if (_liveDebounce) { clearTimeout(_liveDebounce); _liveDebounce = null; }
+        // 직전 in-flight fetch 취소 — runLiveCheck 안에서 새 AbortController 생성
+        if (_liveAbortCtrl) {
+          try { _liveAbortCtrl.abort(); } catch (_) {}
+          _liveAbortCtrl = null;
+        }
+        setInlineStatus('checking', '⏳ 확인 중…');
+        runLiveCheck(trimmed);
       }
 
       // ── 등록 실행 ──
@@ -920,10 +976,12 @@
         _initialized = true;
 
         const regBtn  = kwRegBtn();
+        const chkBtn  = kwCheckBtn();
         const refBtn  = kwRefreshBtn();
         const inp     = kwInput();
 
         if (regBtn)  regBtn.addEventListener('click', requestRegister);
+        if (chkBtn)  chkBtn.addEventListener('click', requestCheck);
         if (refBtn)  refBtn.addEventListener('click', loadList);
         if (inp) {
           // Enter 키 → 등록 (라이브 체크 결과가 duplicate 면 requestRegister 가 차단)
