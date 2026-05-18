@@ -873,11 +873,35 @@ DOCUMENT_STATE_COMMENT = "document-state-change(web)"
 
 
 def _document_state_now_str() -> str:
-    """`pipeline_state[*].updated_at` 및 doc.updated_at 에 사용할 시각 문자열.
+    """`pipeline_state[<state>].updated_at` 에 사용할 시각 문자열.
 
-    포맷: ``YYYY-MM-DD HH:MM:SS`` (로컬 시간) — 기존 페이지들의 컨벤션과 일치.
+    포맷: ``YYYY-MM-DD HH:MM:SS`` (로컬 시간).
+    이 값은 pipeline_state object 안에 저장되며 ES 의 date 매핑을 거치지 않는
+    자유 텍스트 영역이므로 사람이 읽기 좋은 기존 컨벤션을 유지한다.
     """
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _document_state_updated_at_iso() -> str:
+    """doc 최상위 ``updated_at`` 에 사용할 ISO 8601 시각 문자열.
+
+    배경:
+        doc 최상위의 ``updated_at`` 필드가 ES 매핑상 ``date_nanos`` 타입이라
+        ``YYYY-MM-DD HH:MM:SS`` 같은 공백 구분 + 타임존 없는 형식은
+        ``document_parsing_exception`` (400) 으로 거절된다.
+        ``date_nanos`` 의 기본 포맷(``strict_date_optional_time_nanos``)에
+        부합하도록 다음 형식의 문자열을 만든다:
+            ``YYYY-MM-DDTHH:MM:SS.ffffff+HH:MM``  (예: ``2026-05-05T12:32:12.123456+09:00``)
+
+    구현:
+        - ``datetime.now().astimezone()`` 으로 시스템 로컬 타임존을 자동 적용.
+        - Python 의 ``isoformat()`` 은 마이크로초(6자리) 까지 출력하며,
+          ``date_nanos`` 는 마이크로초만으로도 정상 파싱한다 (뒷자리 0 패딩).
+        - 이 페이지의 ``updated_at`` 만 ISO 포맷을 쓰고, 다른 페이지의
+          표시용 시각 (queried_at 등) 이나 pipeline_state 안의 시각은
+          기존 ``YYYY-MM-DD HH:MM:SS`` 컨벤션을 그대로 둔다.
+    """
+    return datetime.now().astimezone().isoformat(timespec="microseconds")
 
 
 async def run_document_state_lookup(doc_id: str) -> dict[str, Any]:
@@ -1098,16 +1122,22 @@ async def run_document_state_update(
     else:
         # dict 가 아니거나 null 이면 새로 만든다 (기존 값은 무시되며 새 dict 로 치환).
         merged_pipeline = {}
-    now_str = _document_state_now_str()
+    # 시각은 두 가지 포맷을 의도적으로 분리해서 사용 — 이 페이지에 한정된 일관성 무시:
+    #   · pipeline_state[<state>].updated_at  : 사람이 읽기 좋은 'YYYY-MM-DD HH:MM:SS'
+    #       (object 안의 자유 텍스트라 ES date 매핑 영향 없음)
+    #   · doc.updated_at                      : ES 'date_nanos' 매핑과 호환되는 ISO 8601
+    #       (그렇지 않으면 document_parsing_exception 400)
+    now_str_pipeline = _document_state_now_str()
+    now_iso_doc      = _document_state_updated_at_iso()
     merged_pipeline[state] = {
-        "updated_at": now_str,
+        "updated_at": now_str_pipeline,
         "comment":    DOCUMENT_STATE_COMMENT,
     }
 
     partial_doc = {
         "current_state":  state,
         "pipeline_state": merged_pipeline,
-        "updated_at":     now_str,
+        "updated_at":     now_iso_doc,
     }
 
     # 4) update 실행
@@ -1149,7 +1179,8 @@ async def run_document_state_update(
         "new_state": state,
         "updated": fresh,
         "elapsed_ms": elapsed_ms,
-        "updated_at_used": now_str,
+        # 'updated_at_used' 는 사용자 알림용 — 사람이 읽기 좋은 쪽(pipeline_state 와 동일) 으로 노출.
+        "updated_at_used": now_str_pipeline,
         "error": None,
     }
 
