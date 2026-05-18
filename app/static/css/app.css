@@ -4218,6 +4218,51 @@ body.ls-dl-modal-open { overflow: hidden; }
   border-color: #ca8a04;
 }
 
+/* ============================================================
+   AMAT Abnormal Step — ES-STATE 컬럼 (ES current_state pill)
+   ============================================================
+   amat_page.html 의 EsStateFiller 가 그리는 셀 스타일.
+   - 정상 값        : .es-state-pill  (단색 pill, current_state 텍스트 그대로)
+   - 미발견         : .es-state-pill.es-state-missing  (회색)
+   - doc 에 미설정 : .es-state-pill.es-state-unset    (회색)
+   - 로딩 중        : .es-state-loading (점선 무광)
+   - 빈 ES_ID 행    : .es-state-empty   (em-dash 회색)
+*/
+.es-state-pill {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.es-state-pill.es-state-missing,
+.es-state-pill.es-state-unset {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #e5e7eb;
+  font-weight: 500;
+}
+.es-state-loading {
+  display: inline-block;
+  font-size: 13px;
+  color: #9ca3af;
+  padding: 4px 8px;
+  letter-spacing: 1px;
+}
+.es-state-empty {
+  color: #9ca3af;
+}
+
 /* ════════════════════════════════════════════════════════════
    Document 조회 페이지 (/es/document) — es_document.html
    ──────────────────────────────────────────────────────────── */

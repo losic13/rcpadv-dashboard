@@ -42,6 +42,15 @@ class DocumentStateUpdateBody(BaseModel):
     concrete_index: str = Field(..., description="구체 인덱스 이름 (와일드카드 불가)")
 
 
+class BulkCurrentStateBody(BaseModel):
+    """`POST /es/bulk-current-state` 요청 본문.
+
+    - ids: 일괄 조회할 _id 목록 (서비스 레이어에서 중복/공백 제거 + 한도 검사).
+    AMAT Abnormal Step List 의 ES-STATE 컬럼 채우기 전용으로 사용.
+    """
+    ids: list[str] = Field(default_factory=list, description="조회할 _id 목록")
+
+
 # ── 기존: /es (소스 탭 페이지) ──────────────────────────────────────────
 @router.get("")
 def page(request: Request):
@@ -247,6 +256,26 @@ async def document_state_update(body: DocumentStateUpdateBody):
             raise HTTPException(status_code=422, detail=err)
         raise HTTPException(status_code=500, detail=err)
 
+    return JSONResponse(result)
+
+
+# ── 신규: /es/bulk-current-state (AMAT ES-STATE 컬럼 채우기 전용) ────────
+@router.post("/bulk-current-state")
+async def bulk_current_state(body: BulkCurrentStateBody):
+    """여러 _id 의 ``current_state`` 값을 한 번에 묶어서 반환.
+
+    AMAT Abnormal Step List 의 ES-STATE 컬럼이 한 페이지(또는 전체) 행의
+    es_id 들을 모아 호출하는 가벼운 lookup. 빈 입력은 200 + 빈 맵으로,
+    한도 초과는 422 로, 타임아웃은 504 로 매핑한다.
+    """
+    result = await es_service.run_bulk_current_state(body.ids)
+    if not result["ok"]:
+        err = result.get("error") or "조회 실패"
+        if "최대" in err:
+            raise HTTPException(status_code=422, detail=err)
+        if "타임아웃" in err:
+            raise HTTPException(status_code=504, detail=err)
+        raise HTTPException(status_code=500, detail=err)
     return JSONResponse(result)
 
 

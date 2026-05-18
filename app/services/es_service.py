@@ -351,6 +351,158 @@ async def run_document_lookup(ids: list[str]) -> dict[str, Any]:
 
 
 # ============================================================
+# bulk current_state 조회 — AMAT 페이지 ES-STATE 컬럼 채우기 전용
+# ============================================================
+#
+# 목적:
+#   AMAT Abnormal Step List 의 결과(최대 1000행) 의 es_id 컬럼 값들을 한
+#   번에 ES 에 보내, 각 _id 의 ``current_state`` 만 묶어서 돌려준다.
+#   Document 조회용 ``run_document_lookup`` 과 비교하면:
+#     - 응답이 매우 가벼움 (모든 _source 가 아니라 current_state 하나뿐)
+#     - "미발견 _id" 도 함께 알려줘서 UI 가 "(미발견)" 셀로 구분 가능
+#   ES `terms` 쿼리는 와일드카드 인덱스 패턴(예: "parsing-index-2-*")을
+#   지원하므로 .env 의 ES_DOCUMENT_LOOKUP_INDEX 를 그대로 재사용.
+# ============================================================
+
+async def run_bulk_current_state(ids: list[str]) -> dict[str, Any]:
+    """입력된 _id 목록에 대한 ``current_state`` 값을 일괄 반환.
+
+    동작:
+        - 입력 순서 유지하면서 중복/공백 제거 (run_document_lookup 과 동일 정책).
+        - 전체 ES_DOCUMENT_LOOKUP_INDEX 패턴에 `terms` 쿼리 1회 호출.
+        - 응답 hit 마다 _source.current_state 만 뽑아 매핑.
+        - 한도 (ES_DOCUMENT_LOOKUP_MAX_IDS) 초과 시 ok=False.
+
+    반환:
+        {
+          "ok": bool,
+          "states": {<_id>: <current_state or None>, ...},  # 미발견 _id 는 미포함
+          "missing_ids": [<_id>, ...],
+          "requested": int,
+          "found": int,
+          "elapsed_ms": int,
+          "queried_at": str,
+          "index": str,
+          "error": str | None,
+        }
+    """
+    index = settings.ES_DOCUMENT_LOOKUP_INDEX
+    max_ids = settings.ES_DOCUMENT_LOOKUP_MAX_IDS
+    queried_at_default = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 입력 정규화 (순서 유지 + 중복 제거)
+    seen: set[str] = set()
+    unique_ids: list[str] = []
+    for raw in ids or []:
+        s = (raw or "").strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        unique_ids.append(s)
+
+    if not unique_ids:
+        return {
+            "ok": True,
+            "states": {},
+            "missing_ids": [],
+            "requested": 0,
+            "found": 0,
+            "elapsed_ms": 0,
+            "queried_at": queried_at_default,
+            "index": index,
+            "error": None,
+        }
+
+    if len(unique_ids) > max_ids:
+        return {
+            "ok": False,
+            "states": {},
+            "missing_ids": [],
+            "requested": len(unique_ids),
+            "found": 0,
+            "elapsed_ms": 0,
+            "queried_at": queried_at_default,
+            "index": index,
+            "error": f"최대 {max_ids} 건까지만 조회 가능합니다 (입력 {len(unique_ids)} 건).",
+        }
+
+    body = {
+        "size": len(unique_ids),
+        "_source": ["current_state"],          # 필요한 필드만 → 네트워크/메모리 절약
+        "query": {"terms": {"_id": unique_ids}},
+    }
+
+    log.info(
+        "[es/bulk-current-state] terms 조회 시작: index=%s, ids=%d",
+        index, len(unique_ids),
+    )
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.search, index, body),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error(
+            "[es/bulk-current-state] 쿼리 타임아웃 (>%ds)",
+            settings.QUERY_TIMEOUT_SECONDS,
+        )
+        return {
+            "ok": False,
+            "states": {},
+            "missing_ids": [],
+            "requested": len(unique_ids),
+            "found": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": queried_at_default,
+            "index": index,
+            "error": "쿼리 타임아웃",
+        }
+    except Exception as e:
+        log.error("[es/bulk-current-state] 쿼리 실패: %s", e)
+        return {
+            "ok": False,
+            "states": {},
+            "missing_ids": [],
+            "requested": len(unique_ids),
+            "found": 0,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "queried_at": queried_at_default,
+            "index": index,
+            "error": str(e),
+        }
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    hits = (resp.get("hits") or {}).get("hits") or []
+    states: dict[str, Any] = {}
+    for h in hits:
+        _id = h.get("_id")
+        if not _id:
+            continue
+        src = h.get("_source") or {}
+        # current_state 가 누락되어도 키는 두되 None 으로 — UI 는 "(미설정)" 으로 표시.
+        states[_id] = src.get("current_state")
+
+    missing_ids = [i for i in unique_ids if i not in states]
+    log.info(
+        "[es/bulk-current-state] 완료: index=%s, 입력=%d, 발견=%d, 미발견=%d, %dms",
+        index, len(unique_ids), len(states), len(missing_ids), elapsed_ms,
+    )
+
+    return {
+        "ok": True,
+        "states": states,
+        "missing_ids": missing_ids,
+        "requested": len(unique_ids),
+        "found": len(states),
+        "elapsed_ms": elapsed_ms,
+        "queried_at": queried_at_default,
+        "index": index,
+        "error": None,
+    }
+
+
+# ============================================================
 # 설비별 처리현황 — product × maker × eqp_id × 날짜 매트릭스
 # ============================================================
 
