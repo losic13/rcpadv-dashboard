@@ -851,6 +851,295 @@ async def run_history_overview() -> dict[str, Any]:
 
 
 # ============================================================
+# Document State 변경 페이지 (/es/document-state)
+# ============================================================
+#
+# 두 가지 작업을 제공:
+#   1) run_document_state_lookup(_id)
+#        ES_DOCUMENT_LOOKUP_INDEX 에서 단일 _id 의 doc 을 GET 한 뒤
+#        UI 가 필요한 핵심 필드들을 정리해 반환.
+#        업데이트 시 사용할 구체 인덱스(`_index`) 도 같이 반환한다.
+#   2) run_document_state_update(_id, new_state, concrete_index)
+#        다음 3 가지를 한 번에 partial update:
+#          · current_state       ← new_state
+#          · pipeline_state      ← 기존 dict 을 그대로 두고 [new_state] 키만
+#                                  {"updated_at": now, "comment": ...} 로 덮어쓰기
+#          · updated_at          ← now
+#        그 후 다시 GET 해서 갱신된 doc 을 반환.
+
+# state 변경 시 pipeline_state 의 entry 에 같이 남길 comment.
+# 운영 추적용 — 어떤 채널로 변경된 건지 식별 가능하게 한다.
+DOCUMENT_STATE_COMMENT = "document-state-change(web)"
+
+
+def _document_state_now_str() -> str:
+    """`pipeline_state[*].updated_at` 및 doc.updated_at 에 사용할 시각 문자열.
+
+    포맷: ``YYYY-MM-DD HH:MM:SS`` (로컬 시간) — 기존 페이지들의 컨벤션과 일치.
+    """
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def run_document_state_lookup(doc_id: str) -> dict[str, Any]:
+    """_id 1개 조회 — Document State 변경 페이지 전용.
+
+    반환 스키마:
+        {
+          "ok": bool,
+          "_id": str,
+          "_index": str,        # 실제 구체 인덱스 — 후속 update 호출에 그대로 사용
+          "current_state":  Any | None,
+          "pipeline_state": Any | None,
+          "edip_kafka_msg": Any | None,
+          "meta":           Any | None,
+          "created_at":     Any | None,
+          "updated_at":     Any | None,
+          "source":         dict,    # 그 외 모든 _source (위 6개 필드 제외)
+          "allowed_states": [str, ...],   # 화이트리스트 (.env)
+          "elapsed_ms": int,
+          "queried_at": str,
+          "error":      str | None,
+        }
+
+    오류 매핑:
+        · 빈 _id        → ok=False, error="조회할 _id 가 없습니다."
+        · NotFound      → ok=False, error="not_found"
+        · 그 외 예외/타임아웃은 ok=False + 에러 메시지
+    """
+    index_pattern = settings.ES_DOCUMENT_LOOKUP_INDEX
+    allowed = settings.es_document_state_allowed()
+    _id = (doc_id or "").strip()
+
+    base_meta: dict[str, Any] = {
+        "ok": False,
+        "_id": _id,
+        "_index": None,
+        "current_state": None,
+        "pipeline_state": None,
+        "edip_kafka_msg": None,
+        "meta": None,
+        "created_at": None,
+        "updated_at": None,
+        "source": {},
+        "allowed_states": allowed,
+        "elapsed_ms": 0,
+        "queried_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "error": None,
+    }
+
+    if not _id:
+        return {**base_meta, "error": "조회할 _id 가 없습니다."}
+
+    log.info("[es/document-state] 조회 시작: index=%s, _id=%s", index_pattern, _id)
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.get_doc, index_pattern, _id),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        log.error("[es/document-state] 쿼리 타임아웃 (>%ds)", settings.QUERY_TIMEOUT_SECONDS)
+        return {
+            **base_meta,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "error": "쿼리 타임아웃",
+        }
+    except Exception as e:
+        # elasticsearch.NotFoundError 등은 클래스 import 없이 메시지로 식별.
+        msg = str(e)
+        if "NotFoundError" in type(e).__name__ or "404" in msg or "not_found" in msg.lower():
+            log.info("[es/document-state] not_found: _id=%s", _id)
+            return {
+                **base_meta,
+                "elapsed_ms": int((time.perf_counter() - start) * 1000),
+                "error": "not_found",
+            }
+        log.error("[es/document-state] 조회 실패: %s", e)
+        return {
+            **base_meta,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "error": msg,
+        }
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    concrete_index = resp.get("_index")
+    src = resp.get("_source") or {}
+
+    # 핵심/부가 필드를 명시적으로 꺼내고, 나머지는 source 에 그대로 담는다.
+    KEY_FIELDS = ("current_state", "pipeline_state",
+                   "edip_kafka_msg", "meta", "created_at", "updated_at")
+    extras = {k: v for k, v in src.items() if k not in KEY_FIELDS}
+
+    log.info(
+        "[es/document-state] 완료: index=%s, _id=%s, current_state=%r, %dms",
+        concrete_index, _id, src.get("current_state"), elapsed_ms,
+    )
+    return {
+        "ok": True,
+        "_id": _id,
+        "_index": concrete_index,
+        "current_state":  src.get("current_state"),
+        "pipeline_state": src.get("pipeline_state"),
+        "edip_kafka_msg": src.get("edip_kafka_msg"),
+        "meta":           src.get("meta"),
+        "created_at":     src.get("created_at"),
+        "updated_at":     src.get("updated_at"),
+        "source":         extras,
+        "allowed_states": allowed,
+        "elapsed_ms":     elapsed_ms,
+        "queried_at":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "error":          None,
+    }
+
+
+async def run_document_state_update(
+    doc_id: str,
+    new_state: str,
+    concrete_index: str,
+) -> dict[str, Any]:
+    """current_state 변경 + pipeline_state 누적 + updated_at 갱신.
+
+    인자:
+        doc_id          : 대상 _id
+        new_state       : 새 current_state 값. 화이트리스트에 있어야 함.
+        concrete_index  : 와일드카드가 아닌 **구체 인덱스 이름**. 호출하는 쪽이
+                          이전 조회 응답의 ``_index`` 를 그대로 넘겨주는 패턴.
+
+    반환:
+        {
+          "ok": bool,
+          "_id": str,
+          "_index": str,
+          "prev_state":  Any | None,    # 변경 전 current_state
+          "new_state":   str,
+          "updated":     dict,          # 변경 후 다시 GET 한 doc (lookup 과 같은 스키마)
+          "elapsed_ms":  int,
+          "updated_at_used": str,       # 이번에 기록한 시각
+          "error":       str | None,
+        }
+    """
+    allowed = settings.es_document_state_allowed()
+    _id = (doc_id or "").strip()
+    state = (new_state or "").strip()
+    index = (concrete_index or "").strip()
+
+    base: dict[str, Any] = {
+        "ok": False,
+        "_id": _id,
+        "_index": index or None,
+        "prev_state": None,
+        "new_state": state,
+        "updated": None,
+        "elapsed_ms": 0,
+        "updated_at_used": None,
+        "error": None,
+    }
+
+    # 1) 입력 검증
+    if not _id:
+        return {**base, "error": "변경할 _id 가 없습니다."}
+    if not state:
+        return {**base, "error": "new_state 가 비어 있습니다."}
+    if not index:
+        return {**base, "error": "concrete_index 가 비어 있습니다."}
+    if allowed and state not in allowed:
+        return {
+            **base,
+            "error": f"허용되지 않은 state 입니다: {state!r} (허용: {', '.join(allowed) or '없음'})",
+        }
+    # 와일드카드 보호 — update API 는 와일드카드 인덱스를 받지 않음.
+    if "*" in index or "," in index:
+        return {**base, "error": f"구체 인덱스 이름이 필요합니다 (받은 값: {index!r})."}
+
+    start = time.perf_counter()
+
+    # 2) 현재 doc 조회 (prev_state / pipeline_state 머지를 위해 필요)
+    log.info("[es/document-state] update GET: index=%s, _id=%s, new=%s", index, _id, state)
+    try:
+        cur = await asyncio.wait_for(
+            asyncio.to_thread(es_client.get_doc, index, _id),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return {**base, "elapsed_ms": int((time.perf_counter() - start) * 1000), "error": "쿼리 타임아웃"}
+    except Exception as e:
+        msg = str(e)
+        if "NotFoundError" in type(e).__name__ or "404" in msg or "not_found" in msg.lower():
+            return {
+                **base,
+                "elapsed_ms": int((time.perf_counter() - start) * 1000),
+                "error": "not_found",
+            }
+        log.error("[es/document-state] update 전 조회 실패: %s", e)
+        return {**base, "elapsed_ms": int((time.perf_counter() - start) * 1000), "error": msg}
+
+    src = cur.get("_source") or {}
+    prev_state = src.get("current_state")
+
+    # 3) pipeline_state 머지 — 기존 dict 보존, state 키만 덮어쓰기
+    existing_pipeline = src.get("pipeline_state")
+    if isinstance(existing_pipeline, dict):
+        merged_pipeline = dict(existing_pipeline)
+    else:
+        # dict 가 아니거나 null 이면 새로 만든다 (기존 값은 무시되며 새 dict 로 치환).
+        merged_pipeline = {}
+    now_str = _document_state_now_str()
+    merged_pipeline[state] = {
+        "updated_at": now_str,
+        "comment":    DOCUMENT_STATE_COMMENT,
+    }
+
+    partial_doc = {
+        "current_state":  state,
+        "pipeline_state": merged_pipeline,
+        "updated_at":     now_str,
+    }
+
+    # 4) update 실행
+    log.info(
+        "[es/document-state] update DO: index=%s, _id=%s, %r → %r",
+        index, _id, prev_state, state,
+    )
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(es_client.update_doc, index, _id, partial_doc),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return {
+            **base,
+            "prev_state": prev_state,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "error": "update 타임아웃",
+        }
+    except Exception as e:
+        log.error("[es/document-state] update 실패: %s", e)
+        return {
+            **base,
+            "prev_state": prev_state,
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "error": str(e),
+        }
+
+    # 5) 변경 후 다시 GET 해서 화면에 보여줄 최신 doc 을 만든다.
+    #    내부적으로 lookup 헬퍼를 재사용 — 동일한 응답 스키마 보장.
+    fresh = await run_document_state_lookup(_id)
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    return {
+        "ok": True,
+        "_id": _id,
+        "_index": index,
+        "prev_state": prev_state,
+        "new_state": state,
+        "updated": fresh,
+        "elapsed_ms": elapsed_ms,
+        "updated_at_used": now_str,
+        "error": None,
+    }
+
+
+# ============================================================
 # 공통 내부 유틸
 # ============================================================
 

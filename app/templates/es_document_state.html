@@ -1,0 +1,830 @@
+{#
+  Document State 변경 (/es/document-state)
+  ──────────────────────────────────────────────────────────────
+  · 단일 _id 를 입력해 doc 을 조회한다.
+  · 핵심 정보 (current_state, pipeline_state) 는 화면 상단에 항상 펼쳐
+    한눈에 확인 가능하도록 배치.
+  · 부가 정보 (created_at, updated_at, edip_kafka_msg, meta) 는
+    기본 접힘 상태로 details 안에 넣어 필요할 때만 펼친다.
+  · current_state 는 사전 정의된 화이트리스트(.env: ES_DOCUMENT_STATE_ALLOWED)
+    안에서만 콤보박스로 선택해 변경할 수 있다.
+  · [변경하기] 클릭 시 confirm 다이얼로그 →
+       POST /es/document-state/update { id, new_state, concrete_index }
+       서버가 다음을 atomically 처리:
+          - doc.current_state          ← 새 값
+          - doc.pipeline_state[새값]   ← {updated_at, comment="document-state-change(web)"}
+          - doc.updated_at             ← 새 시각
+       성공 응답에 갱신된 doc 이 함께 와서 화면이 즉시 새 상태로 갱신된다.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+
+<section class="card es-document-page">
+
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES</span>
+      <strong>Document State 변경</strong>
+      <span class="card-sub">index: <code>{{ lookup_index }}</code></span>
+    </div>
+    <div class="card-controls">
+      <span class="status-badge" id="ds-status-badge" data-state="idle"></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+
+    {# ── 입력 영역 ────────────────────────────────────────── #}
+    <div class="ds-input-row">
+      <label for="ds-id-input" class="ds-input-label">_id</label>
+      <input type="text"
+             id="ds-id-input"
+             class="ds-id-input"
+             placeholder="예: ABCDEF1234567890"
+             autocomplete="off"
+             spellcheck="false">
+      <button class="btn btn-run" id="ds-btn-run" type="button" title="조회">
+        <span class="btn-run-icon" aria-hidden="true">▶</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+      <button class="btn btn-run btn-run-sm" id="ds-btn-clear" type="button" title="입력 비우기">
+        <span class="btn-run-label">비우기</span>
+      </button>
+    </div>
+
+    {# ── 에러 / 안내 배너 ─────────────────────────────────── #}
+    <div id="ds-error" class="disk-error" hidden></div>
+
+    {# ── 결과 메타 ────────────────────────────────────────── #}
+    <div class="disk-meta" id="ds-result-meta" hidden>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">조회 시점</span>
+        <span id="ds-queried-at">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">응답</span>
+        <span id="ds-elapsed">—</span>
+      </span>
+      <span class="disk-meta-sep">·</span>
+      <span class="disk-meta-item">
+        <span class="disk-meta-key">인덱스</span>
+        <code id="ds-concrete-index">—</code>
+      </span>
+    </div>
+
+    {# ── 결과 영역 ────────────────────────────────────────── #}
+    <div id="ds-result-wrap" hidden>
+
+      {# ===== 핵심 정보 (항상 펼침) =================================== #}
+      <div class="ds-section ds-section-primary">
+        <div class="ds-section-title">핵심 정보</div>
+
+        {# current_state — 콤보박스로 변경 #}
+        <div class="ds-key-block">
+          <div class="ds-key-label">current_state</div>
+          <div class="ds-key-current">
+            <span class="ds-current-pill" id="ds-current-state">—</span>
+          </div>
+          <div class="ds-change-row">
+            <label for="ds-new-state" class="ds-change-label">변경:</label>
+            <select id="ds-new-state" class="ds-select" disabled>
+              {% if allowed_states %}
+                {% for s in allowed_states %}
+                  <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>(허용 state 없음 — .env 설정 필요)</option>
+              {% endif %}
+            </select>
+            <button class="btn btn-run btn-run-sm" id="ds-btn-update" type="button" title="state 변경" disabled>
+              <span class="btn-run-label">변경하기</span>
+            </button>
+          </div>
+          <p class="ds-hint">
+            ※ 변경 시 <code>pipeline_state[새 state]</code> 에
+            <code>{ "updated_at": 현재시각, "comment": "document-state-change(web)" }</code>
+            가 자동으로 기록되고 <code>updated_at</code> 도 같이 갱신됩니다.
+          </p>
+        </div>
+
+        {# pipeline_state — 항상 펼침, JSON 트리 #}
+        <div class="ds-key-block">
+          <div class="ds-key-label">pipeline_state</div>
+          <div class="ds-json" id="ds-pipeline-state">—</div>
+        </div>
+      </div>
+
+      {# ===== 부가 정보 (기본 접힘) =================================== #}
+      <details class="ds-section ds-section-secondary">
+        <summary class="ds-section-title-collapsible">
+          <span class="ds-toggle" aria-hidden="true">▶</span>
+          부가 정보 보기 (created_at / updated_at / edip_kafka_msg / meta)
+        </summary>
+        <div class="ds-secondary-body">
+
+          <div class="ds-key-block">
+            <div class="ds-key-label">created_at</div>
+            <div class="ds-scalar" id="ds-created-at">—</div>
+          </div>
+
+          <div class="ds-key-block">
+            <div class="ds-key-label">updated_at</div>
+            <div class="ds-scalar" id="ds-updated-at">—</div>
+          </div>
+
+          <div class="ds-key-block">
+            <div class="ds-key-label">edip_kafka_msg</div>
+            <div class="ds-json" id="ds-edip-kafka-msg">—</div>
+          </div>
+
+          <div class="ds-key-block">
+            <div class="ds-key-label">meta</div>
+            <div class="ds-json" id="ds-meta">—</div>
+          </div>
+
+          <div class="ds-key-block" id="ds-source-block" hidden>
+            <div class="ds-key-label">그 외 필드</div>
+            <div class="ds-json" id="ds-source">—</div>
+          </div>
+
+        </div>
+      </details>
+
+    </div>{# /ds-result-wrap #}
+
+    {# ── 비어있을 때 안내 ────────────────────────────────── #}
+    <div class="doc-empty" id="ds-empty">
+      _id 를 입력하고 <strong>조회</strong> 버튼을 눌러주세요.
+    </div>
+
+  </div>{# /card-body #}
+</section>
+
+{# 토스트 — 변경 성공/실패 알림용 #}
+<div class="doc-toast" id="ds-toast" hidden></div>
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+{# ── 화이트리스트 / 인덱스 패턴을 JS 로 안전하게 전달 ─────────────────
+    Jinja2 |tojson 으로 직렬화하면 list/string 모두 JSON literal 이 되어
+    그대로 JS 변수에 받을 수 있다. #}
+<script id="ds-allowed-states" type="application/json">
+  {{ allowed_states|tojson }}
+</script>
+
+<style>
+/* ─── Document State 변경 페이지 전용 스타일 ────────────────────────────
+   (다른 페이지에 영향 주지 않도록 .ds-* prefix 로 격리) */
+
+.ds-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ds-input-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #374151;
+  margin-right: 4px;
+}
+.ds-id-input {
+  flex: 1 1 320px;
+  min-width: 220px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+}
+.ds-id-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
+}
+
+/* 섹션 */
+.ds-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 14px;
+  background: #fff;
+}
+.ds-section-primary {
+  border-color: #c7d2fe;
+  background: linear-gradient(180deg, #f5f7ff 0%, #ffffff 60%);
+}
+.ds-section-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #1e3a8a;
+  margin-bottom: 10px;
+  letter-spacing: 0.02em;
+}
+.ds-section-title-collapsible {
+  font-weight: 700;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+}
+.ds-section-title-collapsible::-webkit-details-marker {
+  display: none;
+}
+.ds-toggle {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  color: #9ca3af;
+  font-size: 11px;
+}
+.ds-section-secondary[open] .ds-toggle {
+  transform: rotate(90deg);
+}
+.ds-secondary-body {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e5e7eb;
+}
+
+/* 각 key 블록 */
+.ds-key-block {
+  margin-bottom: 14px;
+}
+.ds-key-block:last-child {
+  margin-bottom: 0;
+}
+.ds-key-label {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: #4338ca;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.ds-scalar {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: #111827;
+  background: #f9fafb;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #f3f4f6;
+  word-break: break-all;
+}
+.ds-json {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: #fafafa;
+  border: 1px solid #f3f4f6;
+  border-radius: 4px;
+  padding: 8px 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+/* current_state pill */
+.ds-current-pill {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+}
+.ds-current-pill[data-empty="true"] {
+  color: #9ca3af;
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  font-weight: 500;
+}
+
+/* 변경 행 */
+.ds-change-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ds-change-label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 600;
+}
+.ds-select {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  min-width: 180px;
+}
+.ds-select:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.ds-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.ds-hint code {
+  background: #f3f4f6;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11.5px;
+}
+
+/* JSON 트리 토큰 — es_document.html 의 .jt-* 클래스를 동일 시각 컨벤션으로 재정의.
+   (글로벌 .jt-* 가 있을 가능성이 있으므로, 없으면 여기서 백업 정의) */
+.ds-json .jt-key      { color: #1d4ed8; }
+.ds-json .jt-str      { color: #047857; }
+.ds-json .jt-num      { color: #b45309; }
+.ds-json .jt-bool     { color: #b91c1c; }
+.ds-json .jt-null     { color: #9ca3af; font-style: italic; }
+.ds-json .jt-punct    { color: #6b7280; }
+.ds-json .jt-comma    { color: #6b7280; }
+.ds-json .jt-colon    { margin-right: 4px; }
+.ds-json .jt-meta     { color: #9ca3af; font-size: 11px; margin: 0 4px; }
+.ds-json .jt-ellipsis { color: #d1d5db; margin: 0 2px; }
+.ds-json .jt-line     { padding: 1px 0; }
+.ds-json .jt-children { margin-left: 16px; border-left: 1px dashed #e5e7eb; padding-left: 8px; }
+.ds-json details > summary { cursor: pointer; list-style: none; }
+.ds-json details > summary::-webkit-details-marker { display: none; }
+.ds-json .jt-toggle { display: inline-block; width: 12px; color: #9ca3af; font-size: 10px; transition: transform 0.15s ease; }
+.ds-json details[open] > summary .jt-toggle { transform: rotate(90deg); }
+.ds-json details[open] > summary .jt-meta-collapsed,
+.ds-json details[open] > summary .jt-ellipsis,
+.ds-json details[open] > summary .jt-close-inline { display: none; }
+.ds-json details:not([open]) > .jt-children,
+.ds-json details:not([open]) > .jt-close-line { display: none; }
+</style>
+
+<script>
+(() => {
+  'use strict';
+
+  // ── 화이트리스트 (.env: ES_DOCUMENT_STATE_ALLOWED) ─────────────────
+  let ALLOWED_STATES = [];
+  try {
+    ALLOWED_STATES = JSON.parse(
+      document.getElementById('ds-allowed-states').textContent
+    ) || [];
+  } catch (_) {
+    ALLOWED_STATES = [];
+  }
+
+  // ── DOM ───────────────────────────────────────────────────────────
+  const $idInput      = document.getElementById('ds-id-input');
+  const $btnRun       = document.getElementById('ds-btn-run');
+  const $btnClear     = document.getElementById('ds-btn-clear');
+  const $badge        = document.getElementById('ds-status-badge');
+  const $error        = document.getElementById('ds-error');
+  const $resultMeta   = document.getElementById('ds-result-meta');
+  const $queriedAt    = document.getElementById('ds-queried-at');
+  const $elapsed      = document.getElementById('ds-elapsed');
+  const $concreteIdx  = document.getElementById('ds-concrete-index');
+  const $resultWrap   = document.getElementById('ds-result-wrap');
+  const $current      = document.getElementById('ds-current-state');
+  const $newSelect    = document.getElementById('ds-new-state');
+  const $btnUpdate    = document.getElementById('ds-btn-update');
+  const $pipeline     = document.getElementById('ds-pipeline-state');
+  const $createdAt    = document.getElementById('ds-created-at');
+  const $updatedAt    = document.getElementById('ds-updated-at');
+  const $edipMsg      = document.getElementById('ds-edip-kafka-msg');
+  const $meta         = document.getElementById('ds-meta');
+  const $sourceBlock  = document.getElementById('ds-source-block');
+  const $source       = document.getElementById('ds-source');
+  const $empty        = document.getElementById('ds-empty');
+  const $toast        = document.getElementById('ds-toast');
+
+  // ── 상태 ─────────────────────────────────────────────────────────
+  let _runToken    = 0;
+  let _abortCtl    = null;
+  // 마지막으로 조회된 doc 정보 — update 호출 시 concrete_index 가 필요.
+  let _lastDoc     = null;   // { id, index, currentState }
+
+  // ── 유틸 ─────────────────────────────────────────────────────────
+  function setBadge(state, label) {
+    $badge.dataset.state = state;
+    $badge.textContent = label || '';
+  }
+  function showError(msg) {
+    $error.textContent = msg;
+    $error.hidden = false;
+  }
+  function hideError() {
+    $error.hidden = true;
+    $error.textContent = '';
+  }
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ── 토스트 ───────────────────────────────────────────────────────
+  let _toastTimer = null;
+  function showToast(msg, kind) {
+    $toast.textContent = msg;
+    $toast.hidden = false;
+    $toast.dataset.kind = kind || 'info';
+    void $toast.offsetWidth;
+    $toast.classList.add('is-visible');
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => {
+      $toast.classList.remove('is-visible');
+      setTimeout(() => { $toast.hidden = true; }, 250);
+    }, 2200);
+  }
+
+  // ── JSON 트리 렌더러 (es_document.html 의 구현을 그대로 차용) ────
+  function renderJsonScalar(v) {
+    if (v === null || v === undefined) {
+      return `<span class="jt-null">null</span>`;
+    }
+    if (typeof v === 'boolean') {
+      return `<span class="jt-bool">${v}</span>`;
+    }
+    if (typeof v === 'number') {
+      return `<span class="jt-num">${v}</span>`;
+    }
+    return `<span class="jt-str">"${escapeHtml(String(v))}"</span>`;
+  }
+  function renderJsonKey(k) {
+    return `<span class="jt-key">"${escapeHtml(String(k))}"</span>`;
+  }
+  function renderJsonChild(keyName, value, depth, maxOpenDepth, isLast) {
+    const comma = isLast ? '' : '<span class="jt-comma">,</span>';
+    const isObj = (value !== null && typeof value === 'object');
+    const isEmpty = isObj && (Array.isArray(value) ? value.length === 0 : Object.keys(value).length === 0);
+    const keyPrefix = (keyName !== null)
+      ? `${renderJsonKey(keyName)}<span class="jt-punct jt-colon">:</span> `
+      : '';
+    if (!isObj || isEmpty) {
+      let valHtml;
+      if (!isObj) {
+        valHtml = renderJsonScalar(value);
+      } else {
+        valHtml = `<span class="jt-punct">${Array.isArray(value) ? '[]' : '{}'}</span>`;
+      }
+      return `<div class="jt-line">${keyPrefix}${valHtml}${comma}</div>`;
+    }
+    const isOpen = depth < maxOpenDepth;
+    const isArr = Array.isArray(value);
+    const size = isArr ? value.length : Object.keys(value).length;
+    const meta = isArr ? `${size} items` : `${size} keys`;
+    const openCh = isArr ? '[' : '{';
+    const closeCh = isArr ? ']' : '}';
+    const inner = isArr
+      ? value.map((item, i) => renderJsonChild(null, item, depth + 1, maxOpenDepth, i === size - 1)).join('')
+      : Object.keys(value).map((k, i) => renderJsonChild(k, value[k], depth + 1, maxOpenDepth, i === size - 1)).join('');
+    return `<details class="jt-node ${isArr ? 'jt-array' : 'jt-object'}" ${isOpen ? 'open' : ''}>` +
+      `<summary class="jt-summary">` +
+        `<span class="jt-toggle" aria-hidden="true">▶</span>` +
+        `${keyPrefix}` +
+        `<span class="jt-punct">${openCh}</span>` +
+        `<span class="jt-meta jt-meta-collapsed">${meta}</span>` +
+        `<span class="jt-ellipsis">…</span>` +
+        `<span class="jt-punct jt-close-inline">${closeCh}</span>${comma}` +
+      `</summary>` +
+      `<div class="jt-children">${inner}</div>` +
+      `<div class="jt-close-line"><span class="jt-punct">${closeCh}</span>${comma}</div>` +
+    `</details>`;
+  }
+  function renderJsonValue(value, depth, maxOpenDepth, isLast) {
+    const comma = isLast ? '' : '<span class="jt-comma">,</span>';
+    if (value === null || typeof value !== 'object') {
+      return `<div class="jt-line jt-scalar-line">${renderJsonScalar(value)}${comma}</div>`;
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return `<div class="jt-line jt-empty-line"><span class="jt-punct">[]</span>${comma}</div>`;
+      }
+      const isOpen = depth < maxOpenDepth;
+      const childrenHtml = value.map((item, i) =>
+        renderJsonChild(null, item, depth + 1, maxOpenDepth, i === value.length - 1)
+      ).join('');
+      return `<details class="jt-node jt-array" ${isOpen ? 'open' : ''}>` +
+        `<summary class="jt-summary">` +
+          `<span class="jt-toggle" aria-hidden="true">▶</span>` +
+          `<span class="jt-punct">[</span>` +
+          `<span class="jt-meta jt-meta-collapsed">${value.length} items</span>` +
+          `<span class="jt-ellipsis">…</span>` +
+          `<span class="jt-punct jt-close-inline">]</span>${comma}` +
+        `</summary>` +
+        `<div class="jt-children">${childrenHtml}</div>` +
+        `<div class="jt-close-line"><span class="jt-punct">]</span>${comma}</div>` +
+      `</details>`;
+    }
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      return `<div class="jt-line jt-empty-line"><span class="jt-punct">{}</span>${comma}</div>`;
+    }
+    const isOpen = depth < maxOpenDepth;
+    const childrenHtml = keys.map((k, i) =>
+      renderJsonChild(k, value[k], depth + 1, maxOpenDepth, i === keys.length - 1)
+    ).join('');
+    return `<details class="jt-node jt-object" ${isOpen ? 'open' : ''}>` +
+      `<summary class="jt-summary">` +
+        `<span class="jt-toggle" aria-hidden="true">▶</span>` +
+        `<span class="jt-punct">{</span>` +
+        `<span class="jt-meta jt-meta-collapsed">${keys.length} keys</span>` +
+        `<span class="jt-ellipsis">…</span>` +
+        `<span class="jt-punct jt-close-inline">}</span>${comma}` +
+      `</summary>` +
+      `<div class="jt-children">${childrenHtml}</div>` +
+      `<div class="jt-close-line"><span class="jt-punct">}</span>${comma}</div>` +
+    `</details>`;
+  }
+  // 핵심 정보(pipeline_state) 는 2단까지 자동 펼침, 부가 정보는 1단만.
+  function renderJsonInto($el, value, maxOpenDepth) {
+    if (value === undefined || value === null) {
+      $el.innerHTML = '<span class="jt-null">null</span>';
+      return;
+    }
+    const depth = (typeof maxOpenDepth === 'number') ? maxOpenDepth : 1;
+    $el.innerHTML = `<div class="jt-root">${renderJsonValue(value, 0, depth, true)}</div>`;
+  }
+
+  // ── 결과 렌더 ────────────────────────────────────────────────────
+  function renderResult(json) {
+    // _lastDoc 저장
+    _lastDoc = {
+      id: json._id || '',
+      index: json._index || '',
+      currentState: json.current_state,
+    };
+
+    // 메타
+    $resultMeta.hidden = false;
+    $queriedAt.textContent    = json.queried_at || '—';
+    $elapsed.textContent      = (json.elapsed_ms ?? 0) + 'ms';
+    $concreteIdx.textContent  = json._index || '—';
+
+    // 핵심: current_state
+    const cs = json.current_state;
+    if (cs == null || cs === '') {
+      $current.textContent = '(미설정)';
+      $current.dataset.empty = 'true';
+    } else {
+      $current.textContent = String(cs);
+      $current.dataset.empty = 'false';
+    }
+
+    // 콤보 활성화 — 화이트리스트가 있고 select 에 option 이 있을 때만.
+    const hasOptions = $newSelect.options.length > 0 && ALLOWED_STATES.length > 0;
+    $newSelect.disabled = !hasOptions;
+    $btnUpdate.disabled = !hasOptions;
+    // 현재 상태와 같은 옵션이 콤보에 있다면 그것을 기본 선택해두면 헷갈리니
+    //   "현재 값이 아닌 첫번째 옵션" 을 선호.  여기서는 단순히 첫번째 유지.
+    //   (사용자가 직접 골라야 confirm 다이얼로그에 의미가 있음)
+
+    // 핵심: pipeline_state — 2단까지 펼침
+    renderJsonInto($pipeline, json.pipeline_state, 2);
+
+    // 부가
+    $createdAt.textContent = (json.created_at == null) ? '(미설정)' : String(json.created_at);
+    $updatedAt.textContent = (json.updated_at == null) ? '(미설정)' : String(json.updated_at);
+    renderJsonInto($edipMsg, json.edip_kafka_msg, 1);
+    renderJsonInto($meta,    json.meta,           1);
+
+    // 그 외 필드 (있을 때만)
+    const src = json.source || {};
+    const extraKeys = Object.keys(src);
+    if (extraKeys.length > 0) {
+      $sourceBlock.hidden = false;
+      renderJsonInto($source, src, 1);
+    } else {
+      $sourceBlock.hidden = true;
+      $source.innerHTML = '';
+    }
+
+    $resultWrap.hidden = false;
+    $empty.style.display = 'none';
+  }
+
+  function clearResult() {
+    _lastDoc = null;
+    $resultWrap.hidden = true;
+    $resultMeta.hidden = true;
+    $current.textContent = '—';
+    $current.dataset.empty = 'true';
+    $pipeline.innerHTML = '—';
+    $createdAt.textContent = '—';
+    $updatedAt.textContent = '—';
+    $edipMsg.innerHTML = '—';
+    $meta.innerHTML = '—';
+    $sourceBlock.hidden = true;
+    $source.innerHTML = '';
+    $newSelect.disabled = true;
+    $btnUpdate.disabled = true;
+  }
+
+  // ── 조회 ─────────────────────────────────────────────────────────
+  async function runLookup() {
+    hideError();
+    const id = ($idInput.value || '').trim();
+    if (!id) {
+      showError('조회할 _id 를 입력해주세요.');
+      return;
+    }
+
+    if (_abortCtl) {
+      try { _abortCtl.abort(); } catch (_) {}
+    }
+    _abortCtl = new AbortController();
+    const myToken = ++_runToken;
+
+    $btnRun.disabled = true;
+    setBadge('loading', '조회 중…');
+    $empty.style.display = 'none';
+
+    let resp, json;
+    try {
+      resp = await fetch('/es/document-state/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+        signal: _abortCtl.signal,
+      });
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        if (myToken === _runToken) {
+          setBadge('superseded', '취소됨');
+          $btnRun.disabled = false;
+        }
+        return;
+      }
+      if (myToken !== _runToken) return;
+      showError(`네트워크 오류: ${e.message || e}`);
+      setBadge('error', '오류');
+      $btnRun.disabled = false;
+      return;
+    }
+    if (myToken !== _runToken) return;
+
+    try { json = await resp.json(); } catch (_) { json = null; }
+
+    if (!resp.ok) {
+      const detail = (json && (json.detail || json.error)) || `HTTP ${resp.status}`;
+      showError(`조회 실패: ${detail}`);
+      setBadge('error', '오류');
+      $btnRun.disabled = false;
+      clearResult();
+      return;
+    }
+
+    // ok=false + error="not_found" 도 정상 응답으로 내려옴 (200) → 분기
+    if (json && json.ok === false) {
+      const err = json.error || '조회 실패';
+      if (err === 'not_found') {
+        showError(`해당 _id 의 문서를 찾을 수 없습니다: ${id}`);
+        setBadge('error', '없음');
+        clearResult();
+        $btnRun.disabled = false;
+        return;
+      }
+      showError(`조회 실패: ${err}`);
+      setBadge('error', '오류');
+      clearResult();
+      $btnRun.disabled = false;
+      return;
+    }
+
+    renderResult(json);
+    setBadge('ok', '완료');
+    $btnRun.disabled = false;
+  }
+
+  // ── current_state 변경 ───────────────────────────────────────────
+  async function runUpdate() {
+    if (!_lastDoc || !_lastDoc.id) {
+      showError('먼저 _id 로 조회를 실행해주세요.');
+      return;
+    }
+    const newState = ($newSelect.value || '').trim();
+    if (!newState) {
+      showError('변경할 state 를 선택해주세요.');
+      return;
+    }
+    if (!_lastDoc.index) {
+      showError('구체 인덱스 정보를 알 수 없습니다. 다시 조회해주세요.');
+      return;
+    }
+
+    const prev = (_lastDoc.currentState == null || _lastDoc.currentState === '')
+      ? '(미설정)'
+      : String(_lastDoc.currentState);
+    const isSame = (String(_lastDoc.currentState) === newState);
+
+    let confirmMsg = `current_state 를 [${prev}] → [${newState}] 로 변경합니다.\n\n`
+                  + `· 인덱스: ${_lastDoc.index}\n`
+                  + `· _id   : ${_lastDoc.id}\n\n`
+                  + `pipeline_state[${newState}] 에 변경 시각이 기록되고\n`
+                  + `updated_at 도 함께 갱신됩니다.\n\n`
+                  + `계속할까요?`;
+    if (isSame) {
+      confirmMsg = `⚠ 현재 값([${prev}]) 과 같은 state 로 변경합니다.\n\n`
+                 + `pipeline_state[${newState}] 의 기존 기록이 새 시각으로 덮어써집니다.\n\n`
+                 + confirmMsg;
+    }
+    if (!window.confirm(confirmMsg)) return;
+
+    hideError();
+    $btnUpdate.disabled = true;
+    $btnRun.disabled = true;
+    setBadge('loading', '변경 중…');
+
+    let resp, json;
+    try {
+      resp = await fetch('/es/document-state/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: _lastDoc.id,
+          new_state: newState,
+          concrete_index: _lastDoc.index,
+        }),
+      });
+    } catch (e) {
+      showError(`네트워크 오류: ${e.message || e}`);
+      setBadge('error', '오류');
+      $btnUpdate.disabled = false;
+      $btnRun.disabled = false;
+      return;
+    }
+
+    try { json = await resp.json(); } catch (_) { json = null; }
+
+    if (!resp.ok) {
+      const detail = (json && (json.detail || json.error)) || `HTTP ${resp.status}`;
+      showError(`변경 실패: ${detail}`);
+      setBadge('error', '오류');
+      showToast(`변경 실패: ${detail}`, 'error');
+      $btnUpdate.disabled = false;
+      $btnRun.disabled = false;
+      return;
+    }
+
+    // 성공 — 응답의 updated.* 가 새 doc 정보
+    const fresh = json.updated;
+    if (fresh && fresh.ok) {
+      renderResult(fresh);
+    }
+    const prevLabel = (json.prev_state == null) ? '(미설정)' : String(json.prev_state);
+    setBadge('ok', '변경 완료');
+    showToast(`변경 완료: ${prevLabel} → ${json.new_state}`, 'ok');
+    $btnUpdate.disabled = false;
+    $btnRun.disabled = false;
+  }
+
+  // ── 입력 비우기 ──────────────────────────────────────────────────
+  function clearAll() {
+    $idInput.value = '';
+    hideError();
+    clearResult();
+    setBadge('idle', '');
+    $empty.style.display = '';
+    $idInput.focus();
+  }
+
+  // ── 이벤트 바인딩 ────────────────────────────────────────────────
+  $btnRun.addEventListener('click', runLookup);
+  $btnClear.addEventListener('click', clearAll);
+  $btnUpdate.addEventListener('click', runUpdate);
+
+  $idInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runLookup();
+    }
+  });
+
+})();
+</script>
+{% endblock %}
