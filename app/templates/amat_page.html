@@ -156,7 +156,8 @@
       </div>
       <p class="kw-hint">
         ※ 앞뒤 공백·줄바꿈은 자동 제거 후 등록됩니다.
-        입력 중 동일 키워드가 이미 있으면 “이미 존재” 로 표시되고 등록 버튼이 비활성화됩니다.
+        등록 전에 <strong>[확인]</strong> 버튼을 눌러 동일 키워드의 존재 여부를 미리 확인할 수 있습니다
+        (이미 있으면 등록 버튼이 비활성화됩니다). 확인 없이 [등록] 을 눌러도 서버가 다시 한 번 검증합니다.
       </p>
     </div>
 
@@ -667,15 +668,19 @@
       const confirmOkBtn  = () => document.getElementById('kw-confirm-ok');
       const confirmCancelBtn = () => document.getElementById('kw-confirm-cancel');
 
-      // ── 라이브 중복 체크 상태 ──────────────────────────────────
-      //   - _liveAbortCtrl : 직전 in-flight fetch abort 용 (race 방지)
-      //   - _liveDebounce  : input 이벤트 debounce 타이머 핸들
-      //   - _liveLastName  : 현재 화면에 표시 중인 status 가 어느 name 에 대한 결과인지
-      //   - _liveBlocked   : 중복이라 등록 버튼이 비활성화되어 있는지 (등록 시점 가드)
-      //   - _liveChecking  : 현재 fetch in-flight 상태인지 ("확인" 버튼 disable 용)
-      const LIVE_DEBOUNCE_MS = 350;
+      // ── 중복 체크 상태 ────────────────────────────────────────
+      //   체크 방식: [확인] 버튼 클릭 시에만 GET /amat/keyword/exists 호출.
+      //   (이전 버전의 keyup-debounce 자동 라이브 체크는 어색하다고 판단되어 제거.)
+      //
+      //   - _liveAbortCtrl : 직전 in-flight fetch abort 용 (사용자가 [확인] 을
+      //                      빠르게 연타한 경우 race 방지)
+      //   - _liveLastName  : 가장 최근 [확인] 결과가 어느 name 에 대한 것이었는지.
+      //                      입력값이 이와 달라지면 표시 중인 status 는 stale —
+      //                      input 이벤트에서 invalidate 한다.
+      //   - _liveBlocked   : 가장 최근 [확인] 결과가 'duplicate' 였는지.
+      //                      등록 클릭 시 즉시 차단 가드로 사용.
+      //   - _liveChecking  : 현재 fetch in-flight 상태인지 ([확인] 버튼 disable 용)
       let _liveAbortCtrl = null;
-      let _liveDebounce  = null;
       let _liveLastName  = null;
       let _liveBlocked   = false;
       let _liveChecking  = false;
@@ -777,44 +782,35 @@
         else         btn.disabled = true;
       }
 
-      // ── 라이브 중복 체크 ──────────────────────────────────────
-      //   debounce 후 GET /amat/keyword/exists?name=<trimmed> 호출.
-      //   - 빈 입력: status 숨김, 버튼 활성 (등록 시 422 로 거부됨)
-      //   - in-flight 직전 요청은 AbortController 로 취소 (race 방지)
-      //   - 응답 도착 시점에 현재 입력값과 다르면 결과 무시
-      //   - 실패는 fail-open: error 표시만 하고 버튼은 활성
-      function scheduleLiveCheck() {
+      // ── 입력 변경 시 이전 체크 결과 무효화 ─────────────────────
+      //   사용자가 [확인] 으로 "이미 존재" / "등록 가능" / "확인 실패" 등을
+      //   표시받은 뒤 입력값을 수정하면, 표시 중인 status 는 더 이상 현재
+      //   입력값에 해당하지 않는다(stale). 그 즉시 배지를 비우고 _liveBlocked
+      //   / _liveLastName 을 초기화한다.
+      //
+      //   입력값이 빈 문자열이 되거나 마지막 체크한 값과 일치하면 그대로 유지.
+      function invalidateLiveStatusIfChanged() {
         const inp = kwInput();
         if (!inp) return;
         const trimmed = (inp.value || '').trim();
 
-        // 직전 debounce 취소
-        if (_liveDebounce) { clearTimeout(_liveDebounce); _liveDebounce = null; }
-        // 직전 in-flight fetch 취소
+        // 진행 중인 fetch 가 있으면 취소 — 그 결과는 더 이상 의미 없음
         if (_liveAbortCtrl) {
           try { _liveAbortCtrl.abort(); } catch (_) {}
           _liveAbortCtrl = null;
         }
+        // checking/in-flight 도 해제
+        _liveChecking = false;
+        setCheckBtnEnabled(true);
 
-        if (!trimmed) {
-          // 빈 입력은 차단/표시 모두 해제
-          _liveBlocked  = false;
-          _liveLastName = '';
-          setInlineStatus(null, null);
-          setRegisterBtnEnabled(true);
-          return;
-        }
+        // 직전 체크 결과와 동일한 값이면 유지
+        if (trimmed && trimmed === _liveLastName) return;
 
-        // 입력 즉시 "확인 중…" 표시 (debounce 동안에도 사용자에게 진행감 제공)
-        setInlineStatus('checking', '⏳ 확인 중…');
-        // checking 상태에서는 버튼 활성 유지 (사용자가 enter 치면 register 가 다시 SELECT)
+        // 그 외에는 stale — 배지 숨김 + 차단 해제
+        _liveBlocked  = false;
+        _liveLastName = null;
+        setInlineStatus(null, null);
         setRegisterBtnEnabled(true);
-        _liveBlocked = false;
-
-        _liveDebounce = setTimeout(() => {
-          _liveDebounce = null;
-          runLiveCheck(trimmed);
-        }, LIVE_DEBOUNCE_MS);
       }
 
       // ── "확인" 버튼 활성/비활성 토글 ─────────────────────────
@@ -892,9 +888,8 @@
           return;
         }
 
-        // 직전 debounce 취소 (즉시 실행)
-        if (_liveDebounce) { clearTimeout(_liveDebounce); _liveDebounce = null; }
-        // 직전 in-flight fetch 취소 — runLiveCheck 안에서 새 AbortController 생성
+        // 직전 in-flight fetch 취소 (사용자가 [확인] 연타한 경우 race 방지)
+        //   runLiveCheck 안에서 새 AbortController 가 생성된다.
         if (_liveAbortCtrl) {
           try { _liveAbortCtrl.abort(); } catch (_) {}
           _liveAbortCtrl = null;
@@ -952,7 +947,8 @@
       // ── 입력값 검증 → 등록 요청 ──
       //   옵션 ③ (trim 표준): 항상 strip 후 등록. 입력이 비면 Toast 만.
       //   확인 다이얼로그(앞뒤 공백/줄바꿈 경고)는 trim 자동화로 무의미해져 제거.
-      //   서버 최종 가드(SELECT→INSERT) 가 있으므로 라이브 차단 외에는 별도 전처리 없음.
+      //   사전 [확인] 결과가 duplicate 면 즉시 차단 (서버 호출 절약).
+      //   그 외(미확인 / 확인 가능 / 확인 실패) 는 서버 최종 가드에 위임.
       function requestRegister() {
         const inp = kwInput();
         if (!inp) return;
@@ -963,7 +959,9 @@
           return;
         }
         if (_liveBlocked && _liveLastName === trimmed) {
-          // 라이브 체크가 이미 중복 판정한 값 — 즉시 차단 (서버 호출도 안 함)
+          // 사용자가 [확인] 으로 이미 duplicate 를 본 그 값을 그대로 등록 시도
+          // — invalidateLiveStatusIfChanged 가 입력 변경 시 이 플래그를 해제하므로
+          //   여기에 들어왔다는 건 입력이 그대로라는 뜻. 즉시 차단.
           Toast.show('이미 존재하는 키워드입니다.', 'error');
           return;
         }
@@ -984,14 +982,13 @@
         if (chkBtn)  chkBtn.addEventListener('click', requestCheck);
         if (refBtn)  refBtn.addEventListener('click', loadList);
         if (inp) {
-          // Enter 키 → 등록 (라이브 체크 결과가 duplicate 면 requestRegister 가 차단)
+          // Enter 키 → 등록 (이전 [확인] 결과가 duplicate 면 requestRegister 가 차단)
           inp.addEventListener('keydown', e => {
             if (e.key === 'Enter') { e.preventDefault(); requestRegister(); }
           });
-          // 입력 변경 → 라이브 중복 체크 스케줄 (debounce + abort)
-          inp.addEventListener('input', scheduleLiveCheck);
-          // 페이지 진입 시 입력값에 이미 뭔가 들어있을 수 있어 첫 체크 1회
-          if ((inp.value || '').trim()) scheduleLiveCheck();
+          // 입력 변경 → 이전 [확인] 결과가 stale 이 되므로 즉시 무효화
+          //   (자동 라이브 체크는 더 이상 트리거하지 않음 — [확인] 버튼만 사용)
+          inp.addEventListener('input', invalidateLiveStatusIfChanged);
         }
 
         // 오버레이 바깥 클릭 시 닫기 (현재는 trim 자동화로 confirm 다이얼로그가
