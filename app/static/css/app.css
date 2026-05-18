@@ -3912,6 +3912,47 @@ body.ls-dl-modal-open { overflow: hidden; }
 .kw-btn-register:hover:not(:disabled) { background: #4f46e5; }
 .kw-btn-register:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* ── 라이브 중복 체크 인라인 status ─────────────────────────────
+   입력 박스와 등록 버튼 사이에 표시되는 작은 배지.
+   JS 가 variant 클래스(kw-status-{checking|available|duplicate|error})
+   를 토글한다. hidden 속성으로 표시/숨김도 함께 제어. */
+.kw-status-inline {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  background: #f1f5f9;
+  color: #475569;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.kw-status-inline[hidden] { display: none; }
+.kw-status-inline.kw-status-checking {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+.kw-status-inline.kw-status-available {
+  background: #ecfdf5;     /* emerald-50 */
+  color: #047857;          /* emerald-700 */
+  border-color: #a7f3d0;   /* emerald-200 */
+}
+.kw-status-inline.kw-status-duplicate {
+  background: #fef2f2;     /* red-50 */
+  color: #b91c1c;          /* red-700 */
+  border-color: #fecaca;   /* red-200 */
+}
+.kw-status-inline.kw-status-error {
+  background: #fff7ed;     /* orange-50 */
+  color: #c2410c;          /* orange-700 */
+  border-color: #fed7aa;   /* orange-200 */
+}
+
 .kw-hint {
   margin: 10px 0 0;
   font-size: 12px;

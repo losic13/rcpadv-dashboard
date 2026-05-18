@@ -72,6 +72,21 @@ QUERIES: dict[str, SqlQueryDef] = {
         """,
         hidden=True,
     ),
+
+    # ④ AMAT Keyword 존재 여부 확인 — 등록 전 중복 가드용.
+    #    프론트의 라이브 입력 체크(GET /amat/keyword/exists) 와
+    #    서버측 최종 가드(POST /amat/keyword/register 내부) 양쪽에서 재사용된다.
+    #    name 비교는 정확 일치(대소문자 구분). 라우터에서 strip() 처리된 값이 들어옴.
+    #    LIMIT 1 — 존재 여부 + id 만 알면 충분하므로 빠른 종료.
+    "amat_keyword_exists": SqlQueryDef(
+        id="amat_keyword_exists",
+        title="AMAT Keyword 존재 여부",
+        description="동일 name 의 row 존재 여부 확인 (id 반환).",
+        sql="""
+            SELECT id FROM amat_keyword WHERE name = :name LIMIT 1
+        """,
+        hidden=True,
+    ),
 }
 
 

@@ -104,13 +104,89 @@ class KeywordRegisterBody(BaseModel):
     name: str
 
 
+async def _keyword_lookup(name: str) -> int | None:
+    """amat_keyword 에서 동일 name 의 id 를 조회 — 없으면 None.
+
+    /keyword/exists (라이브 체크) 와 /keyword/register (서버측 최종 가드)
+    양쪽에서 재사용하기 위해 헬퍼로 추출.
+    name 은 호출자가 strip() 한 값을 넘긴다고 가정 (정책: trim 표준).
+    """
+    columns, rows = await asyncio.wait_for(
+        asyncio.to_thread(
+            db_execute,
+            amat_service.DB_SOURCE,
+            AMAT_QUERIES["amat_keyword_exists"].sql,
+            {"name": name},
+        ),
+        timeout=settings.QUERY_TIMEOUT_SECONDS,
+    )
+    if not rows:
+        return None
+    # SELECT id ... LIMIT 1 — 첫 행의 id 만 반환
+    return rows[0].get("id")
+
+
+@router.get("/keyword/exists")
+async def keyword_exists(name: str = ""):
+    """입력 도중 라이브 중복 체크용 — 프론트가 debounce 후 호출.
+
+    정책 (옵션 ③, trim 표준):
+      - 서버는 name 을 무조건 strip() 후 비교 (앞뒤 공백/줄바꿈 무시).
+      - 빈 문자열은 항상 exists=False 로 응답 (불필요한 DB 호출 방지).
+      - 실패 시 fail-open: 클라이언트는 "확인 실패" 표시만 하고
+        등록 버튼은 활성 유지 → 최종 가드(/register) 에서 다시 검증.
+
+    응답: {exists: bool, name: <stripped>, existing_id?: int}
+    """
+    stripped = (name or "").strip()
+    if not stripped:
+        return JSONResponse({"exists": False, "name": stripped})
+    try:
+        existing_id = await _keyword_lookup(stripped)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="쿼리 타임아웃")
+    except Exception as e:
+        log.error("keyword_exists 실패: name=%r err=%s", stripped, e)
+        raise HTTPException(status_code=500, detail=f"존재 확인 실패: {e}")
+
+    if existing_id is None:
+        return JSONResponse({"exists": False, "name": stripped})
+    return JSONResponse({
+        "exists": True,
+        "name": stripped,
+        "existing_id": existing_id,
+    })
+
+
 @router.post("/keyword/register")
 async def keyword_register(body: KeywordRegisterBody):
-    """amat_keyword 테이블에 name 값을 INSERT."""
-    name = body.name
+    """amat_keyword 테이블에 name 값을 INSERT.
+
+    정책 (옵션 ③, trim 표준):
+      - body.name 을 strip() 한 값을 표준으로 사용. 빈 값은 422.
+      - INSERT 전에 동일 name 의 SELECT 가드를 수행하여 중복 시 409 응답.
+      - 라이브 체크(/keyword/exists) 와 100% 동일한 SQL/값을 사용해 일관성 보장.
+      - race 방지를 위한 SELECT ... FOR UPDATE 는 사용 안 함 (사용자 합의 — 단일 사용자 UI).
+    """
+    name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="name 값이 비어 있습니다.")
     try:
+        # ① 존재 여부 확인 (서버측 최종 가드)
+        existing_id = await _keyword_lookup(name)
+        if existing_id is not None:
+            log.info("keyword 등록 거부 — 중복: name=%r existing_id=%s", name, existing_id)
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "ok": False,
+                    "reason": "duplicate",
+                    "detail": f"이미 존재하는 키워드입니다: {name}",
+                    "name": name,
+                    "existing_id": existing_id,
+                },
+            )
+        # ② 없으면 INSERT
         await asyncio.wait_for(
             asyncio.to_thread(
                 execute_dml,

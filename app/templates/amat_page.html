@@ -137,11 +137,20 @@
                 placeholder="등록할 키워드를 입력하세요"
                 maxlength="255"
                 autocomplete="off" />
+        {# 입력 도중 라이브 중복 체크 결과 — JS 가 상태 클래스 토글 #}
+        <span id="kw-status-inline"
+              class="kw-status-inline"
+              role="status"
+              aria-live="polite"
+              hidden></span>
         <button type="button" id="kw-register-btn" class="btn kw-btn-register">
           등록
         </button>
       </div>
-      <p class="kw-hint">※ 앞뒤 공백 또는 줄바꿈 문자 포함 시 등록 전 확인창이 표시됩니다.</p>
+      <p class="kw-hint">
+        ※ 앞뒤 공백·줄바꿈은 자동 제거 후 등록됩니다.
+        입력 중 동일 키워드가 이미 있으면 “이미 존재” 로 표시되고 등록 버튼이 비활성화됩니다.
+      </p>
     </div>
 
     {# 확인 다이얼로그 (기본 숨김) #}
@@ -643,11 +652,23 @@
       const kwRegBtn      = () => document.getElementById('kw-register-btn');
       const kwRefreshBtn  = () => document.getElementById('kw-refresh-btn');
       const kwListStatus  = () => document.getElementById('kw-list-status');
+      const kwStatusInline= () => document.getElementById('kw-status-inline');
       const confirmOverlay= () => document.getElementById('kw-confirm-overlay');
       const confirmMsg    = () => document.getElementById('kw-confirm-msg');
       const confirmPreview= () => document.getElementById('kw-confirm-preview');
       const confirmOkBtn  = () => document.getElementById('kw-confirm-ok');
       const confirmCancelBtn = () => document.getElementById('kw-confirm-cancel');
+
+      // ── 라이브 중복 체크 상태 ──────────────────────────────────
+      //   - _liveAbortCtrl : 직전 in-flight fetch abort 용 (race 방지)
+      //   - _liveDebounce  : input 이벤트 debounce 타이머 핸들
+      //   - _liveLastName  : 현재 화면에 표시 중인 status 가 어느 name 에 대한 결과인지
+      //   - _liveBlocked   : 중복이라 등록 버튼이 비활성화되어 있는지 (등록 시점 가드)
+      const LIVE_DEBOUNCE_MS = 350;
+      let _liveAbortCtrl = null;
+      let _liveDebounce  = null;
+      let _liveLastName  = null;
+      let _liveBlocked   = false;
 
       // ── 상태 표시 ──
       function setStatus(msg, type) {   // type: '' | 'ok' | 'err'
@@ -711,7 +732,126 @@
         }
       }
 
+      // ── 인라인 status 표시 ────────────────────────────────────
+      //   variant: 'checking' | 'available' | 'duplicate' | 'error' | null(=숨김)
+      //   message: 표시할 문구. null/'' 이면 hidden.
+      function setInlineStatus(variant, message) {
+        const el = kwStatusInline();
+        if (!el) return;
+        // 모든 변형 클래스 제거 후 필요한 것만 부여
+        el.classList.remove(
+          'kw-status-checking',
+          'kw-status-available',
+          'kw-status-duplicate',
+          'kw-status-error',
+        );
+        if (!variant || !message) {
+          el.textContent = '';
+          el.hidden = true;
+          return;
+        }
+        el.classList.add('kw-status-' + variant);
+        el.textContent = message;
+        el.hidden = false;
+      }
+
+      // ── 등록 버튼 활성/비활성 토글 ────────────────────────────
+      //   중복이라 차단된 경우(_liveBlocked=true) 만 disabled 로 둔다.
+      //   "확인 중" / "확인 실패" 상태에서는 활성화 유지 — 사용자가 누르면
+      //   서버 최종 가드가 다시 검증한다(fail-open).
+      function setRegisterBtnEnabled(enabled) {
+        const btn = kwRegBtn();
+        if (!btn) return;
+        // 등록 중일 때는 별도 처리 (doRegister 가 disabled 토글) — 여기선 enabled=true 만 활성
+        if (enabled) btn.disabled = false;
+        else         btn.disabled = true;
+      }
+
+      // ── 라이브 중복 체크 ──────────────────────────────────────
+      //   debounce 후 GET /amat/keyword/exists?name=<trimmed> 호출.
+      //   - 빈 입력: status 숨김, 버튼 활성 (등록 시 422 로 거부됨)
+      //   - in-flight 직전 요청은 AbortController 로 취소 (race 방지)
+      //   - 응답 도착 시점에 현재 입력값과 다르면 결과 무시
+      //   - 실패는 fail-open: error 표시만 하고 버튼은 활성
+      function scheduleLiveCheck() {
+        const inp = kwInput();
+        if (!inp) return;
+        const trimmed = (inp.value || '').trim();
+
+        // 직전 debounce 취소
+        if (_liveDebounce) { clearTimeout(_liveDebounce); _liveDebounce = null; }
+        // 직전 in-flight fetch 취소
+        if (_liveAbortCtrl) {
+          try { _liveAbortCtrl.abort(); } catch (_) {}
+          _liveAbortCtrl = null;
+        }
+
+        if (!trimmed) {
+          // 빈 입력은 차단/표시 모두 해제
+          _liveBlocked  = false;
+          _liveLastName = '';
+          setInlineStatus(null, null);
+          setRegisterBtnEnabled(true);
+          return;
+        }
+
+        // 입력 즉시 "확인 중…" 표시 (debounce 동안에도 사용자에게 진행감 제공)
+        setInlineStatus('checking', '⏳ 확인 중…');
+        // checking 상태에서는 버튼 활성 유지 (사용자가 enter 치면 register 가 다시 SELECT)
+        setRegisterBtnEnabled(true);
+        _liveBlocked = false;
+
+        _liveDebounce = setTimeout(() => {
+          _liveDebounce = null;
+          runLiveCheck(trimmed);
+        }, LIVE_DEBOUNCE_MS);
+      }
+
+      async function runLiveCheck(name) {
+        const ctrl = new AbortController();
+        _liveAbortCtrl = ctrl;
+        try {
+          const url = '/amat/keyword/exists?name=' + encodeURIComponent(name);
+          const res = await fetch(url, { signal: ctrl.signal });
+
+          // 응답 도착 시점에 입력이 바뀌었으면 결과 무시 (race-toleration)
+          const cur = ((kwInput() && kwInput().value) || '').trim();
+          if (cur !== name) return;
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.detail || res.statusText);
+          }
+          const data = await res.json();
+          if (data.exists) {
+            _liveBlocked  = true;
+            _liveLastName = name;
+            setInlineStatus('duplicate', '⚠ 이미 존재하는 키워드입니다');
+            setRegisterBtnEnabled(false);
+          } else {
+            _liveBlocked  = false;
+            _liveLastName = name;
+            setInlineStatus('available', '✓ 등록 가능');
+            setRegisterBtnEnabled(true);
+          }
+        } catch (err) {
+          // AbortError 는 정상 흐름 — 무시
+          if (err && err.name === 'AbortError') return;
+          // 그 외 실패는 fail-open
+          _liveBlocked  = false;
+          _liveLastName = name;
+          setInlineStatus('error', '⚠ 확인 실패 (등록 시 서버에서 재검증)');
+          setRegisterBtnEnabled(true);
+        } finally {
+          if (_liveAbortCtrl === ctrl) _liveAbortCtrl = null;
+        }
+      }
+
       // ── 등록 실행 ──
+      //   서버 응답 처리:
+      //     200 : 등록 성공 → Toast + 입력 클리어 + 목록 새로고침
+      //     409 : 중복 → Toast 경고, 입력값 유지, 라이브 상태도 duplicate 로 동기화
+      //     기타 : 일반 실패 Toast
       async function doRegister(name) {
         const btn = kwRegBtn();
         if (btn) { btn.disabled = true; btn.textContent = '등록 중…'; }
@@ -721,58 +861,57 @@
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ name }),
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
+
+          if (res.status === 409) {
+            // 서버측 최종 가드에서 중복 검출 — 라이브 체크 통과해도 발생 가능
+            // (사용자가 fail-open 상태에서 강행, 또는 실시간 race)
+            Toast.show(data.detail || '이미 존재하는 키워드입니다.', 'error');
+            _liveBlocked  = true;
+            _liveLastName = name;
+            setInlineStatus('duplicate', '⚠ 이미 존재하는 키워드입니다');
+            // 입력값은 유지, 버튼은 비활성 상태로
+            return;
+          }
           if (!res.ok) throw new Error(data.detail || res.statusText);
 
           Toast.show('등록 완료: ' + name, 'success');
-          if (kwInput()) kwInput().value = '';
+          const inp = kwInput();
+          if (inp) inp.value = '';
+          _liveBlocked  = false;
+          _liveLastName = '';
+          setInlineStatus(null, null);
           await loadList();
         } catch (err) {
-          Toast.show('등록 실패: ' + err.message, 'error');
+          Toast.show('등록 실패: ' + (err && err.message ? err.message : err), 'error');
         } finally {
-          if (btn) { btn.disabled = false; btn.textContent = '등록'; }
+          // 등록 버튼 텍스트 복구 — disabled 상태는 라이브 체크 결과에 맡김
+          if (btn) {
+            btn.textContent = '등록';
+            btn.disabled = _liveBlocked;
+          }
         }
       }
 
-      // ── 입력값 검증 → 확인창 또는 즉시 등록 ──
+      // ── 입력값 검증 → 등록 요청 ──
+      //   옵션 ③ (trim 표준): 항상 strip 후 등록. 입력이 비면 Toast 만.
+      //   확인 다이얼로그(앞뒤 공백/줄바꿈 경고)는 trim 자동화로 무의미해져 제거.
+      //   서버 최종 가드(SELECT→INSERT) 가 있으므로 라이브 차단 외에는 별도 전처리 없음.
       function requestRegister() {
         const inp = kwInput();
         if (!inp) return;
-        const raw  = inp.value;
-        const trimmed = raw.trim();
+        const trimmed = (inp.value || '').trim();
 
         if (!trimmed) {
           Toast.show('키워드를 입력해 주세요.', 'error');
           return;
         }
-
-        // 앞뒤 공백 또는 줄바꿈 포함 여부 체크
-        const hasLeadingTrailingSpace = (raw !== trimmed);
-        const hasNewline = /[\r\n]/.test(raw);
-
-        if (hasLeadingTrailingSpace || hasNewline) {
-          // 경고 문구 조합
-          const reasons = [];
-          if (hasLeadingTrailingSpace) reasons.push('앞/뒤 공백');
-          if (hasNewline)              reasons.push('줄바꿈 문자(\\n)');
-          confirmMsg().textContent =
-            '입력값에 ' + reasons.join(', ') + ' 이(가) 포함되어 있습니다. 그대로 등록하시겠습니까?';
-          // 입력값을 눈에 보이도록 표시 (이스케이프)
-          confirmPreview().textContent = raw
-            .replace(/\r\n/g, '↵\n')
-            .replace(/\n/g, '↵\n')
-            .replace(/\r/g, '↵');
-          confirmOverlay().hidden = false;
-          confirmOkBtn().onclick = () => {
-            confirmOverlay().hidden = true;
-            doRegister(raw);
-          };
-          confirmCancelBtn().onclick = () => {
-            confirmOverlay().hidden = true;
-          };
-        } else {
-          doRegister(raw);
+        if (_liveBlocked && _liveLastName === trimmed) {
+          // 라이브 체크가 이미 중복 판정한 값 — 즉시 차단 (서버 호출도 안 함)
+          Toast.show('이미 존재하는 키워드입니다.', 'error');
+          return;
         }
+        doRegister(trimmed);
       }
 
       // ── 초기화 (탭 최초 진입 시 1회) ──
@@ -787,12 +926,18 @@
         if (regBtn)  regBtn.addEventListener('click', requestRegister);
         if (refBtn)  refBtn.addEventListener('click', loadList);
         if (inp) {
+          // Enter 키 → 등록 (라이브 체크 결과가 duplicate 면 requestRegister 가 차단)
           inp.addEventListener('keydown', e => {
             if (e.key === 'Enter') { e.preventDefault(); requestRegister(); }
           });
+          // 입력 변경 → 라이브 중복 체크 스케줄 (debounce + abort)
+          inp.addEventListener('input', scheduleLiveCheck);
+          // 페이지 진입 시 입력값에 이미 뭔가 들어있을 수 있어 첫 체크 1회
+          if ((inp.value || '').trim()) scheduleLiveCheck();
         }
 
-        // 오버레이 바깥 클릭 시 닫기
+        // 오버레이 바깥 클릭 시 닫기 (현재는 trim 자동화로 confirm 다이얼로그가
+        // 사용되지 않지만, 마크업/리스너는 안전망으로 그대로 유지)
         const overlay = confirmOverlay();
         if (overlay) {
           overlay.addEventListener('click', e => {
