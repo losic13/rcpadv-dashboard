@@ -156,13 +156,18 @@ async def document_lookup(body: DocumentLookupBody):
 
 # ── 신규: /es/document-state (Document State 변경) ──────────────────────
 @router.get("/document-state")
-def document_state_page(request: Request):
+def document_state_page(request: Request, id: str | None = None):
     """Document State 변경 페이지 — _id 1개 조회 + current_state 변경.
 
     설정:
         · ES_DOCUMENT_LOOKUP_INDEX     : 조회 인덱스 패턴(와일드카드 가능)
         · ES_DOCUMENT_STATE_ALLOWED    : 변경 가능한 state 화이트리스트
                                           (콤보박스 옵션, 콤마 구분)
+
+    파라미터:
+        · id : 외부 페이지(예: AMAT Abnormal Step List 의 ES_ID 컬럼) 에서
+               점프해 올 때 사용. 비어 있지 않으면 템플릿이 input 을 자동
+               으로 채우고 페이지 로드시 즉시 조회를 트리거한다.
     """
     return templates.TemplateResponse(
         request,
@@ -173,6 +178,8 @@ def document_state_page(request: Request):
             "page_title": "Document State 변경",
             "lookup_index":   settings.ES_DOCUMENT_LOOKUP_INDEX,
             "allowed_states": settings.es_document_state_allowed(),
+            # 외부 진입(?id=...) — 비어 있으면 빈 문자열.
+            "initial_id":     (id or "").strip(),
         },
     )
 

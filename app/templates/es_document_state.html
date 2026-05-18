@@ -84,6 +84,14 @@
       <div class="ds-section ds-section-primary">
         <div class="ds-section-title">핵심 정보</div>
 
+        {# _id — 조회된 문서의 식별자 (current_state 위에 함께 표시) #}
+        <div class="ds-key-block">
+          <div class="ds-key-label">_id</div>
+          <div class="ds-key-current">
+            <span class="ds-id-pill" id="ds-doc-id" data-empty="true">—</span>
+          </div>
+        </div>
+
         {# current_state — 콤보박스로 변경 #}
         <div class="ds-key-block">
           <div class="ds-key-label">current_state</div>
@@ -295,6 +303,27 @@
   overflow: auto;
 }
 
+/* _id pill — current_state 와 같은 시각 구조지만 색을 살짝 다르게 (구분용) */
+.ds-id-pill {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  word-break: break-all;
+  max-width: 100%;
+}
+.ds-id-pill[data-empty="true"] {
+  color: #9ca3af;
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  font-weight: 500;
+}
+
 /* current_state pill */
 .ds-current-pill {
   display: inline-block;
@@ -405,6 +434,7 @@
   const $elapsed      = document.getElementById('ds-elapsed');
   const $concreteIdx  = document.getElementById('ds-concrete-index');
   const $resultWrap   = document.getElementById('ds-result-wrap');
+  const $docId        = document.getElementById('ds-doc-id');
   const $current      = document.getElementById('ds-current-state');
   const $newSelect    = document.getElementById('ds-new-state');
   const $btnUpdate    = document.getElementById('ds-btn-update');
@@ -586,6 +616,16 @@
     $elapsed.textContent      = (json.elapsed_ms ?? 0) + 'ms';
     $concreteIdx.textContent  = json._index || '—';
 
+    // 핵심: _id (current_state 위 표시)
+    const docId = json._id;
+    if (docId == null || docId === '') {
+      $docId.textContent = '(미설정)';
+      $docId.dataset.empty = 'true';
+    } else {
+      $docId.textContent = String(docId);
+      $docId.dataset.empty = 'false';
+    }
+
     // 핵심: current_state
     const cs = json.current_state;
     if (cs == null || cs === '') {
@@ -600,9 +640,17 @@
     const hasOptions = $newSelect.options.length > 0 && ALLOWED_STATES.length > 0;
     $newSelect.disabled = !hasOptions;
     $btnUpdate.disabled = !hasOptions;
-    // 현재 상태와 같은 옵션이 콤보에 있다면 그것을 기본 선택해두면 헷갈리니
-    //   "현재 값이 아닌 첫번째 옵션" 을 선호.  여기서는 단순히 첫번째 유지.
-    //   (사용자가 직접 골라야 confirm 다이얼로그에 의미가 있음)
+
+    // 기본 선택값 정책:
+    //   1) 'copied' 옵션이 있으면 'copied' 로 기본 선택 (가장 빈번한 use-case 대응)
+    //   2) 'copied' 가 없으면 첫번째 옵션 유지 (브라우저 기본)
+    //   3) 사용자는 이후 자유롭게 다른 옵션으로 변경 가능
+    if (hasOptions) {
+      const hasCopied = Array.from($newSelect.options).some(o => o.value === 'copied');
+      if (hasCopied) {
+        $newSelect.value = 'copied';
+      }
+    }
 
     // 핵심: pipeline_state — 2단까지 펼침
     renderJsonInto($pipeline, json.pipeline_state, 2);
@@ -632,6 +680,8 @@
     _lastDoc = null;
     $resultWrap.hidden = true;
     $resultMeta.hidden = true;
+    $docId.textContent = '—';
+    $docId.dataset.empty = 'true';
     $current.textContent = '—';
     $current.dataset.empty = 'true';
     $pipeline.innerHTML = '—';
@@ -824,6 +874,17 @@
       runLookup();
     }
   });
+
+  // ── 외부 진입(?id=...) 처리 ───────────────────────────
+  //   다른 페이지(예: AMAT Abnormal Step List 의 ES_ID 컬럼 링크) 에서
+  //   ?id=<_id> 형태로 점프해 오면 input 을 자동 채우고 즉시 조회 실행.
+  (function autoRunFromQuery() {
+    const initial = {{ initial_id|default('')|tojson }};
+    if (!initial) return;
+    $idInput.value = initial;
+    // 다음 tick 에서 실행 — 동기 init 코드(이벤트 바인딩 등) 가 모두 끝난 뒤 호출.
+    setTimeout(() => { runLookup(); }, 0);
+  })();
 
 })();
 </script>
