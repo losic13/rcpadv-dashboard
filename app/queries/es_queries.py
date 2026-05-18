@@ -10,8 +10,25 @@
   ※ DSL은 테스트용이므로 실 환경에 맞게 덮어쓸 것.
 
 [범용 쿼리 QUERIES — /es 탭 페이지(source_page.html)에서 사용]
+
+[Document State 변경 페이지]
+  DOC_STATE_ALLOWED_STATES : current_state 콤보박스 선택지.
+    새 상태값을 추가하려면 이 리스트에 문자열을 추가하면 됩니다.
+    순서가 UI 콤보박스 표시 순서가 됩니다.
 """
 from app.queries._base import EsQueryDef
+
+# ──────────────────────────────────────────────────────────────
+# Document State 변경 페이지 — current_state 허용 값 목록
+#
+# 새 상태를 추가하려면 이 리스트에 문자열을 append 하면 됩니다.
+# 코드의 다른 부분을 수정할 필요 없이 UI 콤보박스와 서버 검증에 자동 반영됩니다.
+# ──────────────────────────────────────────────────────────────
+DOC_STATE_ALLOWED_STATES: list[str] = [
+    "copied",
+    "received",
+    "complete",
+]
 
 # ──────────────────────────────────────────────────────────────
 # Overview Section A — parsing-index-1-* vs parsing-index-2-*

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.logger import get_logger
+from app.queries.es_queries import DOC_STATE_ALLOWED_STATES
 from app.routers._templating import NAV_ITEMS, templates
 from app.services import es_service
 
@@ -19,6 +20,12 @@ class DocumentLookupBody(BaseModel):
     - ids: 사용자가 입력한 _id 목록. 중복 제거 / 빈 값 제거는 서비스 레이어에서 수행.
     """
     ids: list[str] = Field(default_factory=list, description="조회할 _id 목록")
+
+
+# ── Pydantic 모델: Document State 변경 (POST body) ──────────────────────
+class _DocStateUpdateBody(BaseModel):
+    id: str
+    new_state: str
 
 
 # ── 기존: /es (소스 탭 페이지) ──────────────────────────────────────────
@@ -131,6 +138,45 @@ async def document_lookup(body: DocumentLookupBody):
         raise HTTPException(status_code=500, detail=err)
 
     return JSONResponse(result)
+
+
+# ── 신규: /es/doc-state (Document State 변경) ─────────────────────────────
+
+@router.get("/doc-state")
+def doc_state_page(request: Request):
+    """Document State 변경 페이지."""
+    return templates.TemplateResponse(
+        request,
+        "es_doc_state.html",
+        {
+            "nav_items": NAV_ITEMS,
+            "active_nav": "es_doc_state",
+            "page_title": "Document State 변경",
+            "allowed_states": DOC_STATE_ALLOWED_STATES,
+        },
+    )
+
+
+@router.get("/doc-state/get")
+async def doc_state_get(id: str, request: Request):
+    """?id=<_id> 로 Document 단일 조회."""
+    if not id or not id.strip():
+        raise HTTPException(status_code=400, detail="_id 값이 비어 있습니다.")
+    result = await es_service.get_doc_state(id.strip())
+    status = 200 if result["ok"] else 500
+    return JSONResponse(result, status_code=status)
+
+
+@router.post("/doc-state/update")
+async def doc_state_update(body: _DocStateUpdateBody, request: Request):
+    """{ "id": str, "new_state": str } → current_state 변경 + pipeline_state 이력 기록."""
+    if not body.id or not body.id.strip():
+        raise HTTPException(status_code=400, detail="_id 값이 비어 있습니다.")
+    if not body.new_state or not body.new_state.strip():
+        raise HTTPException(status_code=400, detail="new_state 값이 비어 있습니다.")
+    result = await es_service.update_doc_state(body.id.strip(), body.new_state.strip())
+    status = 200 if result["ok"] else (400 if "허용되지 않은" in (result.get("error") or "") else 500)
+    return JSONResponse(result, status_code=status)
 
 
 # ── 신규: /es/eqp-status (설비별 처리현황) ───────────────────────────────

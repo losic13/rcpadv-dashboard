@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     ES_USERNAME: str = ""
     ES_PASSWORD: str = ""
     ES_VERIFY_CERTS: bool = False
+    # Document State 변경 페이지에서 조회/업데이트할 인덱스 (와일드카드 가능)
+    # 운영 환경에서는 .env 에서 실제 인덱스 이름으로 덮어쓴다.
+    ES_DOC_STATE_INDEX: str = "parsing-index-2-*"
 
     # ---- ES Document 조회 페이지 (/es/document) ----
     # 인덱스 이름 / 한도를 코드 상수 대신 환경 변수로 관리.

@@ -1,0 +1,351 @@
+{#
+  Document State 변경 (/es/doc-state)
+  ──────────────────────────────────────────────────────────────
+  [영역 1] _id 입력 → Document 조회 (6개 필드 표시)
+  [영역 2] current_state 변경 (콤보박스 + Update 버튼)
+  ─ current_state : 큰 배지로 강조
+  ─ pipeline_state : JSON 트리 (펼침/접힘 토글)
+  ─ edip_kafka_msg / meta / created_at / updated_at : <details> 접힘 섹션
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+
+{# ── 조회 폼 ─────────────────────────────────────────── #}
+<section class="card" id="ds-search-card">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">ES</span>
+      <strong>Document 조회</strong>
+      <span class="card-sub">{{ settings.ES_DOC_STATE_INDEX if settings is defined else "parsing-index-2-*" }}</span>
+    </div>
+  </header>
+  <div class="card-body" style="padding: 20px 24px;">
+    <div style="display:flex; gap:10px; align-items:center; max-width:640px;">
+      <input
+        id="ds-id-input"
+        type="text"
+        class="form-control"
+        placeholder="_id 값을 입력하세요"
+        style="flex:1; font-family:monospace; font-size:13px;"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button id="ds-search-btn" class="btn btn-primary" style="white-space:nowrap;">
+        조회
+      </button>
+    </div>
+    <div id="ds-search-msg" style="margin-top:10px; font-size:13px; color:var(--color-muted); min-height:20px;"></div>
+  </div>
+</section>
+
+{# ── 결과 영역 (초기 hidden) ─────────────────────────── #}
+<div id="ds-result-area" style="display:none; margin-top:0;">
+
+  {# ── current_state 변경 카드 ── #}
+  <section class="card" id="ds-state-card" style="margin-top:16px;">
+    <header class="card-header">
+      <div class="card-title">
+        <span class="badge">STATE</span>
+        <strong>current_state</strong>
+      </div>
+    </header>
+    <div class="card-body" style="padding:20px 24px;">
+
+      {# 현재 상태 배지 #}
+      <div style="margin-bottom:20px; display:flex; align-items:center; gap:12px;">
+        <span style="font-size:13px; color:var(--color-muted); width:80px; flex-shrink:0;">현재 상태</span>
+        <span
+          id="ds-current-state-badge"
+          style="
+            display:inline-block;
+            padding:6px 18px;
+            border-radius:20px;
+            font-size:15px;
+            font-weight:700;
+            letter-spacing:.5px;
+            background:var(--color-brand);
+            color:#fff;
+          "
+        >—</span>
+      </div>
+
+      {# 변경 콤보박스 + Update 버튼 #}
+      <div style="display:flex; align-items:center; gap:10px; max-width:480px;">
+        <span style="font-size:13px; color:var(--color-muted); width:80px; flex-shrink:0;">변경할 상태</span>
+        <select id="ds-new-state-select" class="form-control" style="flex:1; font-size:13px;">
+          {% for state in allowed_states %}
+          <option value="{{ state }}">{{ state }}</option>
+          {% endfor %}
+        </select>
+        <button id="ds-update-btn" class="btn btn-primary" style="white-space:nowrap;">
+          Update
+        </button>
+      </div>
+
+      <div id="ds-update-msg" style="margin-top:10px; font-size:13px; min-height:20px;"></div>
+    </div>
+  </section>
+
+  {# ── pipeline_state JSON 트리 카드 ── #}
+  <section class="card" id="ds-pipeline-card" style="margin-top:16px;">
+    <header class="card-header" style="cursor:pointer; user-select:none;" id="ds-pipeline-toggle">
+      <div class="card-title">
+        <span class="badge">JSON</span>
+        <strong>pipeline_state</strong>
+        <span id="ds-pipeline-chevron" style="margin-left:6px; font-size:11px; color:var(--color-muted);">▼ 펼침</span>
+      </div>
+    </header>
+    <div id="ds-pipeline-body" class="card-body" style="padding:16px 24px;">
+      <pre
+        id="ds-pipeline-pre"
+        style="
+          background:var(--color-bg-alt, #f5f5f5);
+          border:1px solid var(--color-border, #e0e0e0);
+          border-radius:6px;
+          padding:14px 16px;
+          font-size:12.5px;
+          line-height:1.6;
+          overflow-x:auto;
+          white-space:pre;
+          margin:0;
+        "
+      >—</pre>
+    </div>
+  </section>
+
+  {# ── 나머지 필드 (접힘 섹션) ── #}
+  <section class="card" style="margin-top:16px;">
+    <header class="card-header">
+      <div class="card-title">
+        <span class="badge">INFO</span>
+        <strong>상세 필드</strong>
+      </div>
+    </header>
+    <div class="card-body" style="padding:8px 24px 16px;">
+
+      {# created_at / updated_at 인라인 표시 #}
+      <table style="font-size:13px; border-collapse:collapse; width:100%; max-width:640px; margin-bottom:12px;">
+        <tbody>
+          <tr>
+            <td style="padding:6px 12px 6px 0; color:var(--color-muted); width:130px; vertical-align:top;">created_at</td>
+            <td id="ds-created-at" style="padding:6px 0; font-family:monospace;">—</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 12px 6px 0; color:var(--color-muted); vertical-align:top;">updated_at</td>
+            <td id="ds-updated-at" style="padding:6px 0; font-family:monospace;">—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {# edip_kafka_msg #}
+      <details style="margin-bottom:8px;">
+        <summary style="font-size:13px; font-weight:600; cursor:pointer; padding:6px 0; color:var(--color-text);">
+          edip_kafka_msg
+        </summary>
+        <pre
+          id="ds-kafka-pre"
+          style="
+            background:var(--color-bg-alt, #f5f5f5);
+            border:1px solid var(--color-border, #e0e0e0);
+            border-radius:6px;
+            padding:12px 14px;
+            font-size:12px;
+            line-height:1.6;
+            overflow-x:auto;
+            white-space:pre;
+            margin:8px 0 4px;
+          "
+        >—</pre>
+      </details>
+
+      {# meta #}
+      <details>
+        <summary style="font-size:13px; font-weight:600; cursor:pointer; padding:6px 0; color:var(--color-text);">
+          meta
+        </summary>
+        <pre
+          id="ds-meta-pre"
+          style="
+            background:var(--color-bg-alt, #f5f5f5);
+            border:1px solid var(--color-border, #e0e0e0);
+            border-radius:6px;
+            padding:12px 14px;
+            font-size:12px;
+            line-height:1.6;
+            overflow-x:auto;
+            white-space:pre;
+            margin:8px 0 4px;
+          "
+        >—</pre>
+      </details>
+
+    </div>
+  </section>
+
+</div>{# /ds-result-area #}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  // ── DOM refs ──────────────────────────────────────────────
+  const idInput      = document.getElementById("ds-id-input");
+  const searchBtn    = document.getElementById("ds-search-btn");
+  const searchMsg    = document.getElementById("ds-search-msg");
+  const resultArea   = document.getElementById("ds-result-area");
+
+  const stateBadge   = document.getElementById("ds-current-state-badge");
+  const newStateSelect = document.getElementById("ds-new-state-select");
+  const updateBtn    = document.getElementById("ds-update-btn");
+  const updateMsg    = document.getElementById("ds-update-msg");
+
+  const pipelineToggle = document.getElementById("ds-pipeline-toggle");
+  const pipelineBody   = document.getElementById("ds-pipeline-body");
+  const pipelineChevron= document.getElementById("ds-pipeline-chevron");
+  const pipelinePre    = document.getElementById("ds-pipeline-pre");
+
+  const createdAt    = document.getElementById("ds-created-at");
+  const updatedAt    = document.getElementById("ds-updated-at");
+  const kafkaPre     = document.getElementById("ds-kafka-pre");
+  const metaPre      = document.getElementById("ds-meta-pre");
+
+  // ── 상태 배지 색상 매핑 ───────────────────────────────────
+  const STATE_COLORS = {
+    copied:   "#0d6efd",   // 파랑
+    received: "#198754",   // 초록
+    complete: "#6c757d",   // 회색
+  };
+  function badgeColor(state) {
+    return STATE_COLORS[state] || "var(--color-brand)";
+  }
+
+  // ── 메시지 헬퍼 ──────────────────────────────────────────
+  function showMsg(el, text, ok) {
+    el.textContent = text;
+    el.style.color = ok ? "var(--color-success, #198754)" : "var(--color-danger, #dc3545)";
+  }
+  function clearMsg(el) { el.textContent = ""; }
+
+  // ── JSON pretty-print (null → "—") ───────────────────────
+  function pretty(val) {
+    if (val === null || val === undefined) return "—";
+    if (typeof val === "string") return val;
+    return JSON.stringify(val, null, 2);
+  }
+
+  // ── pipeline_state 펼침/접힘 토글 ────────────────────────
+  let pipelineOpen = true;
+  pipelineToggle.addEventListener("click", function () {
+    pipelineOpen = !pipelineOpen;
+    pipelineBody.style.display = pipelineOpen ? "" : "none";
+    pipelineChevron.textContent = pipelineOpen ? "▼ 펼침" : "▶ 접힘";
+  });
+
+  // ── 현재 조회된 doc_id 저장 ──────────────────────────────
+  let currentDocId = "";
+
+  // ── 화면 채우기 ──────────────────────────────────────────
+  function fillResult(data) {
+    const state = data.current_state || "—";
+    stateBadge.textContent = state;
+    stateBadge.style.background = badgeColor(state);
+
+    pipelinePre.textContent = pretty(data.pipeline_state);
+    createdAt.textContent   = data.created_at   || "—";
+    updatedAt.textContent   = data.updated_at   || "—";
+    kafkaPre.textContent    = pretty(data.edip_kafka_msg);
+    metaPre.textContent     = pretty(data.meta);
+  }
+
+  // ── 조회 ─────────────────────────────────────────────────
+  async function doSearch() {
+    const id = idInput.value.trim();
+    if (!id) { showMsg(searchMsg, "_id를 입력하세요.", false); return; }
+
+    clearMsg(searchMsg);
+    searchBtn.disabled = true;
+    searchBtn.textContent = "조회 중…";
+
+    try {
+      const res  = await fetch("/es/doc-state/get?id=" + encodeURIComponent(id));
+      const json = await res.json();
+
+      if (!json.ok) {
+        showMsg(searchMsg, "오류: " + (json.error || "알 수 없는 오류"), false);
+        resultArea.style.display = "none";
+        return;
+      }
+      if (!json.found) {
+        showMsg(searchMsg, `Document를 찾을 수 없습니다: ${id}`, false);
+        resultArea.style.display = "none";
+        return;
+      }
+
+      currentDocId = json.id;
+      showMsg(searchMsg,
+        `조회 완료 — index: ${json.index}  (${json.elapsed_ms}ms)`, true);
+      fillResult(json.data);
+      clearMsg(updateMsg);
+      resultArea.style.display = "";
+
+    } catch (e) {
+      showMsg(searchMsg, "네트워크 오류: " + e.message, false);
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.textContent = "조회";
+    }
+  }
+
+  searchBtn.addEventListener("click", doSearch);
+  idInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") doSearch();
+  });
+
+  // ── Update ───────────────────────────────────────────────
+  updateBtn.addEventListener("click", async function () {
+    if (!currentDocId) { showMsg(updateMsg, "먼저 Document를 조회하세요.", false); return; }
+
+    const newState = newStateSelect.value;
+    clearMsg(updateMsg);
+    updateBtn.disabled = true;
+    updateBtn.textContent = "처리 중…";
+
+    try {
+      const res  = await fetch("/es/doc-state/update", {
+        method:  "POST",
+        headers: {"Content-Type": "application/json"},
+        body:    JSON.stringify({id: currentDocId, new_state: newState}),
+      });
+      const json = await res.json();
+
+      if (!json.ok) {
+        showMsg(updateMsg, "오류: " + (json.error || "알 수 없는 오류"), false);
+        return;
+      }
+
+      showMsg(updateMsg,
+        `업데이트 완료 — ${json.new_state}  (${json.updated_at}, ${json.elapsed_ms}ms)`, true);
+
+      // 조회 결과 자동 갱신
+      const refRes  = await fetch("/es/doc-state/get?id=" + encodeURIComponent(currentDocId));
+      const refJson = await refRes.json();
+      if (refJson.ok && refJson.found) fillResult(refJson.data);
+
+    } catch (e) {
+      showMsg(updateMsg, "네트워크 오류: " + e.message, false);
+    } finally {
+      updateBtn.disabled = false;
+      updateBtn.textContent = "Update";
+    }
+  });
+
+})();
+</script>
+{% endblock %}

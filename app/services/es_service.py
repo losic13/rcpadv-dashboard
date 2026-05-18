@@ -10,6 +10,8 @@ import time
 from datetime import datetime
 from typing import Any
 
+from elasticsearch import NotFoundError
+
 from app.config import settings
 from app.logger import get_logger
 from app.queries import es_queries
@@ -849,6 +851,158 @@ async def run_history_overview() -> dict[str, Any]:
 
     return base_payload
 
+
+
+# ============================================================
+# Document State 변경 페이지 전용
+# ============================================================
+
+# 반환 필드 순서 (화면 표시 우선순위 반영)
+_DOC_STATE_FIELDS = [
+    "current_state",
+    "pipeline_state",
+    "created_at",
+    "updated_at",
+    "edip_kafka_msg",
+    "meta",
+]
+
+
+async def get_doc_state(doc_id: str) -> dict[str, Any]:
+    """_id 로 Document 단일 조회.
+
+    반환:
+        {
+          "ok": bool,
+          "found": bool,
+          "id": str,
+          "index": str,          # 실제 히트된 인덱스명
+          "data": {
+            "current_state": ...,
+            "pipeline_state": ...,
+            "created_at": ...,
+            "updated_at": ...,
+            "edip_kafka_msg": ...,
+            "meta": ...,
+          },
+          "elapsed_ms": int,
+          "error": str | None,
+        }
+    """
+    index = settings.ES_DOC_STATE_INDEX
+    log.info("[es/doc-state] 조회 시작: id=%s index=%s", doc_id, index)
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.to_thread(es_client.get_doc, index, doc_id),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except NotFoundError:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        log.info("[es/doc-state] 문서 없음: id=%s (%dms)", doc_id, elapsed_ms)
+        return {"ok": True, "found": False, "id": doc_id, "index": index,
+                "data": None, "elapsed_ms": elapsed_ms, "error": None}
+    except asyncio.TimeoutError:
+        log.error("[es/doc-state] 조회 타임아웃: id=%s", doc_id)
+        return {"ok": False, "found": False, "id": doc_id, "index": index,
+                "data": None, "elapsed_ms": 0, "error": "조회 타임아웃"}
+    except Exception as e:
+        log.error("[es/doc-state] 조회 실패: id=%s — %s", doc_id, e)
+        return {"ok": False, "found": False, "id": doc_id, "index": index,
+                "data": None, "elapsed_ms": 0, "error": str(e)}
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    src: dict = resp.get("_source") or {}
+
+    # 지정 필드만 추출 (없는 필드는 None)
+    data = {f: src.get(f) for f in _DOC_STATE_FIELDS}
+
+    log.info("[es/doc-state] 조회 완료: id=%s (%dms)", doc_id, elapsed_ms)
+    return {
+        "ok": True,
+        "found": True,
+        "id": resp.get("_id"),
+        "index": resp.get("_index"),
+        "data": data,
+        "elapsed_ms": elapsed_ms,
+        "error": None,
+    }
+
+
+async def update_doc_state(doc_id: str, new_state: str) -> dict[str, Any]:
+    """current_state 를 new_state 로 변경하고 pipeline_state 에 이력을 기록.
+
+    pipeline_state[new_state] = {
+        "updated_at": <ISO datetime>,
+        "comment": "document-state-change(web)"
+    }
+
+    반환:
+        { "ok": bool, "id": str, "new_state": str, "elapsed_ms": int, "error": str|None }
+    """
+    # 1) 허용 상태 검증
+    if new_state not in es_queries.DOC_STATE_ALLOWED_STATES:
+        return {
+            "ok": False, "id": doc_id, "new_state": new_state,
+            "elapsed_ms": 0,
+            "error": f"허용되지 않은 state: '{new_state}'. "
+                     f"허용 목록: {es_queries.DOC_STATE_ALLOWED_STATES}",
+        }
+
+    # 2) 현재 Document 조회 (pipeline_state 병합을 위해)
+    current = await get_doc_state(doc_id)
+    if not current["ok"]:
+        return {"ok": False, "id": doc_id, "new_state": new_state,
+                "elapsed_ms": 0, "error": current["error"]}
+    if not current["found"]:
+        return {"ok": False, "id": doc_id, "new_state": new_state,
+                "elapsed_ms": 0, "error": f"Document not found: {doc_id}"}
+
+    # 3) pipeline_state 병합
+    now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    pipeline_state: dict = current["data"].get("pipeline_state") or {}
+    pipeline_state[new_state] = {
+        "updated_at": now_iso,
+        "comment": "document-state-change(web)",
+    }
+
+    partial = {
+        "current_state": new_state,
+        "updated_at": now_iso,
+        "pipeline_state": pipeline_state,
+    }
+
+    index = settings.ES_DOC_STATE_INDEX
+    log.info("[es/doc-state] 업데이트 시작: id=%s new_state=%s", doc_id, new_state)
+    start = time.perf_counter()
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(es_client.update_doc, index, doc_id, partial),
+            timeout=settings.QUERY_TIMEOUT_SECONDS,
+        )
+    except NotFoundError:
+        return {"ok": False, "id": doc_id, "new_state": new_state,
+                "elapsed_ms": 0, "error": f"Document not found: {doc_id}"}
+    except asyncio.TimeoutError:
+        log.error("[es/doc-state] 업데이트 타임아웃: id=%s", doc_id)
+        return {"ok": False, "id": doc_id, "new_state": new_state,
+                "elapsed_ms": 0, "error": "업데이트 타임아웃"}
+    except Exception as e:
+        log.error("[es/doc-state] 업데이트 실패: id=%s — %s", doc_id, e)
+        return {"ok": False, "id": doc_id, "new_state": new_state,
+                "elapsed_ms": 0, "error": str(e)}
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    log.info("[es/doc-state] 업데이트 완료: id=%s new_state=%s (%dms)",
+             doc_id, new_state, elapsed_ms)
+    return {
+        "ok": True,
+        "id": doc_id,
+        "new_state": new_state,
+        "updated_at": now_iso,
+        "elapsed_ms": elapsed_ms,
+        "error": None,
+    }
 
 # ============================================================
 # 공통 내부 유틸
