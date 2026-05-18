@@ -930,11 +930,25 @@ async def run_document_state_lookup(doc_id: str) -> dict[str, Any]:
     if not _id:
         return {**base_meta, "error": "조회할 _id 가 없습니다."}
 
+    # ── 조회 전략: `search` 의 term 쿼리로 _id 1건을 가져온다 ──────────
+    #   왜 client.get() 이 아니라 search() 인가:
+    #     · ES 의 `GET /<index>/_doc/<id>` API 는 인덱스 와일드카드를 지원하지 않는다
+    #       (illegal_argument_exception:
+    #          "the action indices:data/read/get does not support wildcards;
+    #           the provided index expressions [my-index-*] is not allowed").
+    #     · ES_DOCUMENT_LOOKUP_INDEX 는 일반적으로 와일드카드 패턴(예: "parsing-index-2-*")
+    #       이므로 동일한 .env 설정으로 동작하려면 search 를 써야 한다.
+    #     · `search` 의 term 쿼리는 와일드카드 인덱스 패턴을 자연스럽게 지원하며,
+    #       응답 hit 의 `_index` 로 후속 update 에 쓸 구체 인덱스 이름을 얻을 수 있다.
+    body = {
+        "size": 1,
+        "query": {"term": {"_id": _id}},
+    }
     log.info("[es/document-state] 조회 시작: index=%s, _id=%s", index_pattern, _id)
     start = time.perf_counter()
     try:
         resp = await asyncio.wait_for(
-            asyncio.to_thread(es_client.get_doc, index_pattern, _id),
+            asyncio.to_thread(es_client.search, index_pattern, body),
             timeout=settings.QUERY_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
@@ -945,25 +959,26 @@ async def run_document_state_lookup(doc_id: str) -> dict[str, Any]:
             "error": "쿼리 타임아웃",
         }
     except Exception as e:
-        # elasticsearch.NotFoundError 등은 클래스 import 없이 메시지로 식별.
-        msg = str(e)
-        if "NotFoundError" in type(e).__name__ or "404" in msg or "not_found" in msg.lower():
-            log.info("[es/document-state] not_found: _id=%s", _id)
-            return {
-                **base_meta,
-                "elapsed_ms": int((time.perf_counter() - start) * 1000),
-                "error": "not_found",
-            }
         log.error("[es/document-state] 조회 실패: %s", e)
         return {
             **base_meta,
             "elapsed_ms": int((time.perf_counter() - start) * 1000),
-            "error": msg,
+            "error": str(e),
         }
 
     elapsed_ms = int((time.perf_counter() - start) * 1000)
-    concrete_index = resp.get("_index")
-    src = resp.get("_source") or {}
+    hits = (resp.get("hits") or {}).get("hits") or []
+    if not hits:
+        # 인덱스는 존재하지만 해당 _id 가 없는 정상 케이스 → not_found.
+        log.info("[es/document-state] not_found: _id=%s", _id)
+        return {
+            **base_meta,
+            "elapsed_ms": elapsed_ms,
+            "error": "not_found",
+        }
+    hit = hits[0]
+    concrete_index = hit.get("_index")
+    src = hit.get("_source") or {}
 
     # 핵심/부가 필드를 명시적으로 꺼내고, 나머지는 source 에 그대로 담는다.
     KEY_FIELDS = ("current_state", "pipeline_state",
