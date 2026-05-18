@@ -265,6 +265,8 @@
       }
       // 가드 통과 → editor 상태 초기화 (이전 탭의 dirty 흔적이 새 탭에 묻지 않도록)
       AbnormalStepEditor.reset();
+      // ES-STATE 캐시도 초기화 — 새 탭에서 다시 fetch 되도록.
+      EsStateFiller.reset();
 
       const specialPanel = tabBtn.dataset.specialPanel;
       if (specialPanel) {
@@ -294,19 +296,35 @@
         };
         if (isAbnormalStep) {
           AbnormalStepEditor.bind(qid);
+          // 새 SQL 결과 fetch 마다 ES 캐시 무효화 — beforeRun 에서 호출.
+          // (탭 전환은 reset() 호출 위에서 별도로 처리)
+          EsStateFiller.reset();
           runnerOpts.columnRenderOverrides = {
             // STATUS 인라인 편집 — 드라이버에 따라 컬럼명 대소문자가 달라질 수 있어 양쪽 다.
             status: AbnormalStepEditor.renderStatusCell,
             STATUS: AbnormalStepEditor.renderStatusCell,
-            // ES_ID 컬럼 → Document 빌더(/es/document)로 점프하는 링크.
+            // ES_ID 컬럼 → Document State 변경(/es/document-state) 점프 링크.
             //   대소문자 양쪽 등록 (드라이버에 따라 'es_id' / 'ES_ID' 어느 쪽이든 매칭되도록).
             es_id: EsIdLink.renderCell,
             ES_ID: EsIdLink.renderCell,
+            // ES-STATE 컬럼 → ES current_state pill (백엔드가 자리만 비워서 보냄).
+            es_state: EsStateFiller.renderCell,
+            ES_STATE: EsStateFiller.renderCell,
           };
           // dirty 가 있으면 자동갱신/새로고침을 막아 사용자 변경분을 보호.
-          runnerOpts.beforeRun = () => AbnormalStepEditor.beforeRunGuard();
-          // draw 직후 dirty 상태 복원 (페이지네이션/정렬/검색 후에도 select 가 유지되도록)
-          runnerOpts.afterDraw = () => AbnormalStepEditor.afterDrawRestore();
+          //   동시에: 새 fetch 가 통과될 때마다 ES 캐시도 비워서 stale 표시 방지.
+          runnerOpts.beforeRun = () => {
+            const ok = AbnormalStepEditor.beforeRunGuard();
+            if (ok) EsStateFiller.reset();
+            return ok;
+          };
+          // draw 직후 후크 — 두 가지 일을 한 번에:
+          //   1) AbnormalStepEditor.afterDrawRestore() : STATUS dirty 표시 복원
+          //   2) EsStateFiller.onAfterDraw(runner, data) : ES-STATE 캐시/fetch
+          runnerOpts.afterDraw = (data) => {
+            try { AbnormalStepEditor.afterDrawRestore(); } catch (_) {}
+            try { EsStateFiller.onAfterDraw(runner, data); } catch (_) {}
+          };
         }
 
         runner = new QueryRunner(runnerOpts);
@@ -411,6 +429,171 @@
       }
 
       return { renderCell };
+    })();
+
+    // ═══════════════════════════════════════════════════════════
+    // EsStateFiller — ES-STATE 컬럼을 ES 의 current_state 값으로 채움
+    //
+    // 책임 범위:
+    //   - 탭 활성화 / SQL 결과 도착 시 한 번 전체 ES_ID 목록을 모아
+    //     POST /es/bulk-current-state 로 일괄 조회 (Q1=B: 전체 일괄 + 캐시)
+    //   - 응답 _id → current_state 매핑을 _cache 에 저장
+    //   - 캐시가 있으면 DataTables 의 row 데이터(es_state 컬럼)를 in-place
+    //     로 갱신하고 invalidate → redraw 한다. 그러면 컬럼이 자동으로
+    //     "…" 에서 실제 pill 표시로 바뀌고, 이후 정렬/검색도 정상 동작.
+    //   - 미발견 _id 는 캐시에 명시적으로 sentinel('__missing__') 로 표시
+    //   - draw 직후마다 호출 — race 방지를 위해 _activeReqId 토큰으로 응답 폐기 처리.
+    //
+    // 셀 렌더:
+    //   - row.es_id 없음        → 빈 셀
+    //   - 캐시에 값 있음         → 텍스트 그대로 (예: "received", "copied")
+    //   - 캐시에 sentinel        → "(미발견)" 회색
+    //   - 캐시에 null            → "(미설정)" 회색
+    //   - 캐시 자체에 키 없음     → "…" 로딩 placeholder
+    //
+    // 자동갱신/수동 새로고침/탭 전환:
+    //   - reset() 으로 캐시/토큰 초기화. 다음 draw 에서 자동으로 새 fetch.
+    // ═══════════════════════════════════════════════════════════
+    const EsStateFiller = (() => {
+      const ES_STATE_COL = 'es_state';            // 백엔드와 정확히 일치 (amat_service.ES_STATE_COLUMN)
+      const MISSING_SENTINEL = '__missing__';     // 발견 안 됨 표시용 내부 값
+      const _cache = new Map();                   // Map<id, current_state | null | MISSING_SENTINEL>
+      let _activeReqId = 0;                       // 진행 중 fetch token (race 방지)
+      let _inFlight = false;
+      let _warnedError = false;                   // 토스트 중복 방지
+
+      function _esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // 행에서 es_id 값 추출 — 드라이버에 따라 대소문자 양쪽 가능.
+      function _rowId(row) {
+        if (!row) return null;
+        const v = (row.es_id != null ? row.es_id : row.ES_ID);
+        if (v == null) return null;
+        const s = String(v).trim();
+        return s ? s : null;
+      }
+
+      // QueryRunner.columnRenderOverrides.es_state 로 등록.
+      function renderCell(_val, row) {
+        const id = _rowId(row);
+        if (!id) return '<span class="es-state-empty">—</span>';
+        if (!_cache.has(id)) {
+          // 아직 fetch 안 끝났거나 아직 시도 안 됨 → 로딩 placeholder
+          return '<span class="es-state-loading" title="조회 중…">…</span>';
+        }
+        const v = _cache.get(id);
+        if (v === MISSING_SENTINEL) {
+          return '<span class="es-state-pill es-state-missing" title="ES 에서 해당 _id 를 찾지 못함">(미발견)</span>';
+        }
+        if (v == null || v === '') {
+          return '<span class="es-state-pill es-state-unset" title="doc 에 current_state 가 없음">(미설정)</span>';
+        }
+        return '<span class="es-state-pill" title="ES current_state">' + _esc(v) + '</span>';
+      }
+
+      // 캐시/토큰 리셋 — 탭 전환 / SQL 결과 새로고침 시 호출.
+      function reset() {
+        _cache.clear();
+        _activeReqId++;            // 이전 fetch 의 응답을 무시
+        _inFlight = false;
+        _warnedError = false;
+      }
+
+      // DataTables 의 현재 데이터(전체 1000행)에서 ES_ID 목록 추출.
+      //   data 인자: QueryRunner 가 _renderTable 직후 afterDraw(data) 로 넘겨주는
+      //              원본 응답 — { columns, rows: [...] }.
+      function _collectIds(data) {
+        const out = [];
+        const seen = new Set();
+        const rows = (data && data.rows) || [];
+        for (const r of rows) {
+          const id = _rowId(r);
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(id);
+        }
+        return out;
+      }
+
+      // 응답을 받아 캐시에 머지 + DataTables 데이터에 es_state 주입 + invalidate redraw.
+      function _applyAndRedraw(runner, data, payload) {
+        const states = (payload && payload.states) || {};
+        const missing = (payload && payload.missing_ids) || [];
+        for (const [k, v] of Object.entries(states)) _cache.set(k, v);
+        for (const m of missing) _cache.set(m, MISSING_SENTINEL);
+
+        // 1) data.rows 객체에 es_state 주입 (다음 컬럼 변경 비교 / 정렬용 raw value)
+        const rows = (data && data.rows) || [];
+        for (const r of rows) {
+          const id = _rowId(r);
+          if (!id) continue;
+          if (_cache.has(id)) {
+            const v = _cache.get(id);
+            r[ES_STATE_COL] = (v === MISSING_SENTINEL) ? null : v;
+          }
+        }
+
+        // 2) DataTables 내부 데이터도 같은 객체 참조라 자동 갱신되지만,
+        //    셀 HTML 은 render() 가 다시 호출되어야 바뀐다 → invalidate + redraw.
+        const dt = runner && runner.dataTable;
+        if (!dt) return;
+        try {
+          // 'data' 로 invalidate 하면 정렬/검색 인덱스도 새 값으로 재계산.
+          dt.rows().invalidate('data').draw(false);
+        } catch (_) {}
+      }
+
+      // afterDraw 후크 — runner 와 원본 data 를 캡처해 사용.
+      //   가벼운 dedup: 같은 응답으로 invalidate 후 재호출되어도, 캐시가 이미 가득
+      //   차 있으면 fetch 를 건너뛴다.
+      function onAfterDraw(runner, data) {
+        const ids = _collectIds(data);
+        if (ids.length === 0) return;
+        const needFetch = ids.some(id => !_cache.has(id));
+        if (!needFetch) return;
+        if (_inFlight) return;     // 같은 SQL 결과로 fetch 가 이미 진행 중
+
+        const reqId = ++_activeReqId;
+        _inFlight = true;
+        fetch('/es/bulk-current-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        })
+          .then(resp => resp.ok ? resp.json() : resp.json().catch(() => ({})).then(j => {
+            const err = (j && (j.detail || j.error)) || ('HTTP ' + resp.status);
+            throw new Error(err);
+          }))
+          .then(payload => {
+            if (reqId !== _activeReqId) return;   // 탭 전환/리셋 이후 응답 — 무시
+            _applyAndRedraw(runner, data, payload);
+          })
+          .catch(err => {
+            if (reqId !== _activeReqId) return;
+            // 캐시에 sentinel 채워서 각 행이 "(조회 실패)" 로 떨어지게 → "…" 무한 로딩 방지.
+            for (const id of ids) {
+              if (!_cache.has(id)) _cache.set(id, MISSING_SENTINEL);
+            }
+            const dt = runner && runner.dataTable;
+            if (dt) { try { dt.rows().invalidate('data').draw(false); } catch (_) {} }
+            if (!_warnedError) {
+              _warnedError = true;
+              try { console.warn('[EsStateFiller] bulk current_state 조회 실패:', err.message || err); } catch (_) {}
+            }
+          })
+          .finally(() => {
+            if (reqId === _activeReqId) _inFlight = false;
+          });
+      }
+
+      return { renderCell, onAfterDraw, reset };
     })();
 
     // ═══════════════════════════════════════════════════════════
