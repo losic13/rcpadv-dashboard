@@ -375,14 +375,14 @@
     //                    original 은 서버에서 받은 마지막 값, current 는 사용자 선택값.
     //                    current === original 이면 자동으로 제거됨.
     // ═══════════════════════════════════════════════════════════
-    // EsIdLink — ES_ID 컬럼을 Document 빌더(/es/document)로 점프하는 링크로 렌더
+    // EsIdLink — ES_ID 컬럼을 Document State 변경(/es/document-state) 으로 점프하는 링크로 렌더
     //
     // 책임 범위:
     //   - QueryRunner.columnRenderOverrides.es_id 로 사용
     //   - val 이 비어있거나 NULL 이면 빈 셀
-    //   - 그 외에는 <a href="/es/document?ids=<encoded>" target="_blank"> 링크
+    //   - 그 외에는 <a href="/es/document-state?id=<encoded>" target="_blank"> 링크
     //     · 새 탭에서 열림 (AMAT 작업 흐름 유지)
-    //     · Document 페이지가 ?ids= 를 받아 자동으로 textarea 채우고 조회 실행
+    //     · Document State 변경 페이지가 ?id= 를 받아 자동으로 input 채우고 조회 실행
     //
     // 보안: encodeURIComponent + HTML escape 둘 다 적용 (href 와 표시 텍스트).
     // ═══════════════════════════════════════════════════════════
@@ -401,10 +401,10 @@
         if (val == null || val === '') return '';
         const sval = String(val);
         const text = _esc(sval);
-        const href = '/es/document?ids=' + encodeURIComponent(sval);
+        const href = '/es/document-state?id=' + encodeURIComponent(sval);
         return (
           '<a class="es-id-link" href="' + href + '" target="_blank" rel="noopener"' +
-              ' title="Document 빌더에서 이 _id 조회">' +
+              ' title="Document State 변경 페이지에서 이 _id 조회">' +
             text +
           '</a>'
         );
