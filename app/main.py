@@ -48,6 +48,7 @@ from app.routers import (
     es,
     files,
     home,
+    llm_ui_conv,
     llm_ui_history,
     log_search,
     login_history,
@@ -138,6 +139,7 @@ app.include_router(well_known.router)  # /.well-known/* (브라우저 자동 요
 app.include_router(home.router)
 app.include_router(login_history.router)
 app.include_router(llm_ui_history.router)
+app.include_router(llm_ui_conv.router)  # /llm-ui-conversations (대화 메시지 뷰)
 app.include_router(log_search.router)
 app.include_router(files.router)
 app.include_router(parser_flow.router)  # /infra/parser-flow  (Infra > 파서 처리 절차)

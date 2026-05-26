@@ -36,7 +36,7 @@ def page(request: Request):
         {
             "nav_items": NAV_ITEMS,
             "active_nav": "llm_ui_history",
-            "page_title": "LLM UI 사용 이력",
+            "page_title": "LLM UI 접속 이력",
             "default_start": start.isoformat(),
             "default_end": end.isoformat(),
             "today": today.isoformat(),

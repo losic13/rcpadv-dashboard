@@ -1,5 +1,5 @@
 {#
-  LLM UI 사용 이력 페이지.
+  LLM UI 접속 이력 페이지.
 
   login_history.html 의 구조를 그대로 따른다 — 데이터 소스만 MariaDB(VNAND) →
   PostgreSQL(LLM_PG) 로 변경. CSS 클래스/ID(``lh-*``, ``login-history-page``) 는
@@ -20,8 +20,8 @@
   <header class="card-header">
     <div class="card-title">
       <span class="badge">LLM PG</span>
-      <strong>LLM UI 사용 이력</strong>
-      <span class="card-sub">LLM UI 사용 로그 · 일자별 집계</span>
+      <strong>LLM UI 접속 이력</strong>
+      <span class="card-sub">LLM UI 접속 로그 · 일자별 집계</span>
     </div>
     <div class="card-controls">
       <span class="login-history-status" data-role="status" hidden></span>
@@ -70,7 +70,7 @@
     </form>
 
     <p class="lh-hint">
-      LLM UI 사용 로그를 일자별로 집계해 누적 막대 차트로 보여줍니다.
+      LLM UI 접속 로그를 일자별로 집계해 누적 막대 차트로 보여줍니다.
       막대 하단(짙은 색)이 <strong>사용자</strong>(고유 사용자 수)이며,
       그 위에 쌓이는 부분을 합쳐 막대 전체 길이가 곧
       <strong>총 사용</strong> 수입니다.
