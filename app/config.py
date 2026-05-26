@@ -140,12 +140,24 @@ class Settings(BaseSettings):
     #     False 면 필터 미적용 (기존 동작). 운영 중 임시로 끄고 싶을 때 사용.
     # · ES_HISTORY_VALID_EQP_PARAM:
     #     프로시저 호출 시 넘기는 인자. 기본 3. 의미가 바뀌면 .env 로 조정.
+    # · ES_HISTORY_VALID_EQP_CALL_SQL:
+    #     호출할 SQL 문장. 기본은 'CALL eqp_master.prc_get_valid_equipment(:param)'.
+    #     - 반드시 ``:param`` 바인딩 자리표시자 1개를 포함해야 한다
+    #       (eqp_master_service 가 항상 ``{"param": <int>}`` 로 바인딩).
+    #     - 운영에서 프로시저 이름/스키마가 바뀌거나, 일시적으로 SELECT 문으로
+    #       대체해야 할 때 코드 변경 없이 .env 로 갈아끼울 수 있게 함.
+    #     - 예 1) "CALL eqp_master.prc_get_valid_equipment(:param)"  (기본)
+    #     - 예 2) "CALL another_schema.fn_valid_eqps(:param)"
+    #     - 예 3) "SELECT eqp_id FROM eqp_master.valid_view WHERE grade=:param"
     #
     # ※ 캐시는 두지 않음 (사용자 결정 Q4=A) — 매 요청마다 두 DB 프로시저를 호출.
     #   목록이 비어 있거나 두 DB 모두 실패하면 빈 set → terms 0 매칭이 되어
     #   결과 0건이 자연스럽게 표시됨 (사용자 결정 Q5=B).
     ES_HISTORY_VALID_EQP_FILTER_ENABLED: bool = True
     ES_HISTORY_VALID_EQP_PARAM: int = 3
+    ES_HISTORY_VALID_EQP_CALL_SQL: str = (
+        "CALL eqp_master.prc_get_valid_equipment(:param)"
+    )
 
     # Logging
     LOG_LEVEL: str = "INFO"

@@ -1,17 +1,22 @@
-"""eqp_master.prc_get_valid_equipment 프로시저 호출 결과 합집합 서비스.
+"""eqp_master 'valid 설비' 조회 SQL 호출 결과 합집합 서비스.
 
 용도
 ────
 /es/history (종합 처리 이력) 페이지의 parsing-index-1 쿼리에 'eqp_id 필터'
 를 동적으로 주입하기 위해, vnand / dram 두 DB 에서 각각
 
-    CALL eqp_master.prc_get_valid_equipment(<param>)
+    settings.ES_HISTORY_VALID_EQP_CALL_SQL
+        (기본: ``CALL eqp_master.prc_get_valid_equipment(:param)``)
 
-를 실행하고 결과의 eqp_id 컬럼을 합집합(∪) 으로 반환한다.
+을 실행하고 결과의 eqp_id 컬럼을 합집합(∪) 으로 반환한다.
+
+호출 SQL 은 ``.env`` 의 ``ES_HISTORY_VALID_EQP_CALL_SQL`` 로 자유롭게
+교체 가능하다 (프로시저 이름/스키마 변경, SELECT 로 임시 대체 등).
+반드시 ``:param`` 바인딩 자리표시자 1개를 포함해야 한다.
 
 정책 (사용자 결정 사항)
 ─────────────────────
-- Q4: 캐시 없음 — 매 호출 시 두 DB 프로시저를 직접 실행한다.
+- Q4: 캐시 없음 — 매 호출 시 두 DB 의 SQL 을 직접 실행한다.
 - Q5: 빈 결과/실패도 그대로 노출 — 둘 다 실패하면 빈 set 반환,
         caller (es_service.run_history_overview) 는 빈 set 이어도
         terms 필터를 그대로 주입하여 ES 결과가 0건이 되도록 한다.
@@ -26,8 +31,9 @@
 - 두 번째: per-source 에러 메시지 dict, 예 ``{"vnand": None, "dram": "..."}``
             (None = 성공)
 
-이 모듈은 ``CALL ...`` 의 결과 컬럼 이름이 ``eqp_id`` / ``EQP_ID`` /
-첫 번째 컬럼 중 어느 것이든 안전하게 추출하도록 한다.
+이 모듈은 SQL 결과 컬럼 이름이 ``eqp_id`` / ``EQP_ID`` /
+``EQUIPMENT_ID`` 등 어느 것이든, 또는 단일 컬럼이면 그 컬럼을 안전하게
+추출한다.
 """
 from __future__ import annotations
 
@@ -40,13 +46,9 @@ from app.repositories import mariadb
 
 log = get_logger("service.eqp_master")
 
-# ── 프로시저 CALL SQL ──
-# SQLAlchemy text() 는 ``CALL ... (:param)`` 형태의 바인딩을 그대로 받는다.
+# 허용 컬럼 이름 (case-insensitive). 위→아래 우선순위로 검색.
 # 결과 컬럼은 운영 DB 구현에 따라 ``eqp_id`` / ``EQP_ID`` / ``EQUIPMENT_ID``
 # 중 무엇이든 올 수 있어, _pick_eqp_value() 에서 첫 컬럼/표준 컬럼명을 모두 시도.
-_CALL_SQL = "CALL eqp_master.prc_get_valid_equipment(:param)"
-
-# 허용 컬럼 이름 (case-insensitive). 위→아래 우선순위로 검색.
 _EQP_ID_COLS = ("eqp_id", "EQP_ID", "EquipmentId", "equipment_id", "EQUIPMENT_ID")
 
 
@@ -79,16 +81,20 @@ def _pick_eqp_value(row: dict[str, Any], columns: list[str]) -> str | None:
 
 
 def _fetch_one_source(source: str, param: int) -> tuple[set[str], str | None]:
-    """단일 DB(``vnand`` 또는 ``dram``) 에서 프로시저 호출 → eqp_id set 반환.
+    """단일 DB(``vnand`` 또는 ``dram``) 에서 SQL 호출 → eqp_id set 반환.
+
+    호출 SQL 은 ``settings.ES_HISTORY_VALID_EQP_CALL_SQL`` 을 그대로 사용.
+    ``:param`` 자리표시자는 항상 ``{"param": <int>}`` 로 바인딩된다.
 
     실패 시 (빈 set, error_message) 를 반환하여 caller 가 부분 성공을
     처리할 수 있게 한다.
     """
+    sql = settings.ES_HISTORY_VALID_EQP_CALL_SQL
     t0 = time.perf_counter()
     try:
-        columns, rows = mariadb.execute(source, _CALL_SQL, {"param": int(param)})
+        columns, rows = mariadb.execute(source, sql, {"param": int(param)})
     except Exception as e:
-        log.error("[eqp_master] %s CALL 실패: %s", source, e)
+        log.error("[eqp_master] %s 호출 실패: %s (sql=%r)", source, e, sql)
         return set(), str(e)
 
     out: set[str] = set()
@@ -99,7 +105,7 @@ def _fetch_one_source(source: str, param: int) -> tuple[set[str], str | None]:
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     log.info(
-        "[eqp_master] %s CALL OK — %d rows → %d unique eqp_id (%dms, cols=%s)",
+        "[eqp_master] %s 호출 OK — %d rows → %d unique eqp_id (%dms, cols=%s)",
         source, len(rows), len(out), elapsed_ms, columns,
     )
     return out, None
