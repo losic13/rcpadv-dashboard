@@ -824,7 +824,9 @@ def _build_history_index1_body(
 
     # 정렬된 list (안정적인 cache key/디버깅 가독성 위해)
     eqp_list = sorted(valid_eqp_ids)
-    terms_clause = {"terms": {"eqp_id.keyword": eqp_list}}
+    # ES 필드명은 settings 에서 주입 (운영 인덱스 매핑에 따라 .env 로 교체 가능).
+    # 기본값은 "eqp_id.keyword" — :data:`app.config.Settings.ES_HISTORY_VALID_EQP_FIELD`.
+    terms_clause = {"terms": {settings.ES_HISTORY_VALID_EQP_FIELD: eqp_list}}
 
     # case 1) 원본이 단일 절 (range 등) → bool.filter 로 wrap
     if "bool" not in cur_filter:
