@@ -1950,15 +1950,27 @@ table[data-role="table"].is-loading {
   margin-top: 6px;
 }
 .metric-section-stat-bottom {
+  /* 두 줄(일평균 / 어제) 분리 — column 정렬로 전환.
+     각 줄은 .metric-section-stat-row 가 가로 chip 묶음을 담당. */
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
-  gap: 6px 10px;
+  gap: 4px;
   margin-left: 0;          /* foot 컨테이너에서 가운데 정렬되도록 auto 해제 */
   font-size: 12px;          /* 헤더보다 살짝 키워 가독성 ↑ */
   color: var(--color-text);
   white-space: normal;
+}
+/* 한 줄(일평균 row / 어제 row) — chip 들을 가로로 배치.
+   여러 PRODUCT 가 있으면 wrap 으로 자연스럽게 다음 줄로 흐름. */
+.metric-section-stat-bottom .metric-section-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  width: 100%;
 }
 .metric-section-stat-bottom .metric-section-stat-lead {
   font-size: 11px;
@@ -1967,6 +1979,11 @@ table[data-role="table"].is-loading {
   color: var(--color-muted);
   text-transform: none;
   margin-right: 2px;
+  /* 두 row 의 라벨 시작점 정렬 — "일평균(마지막 제외)" / "어제 처리량" 폭 통일.
+     min-width 는 한국어 기준 가장 긴 라벨("일평균(마지막 제외)") 폭에 맞춤. */
+  min-width: 124px;
+  text-align: right;
+  flex-shrink: 0;
 }
 .metric-section-stat-bottom .metric-section-stat-chip {
   display: inline-flex;

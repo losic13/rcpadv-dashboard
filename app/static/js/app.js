@@ -1047,7 +1047,7 @@
           };
         });
 
-        // Series 별 일평균 (마지막 데이터 제외) — 차트 헤더 통계
+        // Series 별 일평균 (마지막 데이터 제외) — 차트 아래 통계 (1번째 줄)
         //   · 마지막 인덱스 값은 제외
         //   · null 은 제외하고 유효 일자 수로만 평균
         //   · 유효 일자 0 이면 — 으로 표시
@@ -1059,17 +1059,50 @@
             : null;
           return { product: s.product, avg };
         });
+
+        // Series 별 어제 처리량 — 차트 아래 통계 (2번째 줄)
+        //   · 사용자 결정: 어제 기준은 UTC.
+        //   · labels 는 YYYY-MM-DD UTC 문자열이므로 동일한 포맷으로 매칭.
+        //   · 라벨에 어제 일자가 없거나 값이 null 이면 0 으로 표기 (사용자 결정).
+        //   · 어제가 마지막 라벨이어도 그대로 표시 (일평균에선 제외, 어제 칸엔 표시).
+        const _yestUtcStr = (() => {
+          const now = new Date();
+          const y = new Date(Date.UTC(
+            now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+          ));
+          return y.toISOString().slice(0, 10);
+        })();
+        const _yestIdx = labels.indexOf(_yestUtcStr);
+        const yesterdayByProduct = series.map(s => {
+          let v = 0;
+          if (_yestIdx !== -1) {
+            const raw = s.values[_yestIdx];
+            // null/undefined/NaN 은 0 으로 fallback (사용자 결정).
+            v = (raw == null || isNaN(Number(raw))) ? 0 : Number(raw);
+          }
+          return { product: s.product, val: v };
+        });
+
         if (slot.statEl) {
           // 사용자 요청: 일평균은 정수만 표기 (소수점 버림이 아닌 반올림 — Math.round).
           // 예: 12.4 → 12, 12.6 → 13, null → "—"
           const fmtAvg = (v) => v == null ? '—' : this._fmtNum(Math.round(v));
-          // 가독성 향상: "PRODUCT 값" 묶음을 별도 칩으로 wrap 하여 줄바꿈/정렬을 쉽게.
-          // 텍스트 노드 직접 조립 — DOM 구조 단순화 및 XSS 회피.
+          // 어제 처리량 포맷터 — 항상 정수, 0 도 그대로 표기 (— 안 씀).
+          const fmtYest = (v) => this._fmtNum(Math.round(Number(v) || 0));
+
+          // 두 줄 분리: row 1 = 일평균(마지막 제외), row 2 = 어제 처리량
+          //   · 같은 statEl 안에 두 개의 row 컨테이너를 직접 조립.
+          //   · 라벨 폭은 CSS 의 min-width 로 통일.
+          //   · 같은 PRODUCT 색/톤은 .metric-section-stat-chip 의 기존 CSS 가 유지.
           slot.statEl.innerHTML = '';
-          const lead = document.createElement('span');
-          lead.className = 'metric-section-stat-lead';
-          lead.textContent = '일평균(마지막 제외)';
-          slot.statEl.appendChild(lead);
+
+          // ── Row 1: 일평균(마지막 제외) ──
+          const row1 = document.createElement('div');
+          row1.className = 'metric-section-stat-row';
+          const lead1 = document.createElement('span');
+          lead1.className = 'metric-section-stat-lead';
+          lead1.textContent = '일평균(마지막 제외)';
+          row1.appendChild(lead1);
           dailyAvgByProduct.forEach(d => {
             const chip = document.createElement('span');
             chip.className = 'metric-section-stat-chip';
@@ -1081,8 +1114,33 @@
             val.textContent = fmtAvg(d.avg);
             chip.appendChild(name);
             chip.appendChild(val);
-            slot.statEl.appendChild(chip);
+            row1.appendChild(chip);
           });
+          slot.statEl.appendChild(row1);
+
+          // ── Row 2: 어제 처리량 (UTC 기준) ──
+          const row2 = document.createElement('div');
+          row2.className = 'metric-section-stat-row';
+          const lead2 = document.createElement('span');
+          lead2.className = 'metric-section-stat-lead';
+          lead2.textContent = '어제 처리량';
+          // 어제 일자 자체를 title 로 노출 (UTC 기준 명시) — 마우스오버 보조 정보.
+          lead2.title = `UTC 기준 ${_yestUtcStr}`;
+          row2.appendChild(lead2);
+          yesterdayByProduct.forEach(d => {
+            const chip = document.createElement('span');
+            chip.className = 'metric-section-stat-chip';
+            const name = document.createElement('span');
+            name.className = 'metric-section-stat-product';
+            name.textContent = String(d.product);
+            const val  = document.createElement('span');
+            val.className  = 'metric-section-stat-value';
+            val.textContent = fmtYest(d.val);
+            chip.appendChild(name);
+            chip.appendChild(val);
+            row2.appendChild(chip);
+          });
+          slot.statEl.appendChild(row2);
         }
 
         // 범례 — 막대 색 + 이동평균선 표시
