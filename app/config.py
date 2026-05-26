@@ -149,6 +149,16 @@ class Settings(BaseSettings):
     #     - 예 1) "CALL eqp_master.prc_get_valid_equipment(:param)"  (기본)
     #     - 예 2) "CALL another_schema.fn_valid_eqps(:param)"
     #     - 예 3) "SELECT eqp_id FROM eqp_master.valid_view WHERE grade=:param"
+    # · ES_HISTORY_VALID_EQP_FIELD:
+    #     ES `terms` 절에 사용할 필드명. 기본 'eqp_id.keyword'.
+    #     - parsing-index-1 매핑에서 eqp_id 를 보관하는 실제 필드명으로 맞춰야 함.
+    #     - 일반적으로 keyword 타입(.keyword subfield) 을 사용해야 정확 매칭됨
+    #       (text 타입에 terms 를 걸면 토크나이즈 때문에 매칭이 깨질 수 있음).
+    #     - 운영 인덱스의 실제 매핑에 따라 .env 로 교체 가능.
+    #     - 예 1) "eqp_id.keyword"           (기본)
+    #     - 예 2) "equipment_id.keyword"
+    #     - 예 3) "meta.eqp_id.keyword"
+    #     - 예 4) "kafka.EQP_ID.keyword"
     #
     # ※ 캐시는 두지 않음 (사용자 결정 Q4=A) — 매 요청마다 두 DB 프로시저를 호출.
     #   목록이 비어 있거나 두 DB 모두 실패하면 빈 set → terms 0 매칭이 되어
@@ -158,6 +168,7 @@ class Settings(BaseSettings):
     ES_HISTORY_VALID_EQP_CALL_SQL: str = (
         "CALL eqp_master.prc_get_valid_equipment(:param)"
     )
+    ES_HISTORY_VALID_EQP_FIELD: str = "eqp_id.keyword"
 
     # Logging
     LOG_LEVEL: str = "INFO"
