@@ -87,14 +87,14 @@ DASHBOARD_CARDS = [
     #    * 큰 숫자 = 사용자(고유 user_id 수), 보조 = 총 사용 횟수
     #      (login 카드와 동일하게 '큰 숫자=distinct, 보조=total' 정책)
     #    * 통합 대시보드 카드 순서 (사이드바와 동일):
-    #        사용자 접속 이력 → LLM UI 사용 이력 → ...
+    #        사용자 접속 이력 → LLM UI 접속 이력 → ...
     # ─────────────────────────────────────────────────────
     {
         "type": "llm_today",
         "source": "llm_ui_history",
         "source_label": "LLM PG",
-        "title": "오늘 LLM 사용",
-        "description": "오늘 0시 ~ 현재까지의 LLM UI 사용 통계입니다.",
+        "title": "오늘 LLM UI 접속",
+        "description": "오늘 0시 ~ 현재까지의 LLM UI 접속 통계입니다.",
         "link_url": "/llm-ui-history",
         # 카드 컨트롤러가 호출할 today snapshot 엔드포인트. 템플릿에서
         # data-data-url 로 흘려보내고 LoginTodayCard 컨트롤러가 그대로 사용.

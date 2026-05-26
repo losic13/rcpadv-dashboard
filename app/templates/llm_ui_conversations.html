@@ -1,0 +1,658 @@
+{#
+  LLM UI 사용 이력 페이지 (/llm-ui-conversations).
+
+  내가 작성한 SQL 의 결과 (conversation_id, id, seq, role, content, trace,
+  created_at, parent_id, user_id) 를 두 가지 뷰로 보여준다:
+
+    [탭 1] 타임라인        : 사용자 무관, created_at ASC 로 정렬된 단일 흐름
+    [탭 2] 사용자별 대화   : user_id → conversation_id → messages (seq ASC)
+
+  trace 는 클릭 시 모달에서 JSON pretty-print 으로 보여준다.
+
+  CSS / JS 는 페이지 전용 prefix(``llc-*``) 로 격리하여 다른 페이지에 영향
+  없도록 작성. 외부 의존성 없음 (Chart.js 미사용 — 차트 페이지가 아님).
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="card llc-page">
+  <header class="card-header">
+    <div class="card-title">
+      <span class="badge">LLM PG</span>
+      <strong>LLM UI 사용 이력</strong>
+      <span class="card-sub">대화 메시지 · 타임라인 / 사용자별 뷰</span>
+    </div>
+    <div class="card-controls">
+      <span class="llc-status" data-role="status" hidden></span>
+    </div>
+  </header>
+
+  <div class="card-body">
+    <form id="llc-form" class="llc-form" autocomplete="off" onsubmit="return false;">
+      <label class="llc-field">
+        <span class="llc-field-label">시작일</span>
+        <input type="date" id="llc-start" name="start"
+               value="{{ default_start }}" max="{{ today }}" required>
+      </label>
+      <label class="llc-field">
+        <span class="llc-field-label">종료일</span>
+        <input type="date" id="llc-end" name="end"
+               value="{{ default_end }}" max="{{ today }}" required>
+      </label>
+
+      <div class="llc-quick">
+        <button type="button" class="btn-ghost" data-quick="1">오늘</button>
+        <button type="button" class="btn-ghost" data-quick="7">최근 7일</button>
+        <button type="button" class="btn-ghost" data-quick="14">최근 14일</button>
+        <button type="button" class="btn-ghost" data-quick="30">최근 30일</button>
+      </div>
+
+      <button type="submit" class="btn btn-run" id="llc-run" title="기간으로 조회">
+        <span class="btn-run-icon" aria-hidden="true">💬</span>
+        <span class="btn-run-label">조회</span>
+      </button>
+    </form>
+
+    <p class="llc-hint">
+      LLM UI 의 대화 메시지를 <code>created_at</code> 기준 날짜 범위로 조회합니다.
+      행 수 제한이 없으므로, 기간이 넓을수록 응답 시간이 길어질 수 있습니다.
+      각 메시지의 <strong>trace</strong> 는 행의 <em>trace</em> 버튼을 클릭하면 모달에서 확인할 수 있습니다.
+    </p>
+
+    <div class="error-msg llc-error" id="llc-error" hidden></div>
+
+    <!-- 결과 헤더 (요약 + 탭) -->
+    <div class="llc-result-bar" id="llc-result-bar" hidden>
+      <div class="llc-summary" data-role="summary">—</div>
+
+      <div class="llc-tabs" role="tablist" aria-label="대화 메시지 뷰 전환">
+        <button type="button" class="llc-tab is-active"
+                role="tab" aria-selected="true"
+                data-tab="timeline" id="llc-tab-timeline">
+          <span aria-hidden="true">⏱</span> 타임라인
+        </button>
+        <button type="button" class="llc-tab"
+                role="tab" aria-selected="false"
+                data-tab="byuser" id="llc-tab-byuser">
+          <span aria-hidden="true">👥</span> 사용자별
+        </button>
+      </div>
+    </div>
+
+    <!-- 탭 패널 1: 타임라인 -->
+    <div class="llc-panel" id="llc-panel-timeline"
+         role="tabpanel" aria-labelledby="llc-tab-timeline" hidden></div>
+
+    <!-- 탭 패널 2: 사용자별 -->
+    <div class="llc-panel" id="llc-panel-byuser"
+         role="tabpanel" aria-labelledby="llc-tab-byuser" hidden></div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     trace 모달 (전역 1개. JSON 이면 pretty-print, 아니면 raw)
+     ========================================================== -->
+<div class="llc-modal" id="llc-modal" hidden aria-hidden="true"
+     role="dialog" aria-modal="true" aria-labelledby="llc-modal-title">
+  <div class="llc-modal-backdrop" data-role="close"></div>
+  <div class="llc-modal-card" role="document">
+    <header class="llc-modal-header">
+      <strong id="llc-modal-title">Trace</strong>
+      <span class="llc-modal-sub" data-role="modal-sub">—</span>
+      <button type="button" class="llc-modal-close" data-role="close" aria-label="닫기">✕</button>
+    </header>
+    <div class="llc-modal-body">
+      <pre class="llc-modal-pre" data-role="modal-body">—</pre>
+    </div>
+  </div>
+</div>
+
+<style>
+/* ==========================================================
+   LLM UI 사용 이력 — 페이지 전용 스타일 (llc-* 격리)
+   ========================================================== */
+.llc-page { display: flex; flex-direction: column; gap: 0; }
+.llc-page .card-body { display: flex; flex-direction: column; gap: 14px; }
+
+.llc-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.llc-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.llc-field-label { color: var(--text-muted, #888); font-weight: 600; }
+.llc-field input[type="date"] {
+  padding: 6px 8px; border: 1px solid var(--border, #d0d4dd);
+  border-radius: 6px; font: inherit; background: var(--bg, #fff);
+}
+.llc-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.llc-hint {
+  margin: 0; font-size: 12px; color: var(--text-muted, #666);
+  line-height: 1.55;
+}
+.llc-hint code {
+  background: rgba(0,0,0,0.05); padding: 1px 6px; border-radius: 4px;
+  font-size: 11px;
+}
+
+.llc-status { font-size: 12px; color: var(--text-muted, #666); }
+.llc-error { color: #b00020; font-size: 13px; }
+
+/* 결과 헤더 (요약 + 탭) */
+.llc-result-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 12px;
+  padding: 8px 12px; background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border, #e2e4ea); border-radius: 8px;
+}
+.llc-summary { font-size: 13px; color: #333; }
+.llc-summary strong { color: #111; }
+
+.llc-tabs { display: inline-flex; gap: 4px; }
+.llc-tab {
+  border: 1px solid var(--border, #d0d4dd); background: #fff;
+  padding: 6px 12px; border-radius: 999px; font-size: 12px;
+  cursor: pointer; transition: background .15s, border-color .15s;
+}
+.llc-tab:hover { background: #f3f4f7; }
+.llc-tab.is-active {
+  background: #2b6cb0; color: #fff; border-color: #2b6cb0;
+}
+
+/* 패널 공통 */
+.llc-panel {
+  border: 1px solid var(--border, #e2e4ea); border-radius: 8px;
+  background: #fff; overflow: hidden;
+}
+
+/* ─── 타임라인 뷰 ─── */
+.llc-timeline-list { list-style: none; margin: 0; padding: 0; }
+.llc-msg {
+  display: grid;
+  grid-template-columns: 160px 90px 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eef0f4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.llc-msg:last-child { border-bottom: 0; }
+.llc-msg.role-user      { background: #fafbfc; }
+.llc-msg.role-assistant { background: #fff; }
+.llc-msg-meta {
+  font-size: 11px; color: #777;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+.llc-msg-meta-time { color: #444; display: block; }
+.llc-msg-meta-user { color: #2b6cb0; display: block; margin-top: 2px; }
+.llc-msg-meta-conv { color: #888; display: block; margin-top: 2px; font-size: 10px; }
+
+.llc-role-badge {
+  display: inline-block;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.llc-role-badge.role-user      { background: #e3f2fd; color: #1565c0; }
+.llc-role-badge.role-assistant { background: #fce4ec; color: #ad1457; }
+.llc-role-badge.role-other     { background: #eceff1; color: #455a64; }
+
+.llc-msg-content {
+  white-space: pre-wrap; word-break: break-word;
+  color: #222;
+  max-height: 300px; overflow: auto;
+}
+
+.llc-trace-btn {
+  border: 1px solid #d0d4dd; background: #fff;
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11px; cursor: pointer; white-space: nowrap;
+  color: #444;
+}
+.llc-trace-btn:hover:not(:disabled) { background: #f3f4f7; border-color: #b0b6c2; }
+.llc-trace-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ─── 사용자별 뷰 (accordion) ─── */
+.llc-user {
+  border-bottom: 1px solid #eef0f4;
+}
+.llc-user:last-child { border-bottom: 0; }
+.llc-user-header {
+  width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: #f7f8fa;
+  border: 0; border-bottom: 1px solid #eef0f4;
+  font: inherit; cursor: pointer;
+}
+.llc-user-header:hover { background: #eef0f4; }
+.llc-user-caret { display: inline-block; transition: transform .15s; color: #888; }
+.llc-user.is-open .llc-user-caret { transform: rotate(90deg); }
+.llc-user-name { font-weight: 700; color: #1565c0; }
+.llc-user-stats { color: #666; font-size: 12px; }
+
+.llc-conv-list { display: none; padding: 4px 14px 12px 30px; }
+.llc-user.is-open .llc-conv-list { display: block; }
+
+.llc-conv {
+  border: 1px solid #e2e4ea; border-radius: 6px;
+  margin-top: 8px; overflow: hidden;
+}
+.llc-conv-header {
+  width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: #fafbfc;
+  border: 0; border-bottom: 1px solid #eef0f4;
+  font: inherit; cursor: pointer;
+}
+.llc-conv-header:hover { background: #f0f2f5; }
+.llc-conv-caret { color: #888; transition: transform .15s; }
+.llc-conv.is-open .llc-conv-caret { transform: rotate(90deg); }
+.llc-conv-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+               color: #444; font-size: 12px; word-break: break-all; }
+.llc-conv-stats { color: #888; font-size: 11px; margin-left: auto; }
+
+.llc-conv-messages { display: none; }
+.llc-conv.is-open .llc-conv-messages { display: block; }
+
+/* 대화 안의 메시지는 grid 의 첫 컬럼(시간) 폭만 살짝 더 짧게 */
+.llc-conv-messages .llc-msg {
+  grid-template-columns: 140px 90px 1fr auto;
+  font-size: 12.5px;
+}
+
+/* 빈 상태 */
+.llc-empty {
+  padding: 20px; text-align: center; color: #888; font-size: 13px;
+}
+
+/* ─── 모달 ─── */
+.llc-modal {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+}
+.llc-modal[hidden] { display: none; }
+.llc-modal-backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+}
+.llc-modal-card {
+  position: relative;
+  width: min(900px, 92vw); max-height: 86vh;
+  display: flex; flex-direction: column;
+  background: #fff; border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  overflow: hidden;
+}
+.llc-modal-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid #eef0f4;
+  background: #f7f8fa;
+}
+.llc-modal-sub { color: #666; font-size: 11px; margin-left: 4px; flex: 1; }
+.llc-modal-close {
+  border: 0; background: transparent; cursor: pointer;
+  font-size: 16px; color: #555; padding: 4px 8px;
+}
+.llc-modal-close:hover { color: #000; }
+.llc-modal-body { overflow: auto; flex: 1; }
+.llc-modal-pre {
+  margin: 0; padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+  color: #222;
+}
+</style>
+
+<script>
+(function () {
+  'use strict';
+
+  // ─────────────────────────────────────────────────────
+  // DOM 핸들
+  // ─────────────────────────────────────────────────────
+  var $form     = document.getElementById('llc-form');
+  var $start    = document.getElementById('llc-start');
+  var $end      = document.getElementById('llc-end');
+  var $run      = document.getElementById('llc-run');
+  var $error    = document.getElementById('llc-error');
+  var $status   = document.querySelector('.llc-page [data-role="status"]');
+  var $resBar   = document.getElementById('llc-result-bar');
+  var $summary  = $resBar.querySelector('[data-role="summary"]');
+  var $tabBtns  = Array.prototype.slice.call($resBar.querySelectorAll('.llc-tab'));
+  var $panelTL  = document.getElementById('llc-panel-timeline');
+  var $panelBU  = document.getElementById('llc-panel-byuser');
+
+  // 모달
+  var $modal    = document.getElementById('llc-modal');
+  var $mBody    = $modal.querySelector('[data-role="modal-body"]');
+  var $mSub     = $modal.querySelector('[data-role="modal-sub"]');
+
+  // 마지막 페이로드 (모달이 trace 인덱스로 참조)
+  var _payload  = null;
+  // trace 데이터를 id 기반 빠른 룩업 맵으로 보관
+  var _traceMap = Object.create(null);
+
+  // ─────────────────────────────────────────────────────
+  // 유틸
+  // ─────────────────────────────────────────────────────
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function setError(msg) {
+    if (!msg) { $error.hidden = true; $error.textContent = ''; return; }
+    $error.hidden = false; $error.textContent = msg;
+  }
+  function setStatus(msg) {
+    if (!msg) { $status.hidden = true; $status.textContent = ''; return; }
+    $status.hidden = false; $status.textContent = msg;
+  }
+  function fmtCount(n) { return (n || 0).toLocaleString(); }
+  function roleClass(role) {
+    if (role === 'user') return 'role-user';
+    if (role === 'assistant') return 'role-assistant';
+    return 'role-other';
+  }
+  function roleLabel(role) {
+    if (role === 'user') return 'user';
+    if (role === 'assistant') return 'assistant';
+    return role || '?';
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 빠른 선택 버튼
+  // ─────────────────────────────────────────────────────
+  $form.querySelectorAll('.llc-quick [data-quick]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var days = parseInt(btn.getAttribute('data-quick'), 10) || 7;
+      var todayStr = '{{ today }}';
+      var today = new Date(todayStr + 'T00:00:00');
+      var start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+      var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+      var fmt = function (d) {
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      };
+      $start.value = fmt(start);
+      $end.value   = fmt(today);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────
+  // 조회 — Submit
+  // ─────────────────────────────────────────────────────
+  $form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    fetchAndRender();
+  });
+
+  function fetchAndRender() {
+    var s = $start.value;
+    var e = $end.value;
+    if (!s || !e) { setError('시작일/종료일을 입력하세요.'); return; }
+    if (s > e)    { setError('종료일이 시작일보다 빠릅니다.'); return; }
+    setError(''); setStatus('조회 중...');
+    $run.disabled = true;
+
+    var url = '/llm-ui-conversations/run'
+      + '?start=' + encodeURIComponent(s)
+      + '&end='   + encodeURIComponent(e);
+
+    fetch(url, { headers: { 'Accept': 'application/json' } })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.text().then(function (t) {
+            throw new Error('서버 오류 (' + res.status + '): ' + t.slice(0, 300));
+          });
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        _payload = data;
+        rebuildTraceMap(data);
+        renderAll(data);
+        setStatus(
+          '완료 — 행 ' + fmtCount(data.row_count) +
+          ', 사용자 ' + fmtCount((data.by_user || []).length) +
+          ' (' + fmtCount(data.elapsed_ms) + 'ms)'
+        );
+      })
+      .catch(function (err) {
+        setError(err.message || String(err));
+        setStatus('');
+      })
+      .finally(function () { $run.disabled = false; });
+  }
+
+  function rebuildTraceMap(data) {
+    _traceMap = Object.create(null);
+    var tl = data.timeline || [];
+    for (var i = 0; i < tl.length; i++) {
+      var m = tl[i];
+      if (m && m.id) _traceMap[m.id] = m;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 렌더 — 결과 헤더 + 양쪽 패널
+  // ─────────────────────────────────────────────────────
+  function renderAll(data) {
+    var users = data.by_user || [];
+    var totalConvs = 0;
+    for (var i = 0; i < users.length; i++) {
+      totalConvs += (users[i].conv_count || 0);
+    }
+
+    $summary.innerHTML =
+      '범위 <strong>' + esc(data.start) + ' ~ ' + esc(data.end) + '</strong> &nbsp;|&nbsp; ' +
+      '메시지 <strong>' + fmtCount(data.row_count) + '</strong> &nbsp;·&nbsp; ' +
+      '사용자 <strong>' + fmtCount(users.length) + '</strong> &nbsp;·&nbsp; ' +
+      '대화 <strong>' + fmtCount(totalConvs) + '</strong>';
+
+    $resBar.hidden = false;
+    renderTimeline(data.timeline || []);
+    renderByUser(users);
+    // 현재 활성 탭 패널 표시
+    showActiveTab();
+  }
+
+  // ─── 타임라인 패널 ───
+  function renderTimeline(messages) {
+    if (!messages.length) {
+      $panelTL.innerHTML = '<div class="llc-empty">표시할 메시지가 없습니다.</div>';
+      return;
+    }
+    var html = '<ul class="llc-timeline-list">';
+    for (var i = 0; i < messages.length; i++) {
+      html += renderMsgRow(messages[i]);
+    }
+    html += '</ul>';
+    $panelTL.innerHTML = html;
+  }
+
+  // ─── 사용자별 패널 ───
+  function renderByUser(users) {
+    if (!users.length) {
+      $panelBU.innerHTML = '<div class="llc-empty">표시할 사용자가 없습니다.</div>';
+      return;
+    }
+    var html = '';
+    for (var u = 0; u < users.length; u++) {
+      var usr = users[u];
+      var uidLabel = usr.user_id || '(빈 user_id)';
+      html += '<div class="llc-user" data-user-idx="' + u + '">';
+      html +=   '<button type="button" class="llc-user-header" data-role="toggle-user">';
+      html +=     '<span class="llc-user-caret" aria-hidden="true">▶</span> ';
+      html +=     '<span class="llc-user-name">' + esc(uidLabel) + '</span>';
+      html +=     '<span class="llc-user-stats">대화 ' + fmtCount(usr.conv_count) +
+                   ' · 메시지 ' + fmtCount(usr.msg_count) + '</span>';
+      html +=   '</button>';
+      html +=   '<div class="llc-conv-list">';
+      var convs = usr.conversations || [];
+      for (var c = 0; c < convs.length; c++) {
+        var conv = convs[c];
+        html += '<div class="llc-conv" data-conv-idx="' + c + '">';
+        html +=   '<button type="button" class="llc-conv-header" data-role="toggle-conv">';
+        html +=     '<span class="llc-conv-caret" aria-hidden="true">▶</span>';
+        html +=     '<span class="llc-conv-id">' + esc(conv.conversation_id || '(빈 conversation_id)') + '</span>';
+        html +=     '<span class="llc-conv-stats">' +
+                       fmtCount(conv.msg_count) + '개 · ' +
+                       esc(conv.started_at || '') +
+                       (conv.ended_at && conv.ended_at !== conv.started_at
+                         ? ' ~ ' + esc(conv.ended_at) : '') +
+                    '</span>';
+        html +=   '</button>';
+        html +=   '<div class="llc-conv-messages">';
+        var msgs = conv.messages || [];
+        for (var m = 0; m < msgs.length; m++) {
+          html += renderMsgRow(msgs[m], /*compact=*/true);
+        }
+        html +=   '</div>';
+        html += '</div>';
+      }
+      html +=   '</div>';
+      html += '</div>';
+    }
+    $panelBU.innerHTML = html;
+  }
+
+  function renderMsgRow(m, compact) {
+    var role = m.role || '';
+    var rc = roleClass(role);
+    var traceHas = m.trace !== null && m.trace !== undefined && m.trace !== '';
+    var seqLabel = (m.seq === null || m.seq === undefined) ? '' : ('#' + esc(m.seq));
+    var convShort = compact ? '' :
+        '<span class="llc-msg-meta-conv" title="' + esc(m.conversation_id) + '">' +
+        esc(m.conversation_id || '') + (seqLabel ? ' · ' + seqLabel : '') + '</span>';
+
+    return ''
+      + '<li class="llc-msg ' + rc + '">'
+      +   '<div class="llc-msg-meta">'
+      +     '<span class="llc-msg-meta-time">' + esc(m.created_at || '') + '</span>'
+      +     '<span class="llc-msg-meta-user">' + esc(m.user_id || '(no user)') + '</span>'
+      +     convShort
+      +     (compact && seqLabel
+              ? '<span class="llc-msg-meta-conv">' + seqLabel + '</span>'
+              : '')
+      +   '</div>'
+      +   '<div><span class="llc-role-badge ' + rc + '">' + esc(roleLabel(role)) + '</span></div>'
+      +   '<div class="llc-msg-content">' + esc(m.content || '') + '</div>'
+      +   '<div>'
+      +     '<button type="button" class="llc-trace-btn"'
+      +     ' data-role="open-trace" data-msg-id="' + esc(m.id || '') + '"'
+      +     (traceHas ? '' : ' disabled')
+      +     ' title="trace 보기">trace</button>'
+      +   '</div>'
+      + '</li>';
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 탭 전환
+  // ─────────────────────────────────────────────────────
+  $tabBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      $tabBtns.forEach(function (b) {
+        var active = (b === btn);
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      showActiveTab();
+    });
+  });
+
+  function showActiveTab() {
+    var active = $resBar.querySelector('.llc-tab.is-active');
+    var tab = active ? active.getAttribute('data-tab') : 'timeline';
+    $panelTL.hidden = (tab !== 'timeline');
+    $panelBU.hidden = (tab !== 'byuser');
+  }
+
+  // ─────────────────────────────────────────────────────
+  // accordion 토글 (이벤트 위임)
+  // ─────────────────────────────────────────────────────
+  $panelBU.addEventListener('click', function (ev) {
+    var t = ev.target;
+    while (t && t !== $panelBU) {
+      if (t.getAttribute && t.getAttribute('data-role') === 'toggle-user') {
+        var userEl = t.closest('.llc-user');
+        if (userEl) userEl.classList.toggle('is-open');
+        return;
+      }
+      if (t.getAttribute && t.getAttribute('data-role') === 'toggle-conv') {
+        var convEl = t.closest('.llc-conv');
+        if (convEl) convEl.classList.toggle('is-open');
+        return;
+      }
+      t = t.parentNode;
+    }
+  });
+
+  // ─────────────────────────────────────────────────────
+  // trace 모달 (이벤트 위임 — 양쪽 패널 모두에서 동작)
+  // ─────────────────────────────────────────────────────
+  function onTraceClick(ev) {
+    var t = ev.target;
+    if (!t || !t.getAttribute) return;
+    if (t.getAttribute('data-role') !== 'open-trace') return;
+    if (t.disabled) return;
+    var id = t.getAttribute('data-msg-id') || '';
+    var msg = _traceMap[id];
+    if (!msg) return;
+    openTraceModal(msg);
+  }
+  $panelTL.addEventListener('click', onTraceClick);
+  $panelBU.addEventListener('click', onTraceClick);
+
+  function openTraceModal(msg) {
+    var raw = msg.trace;
+    var body;
+    if (raw === null || raw === undefined || raw === '') {
+      body = '(trace 가 없습니다)';
+    } else {
+      // 사용자 결정 Q4: trace 는 JSON 임 → pretty-print 시도. 실패하면 raw.
+      try {
+        var parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+        body = JSON.stringify(parsed, null, 2);
+      } catch (e) {
+        body = String(raw);
+      }
+    }
+    $mBody.textContent = body;
+    $mSub.textContent =
+      '[' + (msg.role || '') + '] ' +
+      (msg.user_id || '') + ' · ' +
+      (msg.created_at || '') + ' · ' +
+      'id=' + (msg.id || '');
+    $modal.hidden = false;
+    $modal.setAttribute('aria-hidden', 'false');
+  }
+  function closeModal() {
+    $modal.hidden = true;
+    $modal.setAttribute('aria-hidden', 'true');
+  }
+  $modal.addEventListener('click', function (ev) {
+    var t = ev.target;
+    while (t && t !== $modal) {
+      if (t.getAttribute && t.getAttribute('data-role') === 'close') {
+        closeModal();
+        return;
+      }
+      t = t.parentNode;
+    }
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !$modal.hidden) closeModal();
+  });
+
+  // ─────────────────────────────────────────────────────
+  // 최초 자동 조회
+  // ─────────────────────────────────────────────────────
+  fetchAndRender();
+})();
+</script>
+{% endblock %}
