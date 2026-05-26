@@ -775,6 +775,79 @@ def _history_date_list(days: int) -> list[str]:
     ]
 
 
+def _build_history_index1_body(
+    base_body: dict[str, Any],
+    valid_eqp_ids: set[str] | None,
+) -> dict[str, Any]:
+    """parsing-index-1 의 ``last_7_days`` filter 에 eqp_id terms 절을 주입.
+
+    원본 ``base_body`` 는 절대 수정하지 않고 (deepcopy) 새 dict 를 반환한다.
+
+    동작 규칙
+    ─────────
+    - ``valid_eqp_ids is None`` → 필터 미적용. base_body deepcopy 그대로 반환
+      (운영 토글 off, 또는 호출 측에서 의도적으로 skip).
+    - ``valid_eqp_ids`` 가 빈 set → terms 절을 **빈 배열로 주입**.
+        · ES 의 ``terms`` 절은 빈 배열일 때 0건 매칭 (사용자 결정 Q5=B).
+        · 두 DB 모두 실패하거나 유효 설비가 0개인 경우 자연스럽게 0 처리.
+    - 정상 set → ``terms { "eqp_id.keyword": [...] }`` 주입.
+
+    원본 ``last_7_days.filter`` 가 단일 ``{range:{...}}`` 였던 점을 활용해
+    그것을 ``bool.filter`` 배열의 첫 항목으로 옮기고 terms 를 두 번째로 추가.
+    원본이 이미 ``bool.filter`` 형태였다면 그 배열에 terms 만 append.
+
+    Parameters
+    ──────────
+    base_body : dict
+        :data:`app.queries.es_queries.HISTORY_INDEX1_AGG.body`
+    valid_eqp_ids : set[str] | None
+        eqp_id 합집합 set (None 이면 미적용).
+
+    Returns
+    ───────
+    dict — 변형된 새 body.
+    """
+    import copy
+
+    body = copy.deepcopy(base_body)
+    if valid_eqp_ids is None:
+        return body
+
+    # aggs.last_7_days.filter 의 현재 위치 찾기
+    try:
+        last7 = body["aggs"]["last_7_days"]
+        cur_filter = last7.get("filter") or {}
+    except Exception:
+        # 구조가 예상과 다르면 안전하게 그대로 반환 (필터 주입 포기)
+        log.warning("[es/history] index1 body 구조 unexpected — eqp_id filter 미적용")
+        return body
+
+    # 정렬된 list (안정적인 cache key/디버깅 가독성 위해)
+    eqp_list = sorted(valid_eqp_ids)
+    terms_clause = {"terms": {"eqp_id.keyword": eqp_list}}
+
+    # case 1) 원본이 단일 절 (range 등) → bool.filter 로 wrap
+    if "bool" not in cur_filter:
+        new_filter = {
+            "bool": {
+                "filter": [
+                    cur_filter,  # 기존 range 절 보존
+                    terms_clause,
+                ]
+            }
+        }
+    else:
+        # case 2) 이미 bool 절 — filter 배열에 append
+        new_bool = copy.deepcopy(cur_filter["bool"])
+        if not isinstance(new_bool.get("filter"), list):
+            new_bool["filter"] = [new_bool.get("filter")] if new_bool.get("filter") else []
+        new_bool["filter"].append(terms_clause)
+        new_filter = {"bool": new_bool}
+
+    last7["filter"] = new_filter
+    return body
+
+
 def _history_parse_index1(resp: dict[str, Any]) -> dict[str, int]:
     """parsing-index-1 응답을 ``{date: count}`` 로 평탄화.
 
@@ -875,16 +948,50 @@ async def run_history_overview() -> dict[str, Any]:
     # attr 노출 순서 — 미지정("")은 항상 마지막
     ATTR_ORDER = ["stage", "normal", "complete", "check", ""]
 
+    # ── parsing-index-1 'valid 설비' eqp_id 필터 (사용자 요청) ──
+    # vnand / dram 두 DB 의 ``eqp_master.prc_get_valid_equipment(param)`` 결과
+    # 합집합을 매 호출마다 받아와 (캐시 없음, 사용자 결정 Q4=A) index-1 쿼리
+    # body 의 last_7_days filter 에 ``terms { eqp_id.keyword: [...] }`` 로
+    # 주입한다.  실패하거나 빈 집합이어도 그대로 0 매칭이 되게 한다 (Q5=B).
+    #
+    # 토글이 꺼져 있으면 ``valid_eqp_ids = None`` 으로 두어 body 변형을 건너뜀.
+    valid_eqp_ids: set[str] | None = None
+    eqp_errors: dict[str, str | None] = {"vnand": None, "dram": None}
+    if settings.ES_HISTORY_VALID_EQP_FILTER_ENABLED:
+        # 별도 import 로 순환참조 방지 (eqp_master_service 는 mariadb 만 의존)
+        from app.services import eqp_master_service
+        try:
+            valid_eqp_ids, eqp_errors = await asyncio.to_thread(
+                eqp_master_service.get_valid_eqp_ids
+            )
+        except Exception as e:
+            # 예외는 위 함수 내부에서 흡수되지만 방어적으로 한 번 더.
+            log.error("[es/history] eqp_master_service 예외: %s", e)
+            valid_eqp_ids = set()
+            eqp_errors = {"vnand": str(e), "dram": str(e)}
+
     log.info(
-        "[es/history] 쿼리 시작: days=%d index1=%s index2=%s states=%d",
+        "[es/history] 쿼리 시작: days=%d index1=%s index2=%s states=%d "
+        "valid_eqp=%s (filter_enabled=%s)",
         days, q1.index, q2.index, len(state_triples),
+        ("None" if valid_eqp_ids is None else f"{len(valid_eqp_ids)}건"),
+        settings.ES_HISTORY_VALID_EQP_FILTER_ENABLED,
     )
     start = time.perf_counter()
 
-    async def _one(qdef: EsQueryDef, tag: str) -> tuple[dict[str, Any] | None, str | None]:
+    # index-1 만 eqp_id 필터를 주입한 body 를 동적으로 빌드 (Q6=A).
+    # index-2 는 기존 그대로 사용.
+    index1_body = _build_history_index1_body(q1.body, valid_eqp_ids)
+    index2_body = q2.body
+
+    async def _one(
+        index: str,
+        body: dict[str, Any],
+        tag: str,
+    ) -> tuple[dict[str, Any] | None, str | None]:
         try:
             resp = await asyncio.wait_for(
-                asyncio.to_thread(es_client.search, qdef.index, qdef.body),
+                asyncio.to_thread(es_client.search, index, body),
                 timeout=settings.QUERY_TIMEOUT_SECONDS,
             )
             return resp, None
@@ -896,8 +1003,8 @@ async def run_history_overview() -> dict[str, Any]:
             return None, str(e)
 
     (resp1, err1), (resp2, err2) = await asyncio.gather(
-        _one(q1, "index1"),
-        _one(q2, "index2"),
+        _one(q1.index, index1_body, "index1"),
+        _one(q2.index, index2_body, "index2"),
     )
 
     elapsed_ms = int((time.perf_counter() - start) * 1000)
@@ -927,6 +1034,18 @@ async def run_history_overview() -> dict[str, Any]:
         "queried_at": queried_at,
         "error": err1 or err2,
         "errors": {"index1": err1, "index2": err2},
+        # ── valid eqp filter 메타 (사용자 요청) ──
+        # filter_enabled: settings 토글 상태
+        # applied      : 실제로 body 에 terms 절이 들어갔는지 (None 이면 미적용)
+        # count        : 합집합 eqp_id 개수 (None 이면 미적용)
+        # errors       : {"vnand": "...", "dram": "..."} 형식. None 이면 성공.
+        "valid_eqp": {
+            "filter_enabled": settings.ES_HISTORY_VALID_EQP_FILTER_ENABLED,
+            "applied": valid_eqp_ids is not None,
+            "count": (None if valid_eqp_ids is None else len(valid_eqp_ids)),
+            "param": settings.ES_HISTORY_VALID_EQP_PARAM,
+            "errors": eqp_errors,
+        },
     }
 
     # 둘 다 실패하면 빈 결과로 종료

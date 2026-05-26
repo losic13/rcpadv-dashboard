@@ -130,6 +130,23 @@ class Settings(BaseSettings):
         "FAILED:실패:check"
     )
 
+    # ---- /es/history index-1 'valid 설비' eqp_id 필터 ----
+    # vnand / dram 두 DB 에서 각각 ``eqp_master.prc_get_valid_equipment(<param>)``
+    # 프로시저를 호출해 얻은 eqp_id 목록을 합집합(∪) 으로 만들어,
+    # parsing-index-1 의 last_7_days filter 에 ``terms { eqp_id.keyword: [...] }``
+    # 으로 주입한다.
+    #
+    # · ES_HISTORY_VALID_EQP_FILTER_ENABLED:
+    #     False 면 필터 미적용 (기존 동작). 운영 중 임시로 끄고 싶을 때 사용.
+    # · ES_HISTORY_VALID_EQP_PARAM:
+    #     프로시저 호출 시 넘기는 인자. 기본 3. 의미가 바뀌면 .env 로 조정.
+    #
+    # ※ 캐시는 두지 않음 (사용자 결정 Q4=A) — 매 요청마다 두 DB 프로시저를 호출.
+    #   목록이 비어 있거나 두 DB 모두 실패하면 빈 set → terms 0 매칭이 되어
+    #   결과 0건이 자연스럽게 표시됨 (사용자 결정 Q5=B).
+    ES_HISTORY_VALID_EQP_FILTER_ENABLED: bool = True
+    ES_HISTORY_VALID_EQP_PARAM: int = 3
+
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"

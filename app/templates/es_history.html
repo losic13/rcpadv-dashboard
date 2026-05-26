@@ -88,6 +88,21 @@
         <span class="disk-meta-key">index-2</span>
         <code>{{ index2 }}</code>
       </span>
+      {#
+        ── valid 설비 필터 메타 ──
+        vnand ∪ dram 의 eqp_master.prc_get_valid_equipment(param) 결과로
+        index-1 쿼리에 terms { eqp_id.keyword: [...] } 를 주입한 상태를
+        표시.  텍스트는 JS 가 /es/history/data 응답의 valid_eqp 메타로 채움.
+        - filter 미적용 (토글 off) → "필터 미적용"
+        - 적용 + count>0           → "유효 설비 N개"
+        - 적용 + count=0           → "유효 설비 0개 (결과 0건)"
+        - 부분 실패 (errors)       → 위 텍스트 옆에 "(vnand 실패)" 등
+      #}
+      <span class="disk-meta-sep" id="hist-valid-eqp-sep" hidden>·</span>
+      <span class="disk-meta-item" id="hist-valid-eqp-wrap" hidden>
+        <span class="disk-meta-key">설비 필터</span>
+        <span id="hist-valid-eqp">—</span>
+      </span>
     </div>
 
     <!-- ── 범례 ──────────────────────────────────────────── -->
@@ -204,6 +219,10 @@
   const errorBox    = document.getElementById('hist-error');
   const elQueriedAt = document.getElementById('hist-queried-at');
   const elElapsed   = document.getElementById('hist-elapsed');
+  // valid 설비 필터 메타 (vnand ∪ dram 의 prc_get_valid_equipment 결과)
+  const elValidEqp     = document.getElementById('hist-valid-eqp');
+  const elValidEqpWrap = document.getElementById('hist-valid-eqp-wrap');
+  const elValidEqpSep  = document.getElementById('hist-valid-eqp-sep');
   const legend      = document.getElementById('hist-legend');
   const chartCanvas = document.getElementById('hist-chart');
   const detailTbody = document.getElementById('hist-detail-tbody');
@@ -621,6 +640,42 @@
       // 메타 갱신
       elQueriedAt.textContent = data.queried_at || '—';
       elElapsed.textContent   = data.elapsed_ms != null ? `${data.elapsed_ms} ms` : '—';
+
+      // ── valid 설비 필터 메타 갱신 ──
+      // payload.valid_eqp = { filter_enabled, applied, count, param, errors }
+      // - filter_enabled=false → 칸 자체 숨김
+      // - applied=true / count>0 → "유효 설비 N개 (param=3)"
+      // - applied=true / count=0 → "유효 설비 0개 (결과 0건)"
+      // - errors 의 vnand/dram 중 하나라도 실패하면 옆에 "(vnand 실패)" 표기
+      (function renderValidEqpMeta() {
+        const ve = data && data.valid_eqp;
+        if (!ve || !ve.filter_enabled) {
+          elValidEqpWrap.hidden = true;
+          elValidEqpSep.hidden  = true;
+          return;
+        }
+        elValidEqpWrap.hidden = false;
+        elValidEqpSep.hidden  = false;
+
+        let txt;
+        if (!ve.applied) {
+          txt = '미적용';
+        } else if (ve.count > 0) {
+          txt = `유효 설비 ${ve.count.toLocaleString()}개 (param=${ve.param})`;
+        } else {
+          txt = '유효 설비 0개 (결과 0건)';
+        }
+        const errs = ve.errors || {};
+        const failedSrcs = [];
+        if (errs.vnand) failedSrcs.push('vnand');
+        if (errs.dram)  failedSrcs.push('dram');
+        if (failedSrcs.length > 0) {
+          txt += ` (${failedSrcs.join(', ')} 실패)`;
+        }
+        elValidEqp.textContent = txt;
+        // 부분 실패 시 시각적 강조 (옅은 경고)
+        elValidEqp.style.color = (failedSrcs.length > 0) ? 'var(--color-warning, #b45309)' : '';
+      })();
 
       if (!res.ok || !data.ok) {
         const msg = data.error
