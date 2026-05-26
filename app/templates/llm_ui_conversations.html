@@ -18,12 +18,12 @@
 {% block page_heading %}{{ page_title }}{% endblock %}
 
 {% block content %}
-<section class="card llc-page">
+<section class="card login-history-page llc-page">
   <header class="card-header">
     <div class="card-title">
       <span class="badge">LLM PG</span>
       <strong>LLM UI 사용 이력</strong>
-      <span class="card-sub">대화 메시지 · 타임라인 / 사용자별 뷰</span>
+      <span class="card-sub">대화 메시지 · 사용자별 / 타임라인 뷰</span>
     </div>
     <div class="card-controls">
       <span class="llc-status" data-role="status" hidden></span>
@@ -31,19 +31,21 @@
   </header>
 
   <div class="card-body">
-    <form id="llc-form" class="llc-form" autocomplete="off" onsubmit="return false;">
-      <label class="llc-field">
-        <span class="llc-field-label">시작일</span>
+    {# login_history 와 동일한 룩앤필을 위해 .login-history-form / .lh-field /
+       .lh-quick / .btn-ghost / .btn .btn-run 컴포넌트를 그대로 사용. #}
+    <form id="llc-form" class="login-history-form" autocomplete="off" onsubmit="return false;">
+      <label class="lh-field">
+        <span class="lh-field-label">시작일</span>
         <input type="date" id="llc-start" name="start"
                value="{{ default_start }}" max="{{ today }}" required>
       </label>
-      <label class="llc-field">
-        <span class="llc-field-label">종료일</span>
+      <label class="lh-field">
+        <span class="lh-field-label">종료일</span>
         <input type="date" id="llc-end" name="end"
                value="{{ default_end }}" max="{{ today }}" required>
       </label>
 
-      <div class="llc-quick">
+      <div class="lh-quick">
         <button type="button" class="btn-ghost" data-quick="1">오늘</button>
         <button type="button" class="btn-ghost" data-quick="7">최근 7일</button>
         <button type="button" class="btn-ghost" data-quick="14">최근 14일</button>
@@ -56,7 +58,7 @@
       </button>
     </form>
 
-    <p class="llc-hint">
+    <p class="lh-hint">
       LLM UI 의 대화 메시지를 <code>created_at</code> 기준 날짜 범위로 조회합니다.
       행 수 제한이 없으므로, 기간이 넓을수록 응답 시간이 길어질 수 있습니다.
       각 메시지의 <strong>trace</strong> 는 행의 <em>trace</em> 버튼을 클릭하면 모달에서 확인할 수 있습니다.
@@ -65,30 +67,31 @@
     <div class="error-msg llc-error" id="llc-error" hidden></div>
 
     <!-- 결과 헤더 (요약 + 탭) -->
+    {# 탭 순서/기본값: 사용자별이 기본(좌측) — 사용자 결정사항 4. #}
     <div class="llc-result-bar" id="llc-result-bar" hidden>
       <div class="llc-summary" data-role="summary">—</div>
 
       <div class="llc-tabs" role="tablist" aria-label="대화 메시지 뷰 전환">
         <button type="button" class="llc-tab is-active"
                 role="tab" aria-selected="true"
-                data-tab="timeline" id="llc-tab-timeline">
-          <span aria-hidden="true">⏱</span> 타임라인
+                data-tab="byuser" id="llc-tab-byuser">
+          <span aria-hidden="true">👥</span> 사용자별
         </button>
         <button type="button" class="llc-tab"
                 role="tab" aria-selected="false"
-                data-tab="byuser" id="llc-tab-byuser">
-          <span aria-hidden="true">👥</span> 사용자별
+                data-tab="timeline" id="llc-tab-timeline">
+          <span aria-hidden="true">⏱</span> 타임라인
         </button>
       </div>
     </div>
 
-    <!-- 탭 패널 1: 타임라인 -->
-    <div class="llc-panel" id="llc-panel-timeline"
-         role="tabpanel" aria-labelledby="llc-tab-timeline" hidden></div>
-
-    <!-- 탭 패널 2: 사용자별 -->
+    <!-- 탭 패널: 사용자별 (기본 노출) -->
     <div class="llc-panel" id="llc-panel-byuser"
          role="tabpanel" aria-labelledby="llc-tab-byuser" hidden></div>
+
+    <!-- 탭 패널: 타임라인 -->
+    <div class="llc-panel" id="llc-panel-timeline"
+         role="tabpanel" aria-labelledby="llc-tab-timeline" hidden></div>
   </div>
 </section>
 
@@ -114,28 +117,13 @@
 /* ==========================================================
    LLM UI 사용 이력 — 페이지 전용 스타일 (llc-* 격리)
    ========================================================== */
+/* form / field / quick / hint 는 .login-history-page 공유 CSS 를 그대로
+   사용하므로(.lh-field, .lh-quick .btn-ghost, .lh-hint, .btn .btn-run 등)
+   여기서는 페이지 고유 스타일만 정의한다. */
 .llc-page { display: flex; flex-direction: column; gap: 0; }
 .llc-page .card-body { display: flex; flex-direction: column; gap: 14px; }
 
-.llc-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
-.llc-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.llc-field-label { color: var(--text-muted, #888); font-weight: 600; }
-.llc-field input[type="date"] {
-  padding: 6px 8px; border: 1px solid var(--border, #d0d4dd);
-  border-radius: 6px; font: inherit; background: var(--bg, #fff);
-}
-.llc-quick { display: flex; gap: 6px; flex-wrap: wrap; }
-
-.llc-hint {
-  margin: 0; font-size: 12px; color: var(--text-muted, #666);
-  line-height: 1.55;
-}
-.llc-hint code {
-  background: rgba(0,0,0,0.05); padding: 1px 6px; border-radius: 4px;
-  font-size: 11px;
-}
-
-.llc-status { font-size: 12px; color: var(--text-muted, #666); }
+.llc-status { font-size: 12px; color: var(--color-muted, #666); }
 .llc-error { color: #b00020; font-size: 13px; }
 
 /* 결과 헤더 (요약 + 탭) */
@@ -165,11 +153,16 @@
   background: #fff; overflow: hidden;
 }
 
-/* ─── 타임라인 뷰 ─── */
+/* ─── 메시지 행 공통 ─── */
 .llc-timeline-list { list-style: none; margin: 0; padding: 0; }
 .llc-msg {
   display: grid;
-  grid-template-columns: 160px 90px 1fr auto;
+  /* [메타 220px] [role 80px] [content 1fr] [trace auto]
+     - 메타 폭을 220px 로 늘려 conversation_id (40자) 가 한 줄에 ellipsis
+       될 만큼 확보.
+     - 메타 셀 자체에 min-width:0 을 두지 않으면 자식 truncate 가 안 먹힘
+       (grid item 의 기본 min-width 는 auto). */
+  grid-template-columns: 220px 80px minmax(0, 1fr) auto;
   align-items: start;
   gap: 10px;
   padding: 10px 14px;
@@ -180,14 +173,56 @@
 .llc-msg:last-child { border-bottom: 0; }
 .llc-msg.role-user      { background: #fafbfc; }
 .llc-msg.role-assistant { background: #fff; }
+
+/* 메타 셀: grid item 의 min-width:auto 를 0 으로 눌러야 자식 truncate 동작 */
 .llc-msg-meta {
-  font-size: 11px; color: #777;
+  min-width: 0;
+  font-size: 11px;
+  color: #777;
   font-variant-numeric: tabular-nums;
-  word-break: break-all;
 }
-.llc-msg-meta-time { color: #444; display: block; }
-.llc-msg-meta-user { color: #2b6cb0; display: block; margin-top: 2px; }
-.llc-msg-meta-conv { color: #888; display: block; margin-top: 2px; font-size: 10px; }
+.llc-msg-meta-time {
+  color: #444;
+  display: block;
+  font-size: 11.5px;
+}
+/* user_id: 사용자 결정사항 3 — 크기를 더 키우고 시각적으로 강조 */
+.llc-msg-meta-user {
+  color: #1565c0;
+  display: block;
+  margin-top: 3px;
+  font-size: 14px;       /* 기존 11px → 14px */
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  /* user_id 도 길어질 수 있으니 안전하게 한 줄 ellipsis */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* conversation_id: 사용자 결정사항 2 — 40자 string 이 두 줄을 차지하지
+   않도록 한 줄로 ellipsis. 전체 값은 title 속성에 들어가 있어 hover 로
+   확인 가능. */
+.llc-msg-meta-conv {
+  color: #888;
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;          /* hover 시 title 로 풀 값 확인 가능함을 암시 */
+}
+.llc-msg-meta-seq {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.05);
+  color: #555;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
 
 .llc-role-badge {
   display: inline-block;
@@ -230,7 +265,12 @@
 .llc-user-header:hover { background: #eef0f4; }
 .llc-user-caret { display: inline-block; transition: transform .15s; color: #888; }
 .llc-user.is-open .llc-user-caret { transform: rotate(90deg); }
-.llc-user-name { font-weight: 700; color: #1565c0; }
+.llc-user-name {
+  font-weight: 700;
+  color: #1565c0;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
 .llc-user-stats { color: #666; font-size: 12px; }
 
 .llc-conv-list { display: none; padding: 4px 14px 12px 30px; }
@@ -250,16 +290,26 @@
 .llc-conv-header:hover { background: #f0f2f5; }
 .llc-conv-caret { color: #888; transition: transform .15s; }
 .llc-conv.is-open .llc-conv-caret { transform: rotate(90deg); }
-.llc-conv-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-               color: #444; font-size: 12px; word-break: break-all; }
-.llc-conv-stats { color: #888; font-size: 11px; margin-left: auto; }
+/* conversation_id (헤더): 40자 string 이 줄바꿈으로 헤더를 망가뜨리지 않도록
+   한 줄 ellipsis. 전체 값은 title 속성으로 hover 시 확인. */
+.llc-conv-id {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #444; font-size: 12px;
+  flex: 1 1 0; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.llc-conv-stats {
+  color: #888; font-size: 11px; margin-left: auto;
+  flex: 0 0 auto; white-space: nowrap;
+}
 
 .llc-conv-messages { display: none; }
 .llc-conv.is-open .llc-conv-messages { display: block; }
 
-/* 대화 안의 메시지는 grid 의 첫 컬럼(시간) 폭만 살짝 더 짧게 */
+/* 사용자별 뷰의 메시지 행은 conversation 이 이미 부모이므로 메타에서
+   conv_id 를 다시 표시하지 않는다 → 첫 컬럼 폭을 좀 더 좁게 가져갈 수 있다. */
 .llc-conv-messages .llc-msg {
-  grid-template-columns: 140px 90px 1fr auto;
+  grid-template-columns: 170px 80px minmax(0, 1fr) auto;
   font-size: 12.5px;
 }
 
@@ -499,7 +549,8 @@
         html += '<div class="llc-conv" data-conv-idx="' + c + '">';
         html +=   '<button type="button" class="llc-conv-header" data-role="toggle-conv">';
         html +=     '<span class="llc-conv-caret" aria-hidden="true">▶</span>';
-        html +=     '<span class="llc-conv-id">' + esc(conv.conversation_id || '(빈 conversation_id)') + '</span>';
+        html +=     '<span class="llc-conv-id" title="' + esc(conv.conversation_id || '') + '">' +
+                       esc(conv.conversation_id || '(빈 conversation_id)') + '</span>';
         html +=     '<span class="llc-conv-stats">' +
                        fmtCount(conv.msg_count) + '개 · ' +
                        esc(conv.started_at || '') +
@@ -526,19 +577,33 @@
     var rc = roleClass(role);
     var traceHas = m.trace !== null && m.trace !== undefined && m.trace !== '';
     var seqLabel = (m.seq === null || m.seq === undefined) ? '' : ('#' + esc(m.seq));
-    var convShort = compact ? '' :
-        '<span class="llc-msg-meta-conv" title="' + esc(m.conversation_id) + '">' +
-        esc(m.conversation_id || '') + (seqLabel ? ' · ' + seqLabel : '') + '</span>';
+
+    // 메타 셀 구성:
+    //  - time
+    //  - user_id  (가장 강조, 크게)
+    //  - conversation_id (timeline 에서만 / 한 줄 ellipsis, title 에 풀값)
+    //  - seq (있으면)
+    // compact=true (사용자별 뷰) 에서는 conv_id 를 표시하지 않음 — 이미 부모 conv 가 표시.
+    var convCell = '';
+    if (!compact && m.conversation_id) {
+      convCell =
+        '<span class="llc-msg-meta-conv" title="' + esc(m.conversation_id) + '">'
+        + esc(m.conversation_id)
+        + '</span>';
+    }
+    var seqCell = seqLabel
+      ? '<span class="llc-msg-meta-seq">' + seqLabel + '</span>'
+      : '';
 
     return ''
       + '<li class="llc-msg ' + rc + '">'
       +   '<div class="llc-msg-meta">'
       +     '<span class="llc-msg-meta-time">' + esc(m.created_at || '') + '</span>'
-      +     '<span class="llc-msg-meta-user">' + esc(m.user_id || '(no user)') + '</span>'
-      +     convShort
-      +     (compact && seqLabel
-              ? '<span class="llc-msg-meta-conv">' + seqLabel + '</span>'
-              : '')
+      +     '<span class="llc-msg-meta-user" title="' + esc(m.user_id || '') + '">'
+      +       esc(m.user_id || '(no user)')
+      +     '</span>'
+      +     convCell
+      +     seqCell
       +   '</div>'
       +   '<div><span class="llc-role-badge ' + rc + '">' + esc(roleLabel(role)) + '</span></div>'
       +   '<div class="llc-msg-content">' + esc(m.content || '') + '</div>'
