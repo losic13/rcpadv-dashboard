@@ -1979,9 +1979,9 @@ table[data-role="table"].is-loading {
   color: var(--color-muted);
   text-transform: none;
   margin-right: 2px;
-  /* 두 row 의 라벨 시작점 정렬 — "일평균(마지막 제외)" / "어제 처리량" 폭 통일.
-     min-width 는 한국어 기준 가장 긴 라벨("일평균(마지막 제외)") 폭에 맞춤. */
-  min-width: 124px;
+  /* 두 row 의 라벨 시작점 정렬 — "일평균(마지막 제외)" / "어제(YYYY-MM-DD)" 폭 통일.
+     min-width 는 한국어+숫자 혼합 기준 가장 긴 라벨("어제(2026-05-25)") 폭에 맞춤. */
+  min-width: 132px;
   text-align: right;
   flex-shrink: 0;
 }

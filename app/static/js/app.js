@@ -1118,13 +1118,14 @@
           });
           slot.statEl.appendChild(row1);
 
-          // ── Row 2: 어제 처리량 (UTC 기준) ──
+          // ── Row 2: 어제(YYYY-MM-DD) — UTC 기준 ──
+          // 사용자 요청: '어제 처리량' → '어제(YYYY-MM-DD)' 로 라벨 자체에 일자 노출.
+          // 시간대 정보는 title (마우스오버) 로 보조.
           const row2 = document.createElement('div');
           row2.className = 'metric-section-stat-row';
           const lead2 = document.createElement('span');
           lead2.className = 'metric-section-stat-lead';
-          lead2.textContent = '어제 처리량';
-          // 어제 일자 자체를 title 로 노출 (UTC 기준 명시) — 마우스오버 보조 정보.
+          lead2.textContent = `어제(${_yestUtcStr})`;
           lead2.title = `UTC 기준 ${_yestUtcStr}`;
           row2.appendChild(lead2);
           yesterdayByProduct.forEach(d => {
