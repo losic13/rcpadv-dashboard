@@ -335,6 +335,29 @@
 .llc-trace-btn:hover:not(:disabled) { background: #f3f4f7; border-color: #b0b6c2; }
 .llc-trace-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ─── 사용자별 뷰 — 일괄 토글 툴바 ───
+   - 사용자별 패널 최상단에 sticky 로 고정해 긴 목록에서도 항상 보이게.
+   - 두 버튼 모두 항상 표시. 현재 상태와 동일한 버튼은 .is-active 강조. */
+.llc-bulk-toolbar {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: #fbfcfd;
+  border-bottom: 1px solid #e2e4ea;
+}
+.llc-bulk-label { font-size: 12px; color: #555; margin-right: 2px; }
+.llc-bulk-btn {
+  border: 1px solid var(--border, #d0d4dd);
+  background: #fff; color: #444;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 12px; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.llc-bulk-btn:hover { background: #f3f4f7; }
+.llc-bulk-btn.is-active {
+  background: #2b6cb0; color: #fff; border-color: #2b6cb0;
+}
+
 /* ─── 사용자별 뷰 (accordion) ─── */
 .llc-user {
   border-bottom: 1px solid #eef0f4;
@@ -481,6 +504,10 @@
   var _selectedUsers = null;
   // 메시지수 내림차순으로 정렬된 사용자 리스트 캐시
   var _sortedUsers   = [];
+  // 사용자별 뷰의 일괄 펼침/접힘 상태 (Q1=B / Q2=B: 초기 true, user+conv 모두)
+  //  - 새로 렌더되는 섹션은 항상 이 값을 따라간다 (Q5=B).
+  //  - 개별 토글로 일부만 닫혀 있어도, '모두 펼치기/접기' 클릭 시 일괄 재적용.
+  var _bulkExpanded  = true;
 
   // ─────────────────────────────────────────────────────
   // 유틸
@@ -750,20 +777,41 @@
   }
 
   // ─── 사용자별 패널 ───
+  //  - 초기/필터 변경 시 모든 user 와 conv 가 _bulkExpanded 상태(기본 true)로 시작.
+  //  - 패널 최상단에 일괄 토글 툴바 (모두 펼치기 / 모두 접기) 추가.
   function renderByUser(users) {
     if (!users.length) {
       var filtered = (_selectedUsers !== null && _payload && (_payload.by_user || []).length > 0);
       var msg = filtered
         ? '선택된 사용자가 없습니다. 위의 칩에서 사용자를 추가하거나 \'All\' 을 눌러 모두 보기.'
         : '표시할 사용자가 없습니다.';
+      // 빈 상태에서는 일괄 토글 대상이 없으므로 툴바도 숨김
       $panelBU.innerHTML = '<div class="llc-empty">' + esc(msg) + '</div>';
       return;
     }
+
+    var openCls = _bulkExpanded ? ' is-open' : '';
+
+    // 일괄 토글 툴바 (Q3=B: 사용자별 패널 최상단)
+    //  - 두 버튼 모두 항상 표시 (Q4=B)
+    //  - 현재 상태와 동일한 버튼은 .is-active 로 강조
     var html = '';
+    html += '<div class="llc-bulk-toolbar" data-role="bulk-toolbar">';
+    html +=   '<span class="llc-bulk-label">전체:</span>';
+    html +=   '<button type="button" class="llc-bulk-btn' +
+                (_bulkExpanded ? ' is-active' : '') + '"' +
+                ' data-role="bulk-expand" aria-pressed="' +
+                (_bulkExpanded ? 'true' : 'false') + '">▾ 모두 펼치기</button>';
+    html +=   '<button type="button" class="llc-bulk-btn' +
+                (!_bulkExpanded ? ' is-active' : '') + '"' +
+                ' data-role="bulk-collapse" aria-pressed="' +
+                (!_bulkExpanded ? 'true' : 'false') + '">▸ 모두 접기</button>';
+    html += '</div>';
+
     for (var u = 0; u < users.length; u++) {
       var usr = users[u];
       var uidLabel = usr.user_id || '(빈 user_id)';
-      html += '<div class="llc-user" data-user-idx="' + u + '">';
+      html += '<div class="llc-user' + openCls + '" data-user-idx="' + u + '">';
       html +=   '<button type="button" class="llc-user-header" data-role="toggle-user">';
       html +=     '<span class="llc-user-caret" aria-hidden="true">▶</span> ';
       html +=     '<span class="llc-user-name">' + esc(uidLabel) + '</span>';
@@ -774,7 +822,7 @@
       var convs = usr.conversations || [];
       for (var c = 0; c < convs.length; c++) {
         var conv = convs[c];
-        html += '<div class="llc-conv" data-conv-idx="' + c + '">';
+        html += '<div class="llc-conv' + openCls + '" data-conv-idx="' + c + '">';
         html +=   '<button type="button" class="llc-conv-header" data-role="toggle-conv">';
         html +=     '<span class="llc-conv-caret" aria-hidden="true">▶</span>';
         html +=     '<span class="llc-conv-id" title="' + esc(conv.conversation_id || '') + '">' +
@@ -923,24 +971,56 @@
   }
 
   // ─────────────────────────────────────────────────────
-  // accordion 토글 (이벤트 위임)
+  // accordion 토글 + 일괄 펼침/접힘 (이벤트 위임)
+  //  - toggle-user / toggle-conv : 개별 섹션 토글
+  //  - bulk-expand / bulk-collapse : 패널 내 모든 user + conv 일괄 토글
+  //    → _bulkExpanded 갱신 + 다음 재렌더 (필터 변경 등) 에도 상태 유지
   // ─────────────────────────────────────────────────────
   $panelBU.addEventListener('click', function (ev) {
     var t = ev.target;
     while (t && t !== $panelBU) {
-      if (t.getAttribute && t.getAttribute('data-role') === 'toggle-user') {
-        var userEl = t.closest('.llc-user');
-        if (userEl) userEl.classList.toggle('is-open');
-        return;
-      }
-      if (t.getAttribute && t.getAttribute('data-role') === 'toggle-conv') {
-        var convEl = t.closest('.llc-conv');
-        if (convEl) convEl.classList.toggle('is-open');
-        return;
+      if (t.getAttribute) {
+        var role = t.getAttribute('data-role');
+        if (role === 'toggle-user') {
+          var userEl = t.closest('.llc-user');
+          if (userEl) userEl.classList.toggle('is-open');
+          return;
+        }
+        if (role === 'toggle-conv') {
+          var convEl = t.closest('.llc-conv');
+          if (convEl) convEl.classList.toggle('is-open');
+          return;
+        }
+        if (role === 'bulk-expand' || role === 'bulk-collapse') {
+          setBulkExpanded(role === 'bulk-expand');
+          return;
+        }
       }
       t = t.parentNode;
     }
   });
+
+  // 패널 내 모든 user / conv 섹션에 is-open 을 일괄 적용/해제
+  //  - 상태 변수 _bulkExpanded 도 함께 갱신해서 다음 렌더에도 반영되게 한다 (Q5=B).
+  //  - 툴바 자체의 .is-active 표시도 즉시 갱신.
+  function setBulkExpanded(expanded) {
+    _bulkExpanded = !!expanded;
+    var sections = $panelBU.querySelectorAll('.llc-user, .llc-conv');
+    for (var i = 0; i < sections.length; i++) {
+      sections[i].classList.toggle('is-open', _bulkExpanded);
+    }
+    // 툴바 버튼 강조 갱신
+    var btnExpand   = $panelBU.querySelector('[data-role="bulk-expand"]');
+    var btnCollapse = $panelBU.querySelector('[data-role="bulk-collapse"]');
+    if (btnExpand) {
+      btnExpand.classList.toggle('is-active', _bulkExpanded);
+      btnExpand.setAttribute('aria-pressed', _bulkExpanded ? 'true' : 'false');
+    }
+    if (btnCollapse) {
+      btnCollapse.classList.toggle('is-active', !_bulkExpanded);
+      btnCollapse.setAttribute('aria-pressed', !_bulkExpanded ? 'true' : 'false');
+    }
+  }
 
   // ─────────────────────────────────────────────────────
   // trace 모달 (이벤트 위임 — 양쪽 패널 모두에서 동작)
