@@ -85,6 +85,29 @@
       </div>
     </div>
 
+    {# ─── 사용자 필터 바 (두 탭 공용) ───
+       - All 칩 + 사용자 칩(메시지수 내림차순). 사용자 결정 Q3=B 이므로
+         타임라인/사용자별 두 뷰에 동시 적용된다.
+       - 검색박스로 칩 자체를 빠르게 좁힌다 (선택 상태는 유지).
+       - 칩 영역은 max-height + overflow-y:auto 로 wrap 폭주를 막는다.
+    #}
+    <div class="llc-filter" id="llc-filter" hidden>
+      <div class="llc-filter-header">
+        <strong class="llc-filter-title">사용자 필터</strong>
+        <span class="llc-filter-meta" data-role="filter-meta">—</span>
+        <label class="llc-filter-search">
+          <span class="llc-filter-search-icon" aria-hidden="true">🔍</span>
+          <input type="search" data-role="user-search"
+                 placeholder="사용자 검색..."
+                 aria-label="사용자 ID 로 칩을 좁혀 검색">
+        </label>
+      </div>
+      <div class="llc-chip-list" data-role="chip-list" role="group"
+           aria-label="표시할 사용자 선택">
+        {# 칩들은 JS 가 동적으로 채움. 'All' 칩도 JS 가 추가. #}
+      </div>
+    </div>
+
     <!-- 탭 패널: 사용자별 (기본 노출) -->
     <div class="llc-panel" id="llc-panel-byuser"
          role="tabpanel" aria-labelledby="llc-tab-byuser" hidden></div>
@@ -146,6 +169,68 @@
 .llc-tab.is-active {
   background: #2b6cb0; color: #fff; border-color: #2b6cb0;
 }
+
+/* ─── 사용자 필터 바 (두 탭 공용) ───
+   - 결과 바 바로 아래 위치. 양 탭에 동일하게 적용된다 (Q3=B).
+   - 칩 영역은 max-height + overflow-y:auto 로 사용자가 많아도 폭주 방지.
+   - .is-selected 가 기본 상태(파란 채움), 미선택은 회색 outline.
+   - .is-hidden 은 검색박스로 좁혔을 때 display:none (선택 상태는 유지). */
+.llc-filter {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  background: #fbfcfd;
+  border: 1px solid var(--border, #e2e4ea); border-radius: 8px;
+}
+.llc-filter-header {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.llc-filter-title { font-size: 13px; color: #111; }
+.llc-filter-meta {
+  font-size: 12px; color: #555;
+  font-variant-numeric: tabular-nums;
+}
+.llc-filter-search {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #fff;
+  border: 1px solid var(--border, #d0d4dd); border-radius: 999px;
+  padding: 4px 10px;
+  min-width: 200px;
+}
+.llc-filter-search-icon { font-size: 12px; color: #888; }
+.llc-filter-search input {
+  flex: 1; border: 0; outline: none; background: transparent;
+  font-size: 12px; padding: 2px 0;
+}
+.llc-chip-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-height: 140px; overflow-y: auto;
+  padding: 2px;
+}
+.llc-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border, #d0d4dd);
+  background: #fff; color: #444;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 12px; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+  max-width: 320px;
+}
+.llc-chip:hover { background: #f3f4f7; }
+.llc-chip-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 220px;
+}
+.llc-chip-count {
+  font-size: 11px; color: #888;
+  font-variant-numeric: tabular-nums;
+}
+.llc-chip.is-selected {
+  background: #2b6cb0; color: #fff; border-color: #2b6cb0;
+}
+.llc-chip.is-selected .llc-chip-count { color: #d6e4f3; }
+.llc-chip.is-hidden { display: none; }
+.llc-chip-all { font-weight: 700; }
 
 /* 패널 공통 */
 .llc-panel {
@@ -375,6 +460,12 @@
   var $panelTL  = document.getElementById('llc-panel-timeline');
   var $panelBU  = document.getElementById('llc-panel-byuser');
 
+  // 사용자 필터 바 (Q3=B: 양 탭 공용)
+  var $filterBar  = document.getElementById('llc-filter');
+  var $chipList   = $filterBar.querySelector('[data-role="chip-list"]');
+  var $userSearch = $filterBar.querySelector('[data-role="user-search"]');
+  var $filterMeta = $filterBar.querySelector('[data-role="filter-meta"]');
+
   // 모달
   var $modal    = document.getElementById('llc-modal');
   var $mBody    = $modal.querySelector('[data-role="modal-body"]');
@@ -384,6 +475,12 @@
   var _payload  = null;
   // trace 데이터를 id 기반 빠른 룩업 맵으로 보관
   var _traceMap = Object.create(null);
+  // 사용자 필터 상태
+  //  - null  : All (모두 선택)
+  //  - Set   : 명시적으로 선택된 user_id 집합 (빈 Set 도 가능 = 아무도 선택 안함)
+  var _selectedUsers = null;
+  // 메시지수 내림차순으로 정렬된 사용자 리스트 캐시
+  var _sortedUsers   = [];
 
   // ─────────────────────────────────────────────────────
   // 유틸
@@ -468,6 +565,9 @@
       })
       .then(function (data) {
         _payload = data;
+        // 새 데이터 수신 시 필터 상태 초기화 (All) + 검색박스 비우기 (Q6=A)
+        _selectedUsers = null;
+        if ($userSearch) $userSearch.value = '';
         rebuildTraceMap(data);
         renderAll(data);
         setStatus(
@@ -493,7 +593,7 @@
   }
 
   // ─────────────────────────────────────────────────────
-  // 렌더 — 결과 헤더 + 양쪽 패널
+  // 렌더 — 결과 헤더 + 필터 바 + 양쪽 패널
   // ─────────────────────────────────────────────────────
   function renderAll(data) {
     var users = data.by_user || [];
@@ -509,16 +609,136 @@
       '대화 <strong>' + fmtCount(totalConvs) + '</strong>';
 
     $resBar.hidden = false;
-    renderTimeline(data.timeline || []);
-    renderByUser(users);
+
+    // 사용자 필터 바: 사용자가 1명 이상일 때만 노출
+    if (users.length > 0) {
+      renderFilterBar(users);
+      $filterBar.hidden = false;
+    } else {
+      $filterBar.hidden = true;
+      _sortedUsers = [];
+    }
+
+    // applyFilter() 가 필터 적용 후 두 패널을 동시에 재렌더한다.
+    applyFilter();
     // 현재 활성 탭 패널 표시
     showActiveTab();
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 사용자 필터 — 칩 렌더 + 메타 표시
+  //  - users (data.by_user) 를 msg_count 내림차순으로 정렬해서 칩으로 표시.
+  //  - 'All' 칩 + 각 사용자 칩 + msg_count 표시.
+  //  - _selectedUsers 가 null (=All) 이면 모든 칩에 is-selected 적용.
+  // ─────────────────────────────────────────────────────
+  function renderFilterBar(users) {
+    // 클라이언트 사이드 재정렬 — 서비스 페이로드는 user_id 사전순.
+    // Q5=A: 메시지수 내림차순. tie 는 user_id 사전순으로.
+    _sortedUsers = users.slice().sort(function (a, b) {
+      var ac = a.msg_count || 0, bc = b.msg_count || 0;
+      if (bc !== ac) return bc - ac;
+      return String(a.user_id || '').localeCompare(String(b.user_id || ''));
+    });
+
+    var html = '';
+    // All 칩 — 모든 사용자 선택 상태 토글
+    var allSel = isAllSelected();
+    html += '<button type="button" class="llc-chip llc-chip-all' +
+              (allSel ? ' is-selected' : '') + '"' +
+              ' data-role="chip-all" aria-pressed="' + (allSel ? 'true' : 'false') + '">' +
+              '<span class="llc-chip-name">All</span>' +
+              '<span class="llc-chip-count">' + fmtCount(_sortedUsers.length) + '명</span>' +
+            '</button>';
+    // 각 사용자 칩
+    for (var i = 0; i < _sortedUsers.length; i++) {
+      var u   = _sortedUsers[i];
+      var uid = u.user_id || '';
+      var sel = isUserSelected(uid);
+      var label = uid || '(빈 user_id)';
+      html += '<button type="button" class="llc-chip' +
+                (sel ? ' is-selected' : '') + '"' +
+                ' data-role="chip-user" data-user-id="' + esc(uid) + '"' +
+                ' aria-pressed="' + (sel ? 'true' : 'false') + '"' +
+                ' title="' + esc(label) + '">' +
+                '<span class="llc-chip-name">' + esc(label) + '</span>' +
+                '<span class="llc-chip-count">' + fmtCount(u.msg_count) + '</span>' +
+              '</button>';
+    }
+    $chipList.innerHTML = html;
+
+    // 검색박스에 값이 남아 있으면 즉시 재적용 (사용자가 새 조회 시 초기화 되므로
+    // 일반적으로는 이 경로가 거의 안 타지만, defensive 하게 호출).
+    applySearchFilter();
+
+    updateFilterMeta();
+  }
+
+  // _selectedUsers 가 null 이거나 모든 사용자를 포함하면 All
+  function isAllSelected() {
+    if (_selectedUsers === null) return true;
+    if (!_sortedUsers.length) return false;
+    if (_selectedUsers.size !== _sortedUsers.length) return false;
+    for (var i = 0; i < _sortedUsers.length; i++) {
+      if (!_selectedUsers.has(_sortedUsers[i].user_id || '')) return false;
+    }
+    return true;
+  }
+  function isUserSelected(uid) {
+    if (_selectedUsers === null) return true;  // All
+    return _selectedUsers.has(uid);
+  }
+
+  function updateFilterMeta() {
+    var total = _sortedUsers.length;
+    var selN  = (_selectedUsers === null) ? total : _selectedUsers.size;
+    $filterMeta.textContent = '선택됨 ' + fmtCount(selN) + ' / 전체 ' + fmtCount(total) + '명';
+  }
+
+  // 검색박스 입력 → 칩에 is-hidden 토글 (선택 상태는 보존)
+  function applySearchFilter() {
+    var q = ($userSearch && $userSearch.value || '').trim().toLowerCase();
+    var chips = $chipList.querySelectorAll('.llc-chip[data-role="chip-user"]');
+    for (var i = 0; i < chips.length; i++) {
+      var uid = (chips[i].getAttribute('data-user-id') || '').toLowerCase();
+      var hit = (q === '' || uid.indexOf(q) !== -1);
+      chips[i].classList.toggle('is-hidden', !hit);
+    }
+    // All 칩은 항상 보이게 유지
+  }
+
+  // ─────────────────────────────────────────────────────
+  // applyFilter — _selectedUsers 기준으로 timeline / by_user 를 동시에 필터
+  //  - Q3=B: 양 탭 동기화
+  //  - Q3-detail=A: 미선택 사용자는 by_user 에서 섹션 자체가 사라짐
+  // ─────────────────────────────────────────────────────
+  function applyFilter() {
+    if (!_payload) return;
+    var sel = _selectedUsers;  // null = all
+    var tl  = _payload.timeline || [];
+    var bu  = _payload.by_user  || [];
+
+    var filteredTL, filteredBU;
+    if (sel === null) {
+      filteredTL = tl;
+      filteredBU = bu;
+    } else {
+      filteredTL = tl.filter(function (m) { return sel.has(m.user_id || ''); });
+      filteredBU = bu.filter(function (u) { return sel.has(u.user_id || ''); });
+    }
+    renderTimeline(filteredTL);
+    renderByUser(filteredBU);
+    updateFilterMeta();
   }
 
   // ─── 타임라인 패널 ───
   function renderTimeline(messages) {
     if (!messages.length) {
-      $panelTL.innerHTML = '<div class="llc-empty">표시할 메시지가 없습니다.</div>';
+      // 필터로 인해 비었는지, 원본이 빈건지 안내문구 분기 (Q8=A)
+      var filtered = (_selectedUsers !== null && _payload && (_payload.timeline || []).length > 0);
+      var msg = filtered
+        ? '선택된 사용자의 메시지가 없습니다. 다른 사용자를 선택하거나 \'All\' 을 눌러 모두 보기.'
+        : '표시할 메시지가 없습니다.';
+      $panelTL.innerHTML = '<div class="llc-empty">' + esc(msg) + '</div>';
       return;
     }
     var html = '<ul class="llc-timeline-list">';
@@ -532,7 +752,11 @@
   // ─── 사용자별 패널 ───
   function renderByUser(users) {
     if (!users.length) {
-      $panelBU.innerHTML = '<div class="llc-empty">표시할 사용자가 없습니다.</div>';
+      var filtered = (_selectedUsers !== null && _payload && (_payload.by_user || []).length > 0);
+      var msg = filtered
+        ? '선택된 사용자가 없습니다. 위의 칩에서 사용자를 추가하거나 \'All\' 을 눌러 모두 보기.'
+        : '표시할 사용자가 없습니다.';
+      $panelBU.innerHTML = '<div class="llc-empty">' + esc(msg) + '</div>';
       return;
     }
     var html = '';
@@ -639,6 +863,63 @@
     var tab = active ? active.getAttribute('data-tab') : 'timeline';
     $panelTL.hidden = (tab !== 'timeline');
     $panelBU.hidden = (tab !== 'byuser');
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 사용자 필터 — 칩 / All / 검색 이벤트 위임
+  //  - 칩 클릭: 개별 user_id 를 _selectedUsers 에서 토글
+  //  - All 클릭: 전부 선택되어 있으면 → 전부 해제, 아니면 → 전부 선택 (=null)
+  //  - 검색 input: 칩에 is-hidden 토글 (선택 상태는 보존)
+  // ─────────────────────────────────────────────────────
+  $chipList.addEventListener('click', function (ev) {
+    var t = ev.target;
+    // 가장 가까운 .llc-chip 으로 위로 타고 올라간다.
+    while (t && t !== $chipList) {
+      if (t.getAttribute) {
+        var role = t.getAttribute('data-role');
+        if (role === 'chip-all') {
+          // All 토글
+          if (isAllSelected()) {
+            // 전부 선택 상태 → 전부 해제 (빈 Set)
+            _selectedUsers = new Set();
+          } else {
+            // 일부 또는 0 선택 상태 → 전부 선택 (null = All)
+            _selectedUsers = null;
+          }
+          renderFilterBar(_payload && _payload.by_user || []);
+          applyFilter();
+          return;
+        }
+        if (role === 'chip-user') {
+          var uid = t.getAttribute('data-user-id') || '';
+          // null (All) 인 상태에서 한 칩을 끄면, 현재 전체에서 그것만 빼서 Set 으로 전환
+          if (_selectedUsers === null) {
+            _selectedUsers = new Set();
+            for (var i = 0; i < _sortedUsers.length; i++) {
+              _selectedUsers.add(_sortedUsers[i].user_id || '');
+            }
+            _selectedUsers.delete(uid);
+          } else {
+            if (_selectedUsers.has(uid)) _selectedUsers.delete(uid);
+            else _selectedUsers.add(uid);
+            // 결과적으로 모두 선택된 상태가 되면 null (All) 로 정규화
+            if (_selectedUsers.size === _sortedUsers.length) {
+              _selectedUsers = null;
+            }
+          }
+          renderFilterBar(_payload && _payload.by_user || []);
+          applyFilter();
+          return;
+        }
+      }
+      t = t.parentNode;
+    }
+  });
+
+  if ($userSearch) {
+    $userSearch.addEventListener('input', function () {
+      applySearchFilter();
+    });
   }
 
   // ─────────────────────────────────────────────────────
