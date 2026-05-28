@@ -81,37 +81,6 @@ async def run_query(query_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"쿼리 실패: {e}")
 
 
-# ── 신규: /es/overview (대상 로그 개요) ──────────────────────────────────
-@router.get("/overview")
-def overview_page(request: Request):
-    """대상 로그 개요 페이지."""
-    return templates.TemplateResponse(
-        request,
-        "es_overview.html",
-        {
-            "nav_items": NAV_ITEMS,
-            "active_nav": "es_overview",
-            "page_title": "대상 로그 개요",
-        },
-    )
-
-
-@router.get("/overview/data/comparison")
-async def overview_comparison(request: Request):
-    """Section A API: index-1 vs index-2 날짜별 건수 비교."""
-    result = await es_service.run_overview_comparison()
-    status = 200 if result["ok"] else 500
-    return JSONResponse(result, status_code=status)
-
-
-@router.get("/overview/data/tkin")
-async def overview_tkin(request: Request):
-    """Section B API: index-2 tkin_time 최근 2주 날짜별 카운트."""
-    result = await es_service.run_overview_tkin()
-    status = 200 if result["ok"] else 500
-    return JSONResponse(result, status_code=status)
-
-
 # ── 신규: /es/document (Document 조회 — _id terms 쿼리) ──────────────────
 @router.get("/document")
 def document_page(request: Request, ids: str | None = None):
@@ -333,20 +302,6 @@ async def pending_delay_data(request: Request):
     return JSONResponse(result, status_code=status)
 
 
-# ── 준비 중 페이지들 (나중에 구현) ───────────────────────────────────────
-@router.get("/targets")
-def targets_page(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "es_stub.html",
-        {
-            "nav_items": NAV_ITEMS,
-            "active_nav": "es_targets",
-            "page_title": "대상 설비",
-        },
-    )
-
-
 # ── 신규: /es/history (종합 처리 이력) ────────────────────────────────────
 @router.get("/history")
 def history_page(request: Request):
@@ -404,19 +359,7 @@ async def history_data(request: Request):
     return JSONResponse(result, status_code=status)
 
 
-@router.get("/delay")
-def delay_page(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "es_stub.html",
-        {
-            "nav_items": NAV_ITEMS,
-            "active_nav": "es_delay",
-            "page_title": "처리 지연 상태",
-        },
-    )
-
-
+# ── 준비 중 페이지 (나중에 구현) ─────────────────────────────────────────
 @router.get("/anomaly")
 def anomaly_page(request: Request):
     return templates.TemplateResponse(
