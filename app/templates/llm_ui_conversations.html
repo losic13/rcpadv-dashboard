@@ -469,7 +469,9 @@
   font-size: 16px; color: #555; padding: 4px 8px;
 }
 .llc-modal-close:hover { color: #000; }
-.llc-modal-body { overflow: auto; flex: 1; }
+/* Detail 모달 본문 — 세로 스크롤만 허용. 가로 스크롤을 켜두면 자식의 wrap
+ * (.llc-jl-body pre-wrap) 이 무력화되어 긴 줄이 한 줄로 길게 늘어진다. */
+.llc-modal-body { overflow-y: auto; overflow-x: hidden; flex: 1; min-width: 0; }
 .llc-modal-pre {
   margin: 0; padding: 14px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
