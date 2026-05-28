@@ -54,6 +54,8 @@ message 의 구조 (timeline / messages 둘 다 동일):
 """
 from __future__ import annotations
 
+import ast
+import json
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -215,6 +217,78 @@ def fetch_conversations(start: date, end: date) -> dict[str, Any]:
 # ============================================================
 # 헬퍼
 # ============================================================
+def _normalize_trace(raw: str | None) -> str | None:
+    """trace 원본 문자열을 프런트가 ``JSON.parse`` 할 수 있는 형태로 정규화.
+
+    DB 에 저장된 trace 는 두 가지 형태로 들어올 수 있다:
+
+      1) **표준 JSON 문자열**    — ``{"k": "v", ...}`` (큰따옴표). 이미 정상.
+      2) **Python ``repr()`` 형식의 dict 문자열**
+         — ``{'k': 'v', None, True, False, ...}`` (작은따옴표 + Python 리터럴).
+         이 경우 그대로 ``JSON.parse`` 하면 실패해서 프런트에서 raw 모드로
+         떨어지고, ``\\n`` 같은 escape sequence 도 풀리지 않은 채 노출된다.
+
+    이 함수는 다음 우선순위로 시도해 **표준 JSON 문자열 (큰따옴표, ASCII-safe
+    하지 않음)** 로 정규화한다. 어느 단계에서든 결과는 프런트의
+    ``JSON.parse`` 가 받아들일 수 있는 형태여야 한다.
+
+      Step 1) ``json.loads(raw)``        → 이미 표준 JSON. ``json.dumps`` 로
+                                            ``ensure_ascii=False`` 재직렬화만.
+      Step 2) ``ast.literal_eval(raw)``  → Python 리터럴 (dict/list/tuple/
+                                            str/int/float/bool/None) 로 평가.
+                                            성공 시 tuple → list 로 치환 후
+                                            ``json.dumps`` 로 직렬화.
+      Step 3) 둘 다 실패하면 **원본 그대로 반환** (프런트가 raw <pre> 로 표시).
+
+    ``ast.literal_eval`` 은 임의 코드 실행이 아닌 리터럴 평가만 수행하므로
+    안전하다 (Python 공식 문서). 즉, 함수 호출이나 이름 조회는 거부된다.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        # 혹시 dict/list 등이 그대로 넘어오면 직렬화만 해서 반환.
+        try:
+            return json.dumps(raw, ensure_ascii=False, default=str)
+        except Exception:
+            return None
+    s = raw.strip()
+    if not s:
+        return raw  # 빈 문자열은 그대로
+
+    # Step 1: 이미 표준 JSON 인지.
+    try:
+        obj = json.loads(s)
+        # 재직렬화로 통일된 표기 보장 (ensure_ascii=False → 한글 그대로).
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        pass
+
+    # Step 2: Python repr() 형태의 dict/list 인지.
+    try:
+        obj = ast.literal_eval(s)
+    except Exception:
+        return raw  # 평가 실패 → 원본 그대로 (프런트 raw fallback).
+
+    # tuple → list, set → list 로 강제 (JSON 비호환 자료형 정리).
+    def _jsonable(v: Any) -> Any:
+        if isinstance(v, dict):
+            return {str(k): _jsonable(val) for k, val in v.items()}
+        if isinstance(v, (list, tuple, set, frozenset)):
+            return [_jsonable(x) for x in v]
+        # bytes 는 utf-8 decode 시도, 실패하면 repr.
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                return v.decode("utf-8")
+            except Exception:
+                return repr(v)
+        return v  # str / int / float / bool / None → 그대로
+
+    try:
+        return json.dumps(_jsonable(obj), ensure_ascii=False, default=str)
+    except Exception:
+        return raw  # 직렬화 실패 → 원본 그대로.
+
+
 def _normalize_row(r: dict[str, Any]) -> dict[str, Any]:
     """DB row 를 페이지가 기대하는 키/타입으로 정규화.
 
@@ -248,7 +322,7 @@ def _normalize_row(r: dict[str, Any]) -> dict[str, Any]:
         "seq":             seq_int,
         "role":            _s(r.get("role")) or "",
         "content":         _s(r.get("content")) or "",
-        "trace":           _s(r.get("trace")),
+        "trace":           _normalize_trace(_s(r.get("trace"))),
         "created_at":      _s(r.get("created_at")) or "",
         "parent_id":       _s(r.get("parent_id")),
         "user_id":         _s(r.get("user_id")) or "",
