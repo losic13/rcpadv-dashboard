@@ -61,7 +61,7 @@
     <p class="lh-hint">
       LLM UI 의 대화 메시지를 <code>created_at</code> 기준 날짜 범위로 조회합니다.
       행 수 제한이 없으므로, 기간이 넓을수록 응답 시간이 길어질 수 있습니다.
-      각 메시지의 <strong>trace</strong> 는 행의 <em>trace</em> 버튼을 클릭하면 모달에서 확인할 수 있습니다.
+      각 메시지의 <strong>Detail</strong> 은 행의 <em>Detail</em> 버튼을 클릭하면 모달에서 확인할 수 있습니다.
     </p>
 
     <div class="error-msg llc-error" id="llc-error" hidden></div>
@@ -119,19 +119,34 @@
 </section>
 
 <!-- ==========================================================
-     trace 모달 (전역 1개. JSON 이면 pretty-print, 아니면 raw)
+     Detail 모달 (전역 1개. trace 컬럼이 JSON 이면 syntax highlighting +
+     라인 넘버 + 접기/펼치기 트리. JSON 아니면 raw 텍스트.)
      ========================================================== -->
 <div class="llc-modal" id="llc-modal" hidden aria-hidden="true"
      role="dialog" aria-modal="true" aria-labelledby="llc-modal-title">
   <div class="llc-modal-backdrop" data-role="close"></div>
   <div class="llc-modal-card" role="document">
     <header class="llc-modal-header">
-      <strong id="llc-modal-title">Trace</strong>
+      <strong id="llc-modal-title">Detail</strong>
       <span class="llc-modal-sub" data-role="modal-sub">—</span>
       <button type="button" class="llc-modal-close" data-role="close" aria-label="닫기">✕</button>
     </header>
-    <div class="llc-modal-body">
-      <pre class="llc-modal-pre" data-role="modal-body">—</pre>
+    <div class="llc-modal-toolbar" data-role="modal-toolbar" hidden>
+      <button type="button" class="llc-modal-btn" data-role="json-expand-all"
+              title="중첩된 객체/배열 모두 펼치기">▾ 모두 펼치기</button>
+      <button type="button" class="llc-modal-btn" data-role="json-collapse-all"
+              title="중첩된 객체/배열 모두 접기">▸ 모두 접기</button>
+      <button type="button" class="llc-modal-btn" data-role="json-copy"
+              title="JSON 텍스트 클립보드 복사">📋 복사</button>
+      <span class="llc-modal-toolbar-spacer" aria-hidden="true"></span>
+      <button type="button" class="llc-modal-btn" data-role="json-toggle-raw"
+              title="원본(raw) JSON 텍스트 토글">{ } raw</button>
+    </div>
+    <div class="llc-modal-body" data-role="modal-body-wrap">
+      {# JSON 이면 트리 노드들이 들어가는 컨테이너 #}
+      <div class="llc-json-tree" data-role="json-tree" hidden></div>
+      {# parse 실패 또는 raw 토글 시 표시되는 원본 텍스트 #}
+      <pre class="llc-modal-pre" data-role="modal-body" hidden>—</pre>
     </div>
   </div>
 </div>
@@ -462,6 +477,107 @@
   white-space: pre-wrap; word-break: break-word;
   color: #222;
 }
+
+/* ─── Detail 모달 — 툴바 (JSON 일 때만 노출) ─── */
+.llc-modal-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: #fafbfc;
+  border-bottom: 1px solid #eef0f4;
+}
+.llc-modal-toolbar[hidden] { display: none; }
+.llc-modal-toolbar-spacer { flex: 1; }
+.llc-modal-btn {
+  border: 1px solid var(--border, #d0d4dd);
+  background: #fff; color: #444;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.llc-modal-btn:hover { background: #f3f4f7; }
+.llc-modal-btn.is-active {
+  background: #2b6cb0; color: #fff; border-color: #2b6cb0;
+}
+.llc-modal-btn.is-flash {
+  background: #16a34a; color: #fff; border-color: #16a34a;
+}
+
+/* ─── JSON 트리 (syntax highlighting + 라인 넘버 + 접기) ─── */
+.llc-json-tree {
+  margin: 0; padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px; line-height: 1.55;
+  color: #1f2328;
+  background: #fff;
+  /* gutter 와 본문이 어긋나지 않도록 */
+  white-space: nowrap;
+}
+.llc-json-tree[hidden] { display: none; }
+
+/* 각 줄: [gutter 번호] [들여쓰기/접기 캐럿] [content] */
+.llc-jl {
+  display: flex;
+  align-items: baseline;
+  min-height: 1.55em;
+}
+.llc-jl:hover { background: #f6f8fa; }
+.llc-jl-num {
+  flex: 0 0 auto;
+  width: 44px; padding: 0 8px 0 10px;
+  text-align: right;
+  color: #9aa3ad; font-size: 11px;
+  border-right: 1px solid #eef0f4;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.llc-jl-body {
+  flex: 1 1 auto;
+  padding: 0 10px 0 8px;
+  white-space: pre;
+  overflow-x: auto;
+}
+/* 접기 캐럿 — 객체/배열 시작 라인에만 부착. 기본 ▾ (펼침), 접히면 ▸ */
+.llc-jc {
+  display: inline-block;
+  width: 12px; margin-right: 2px;
+  color: #57606a;
+  cursor: pointer;
+  user-select: none;
+  transition: transform .12s;
+}
+.llc-jc::before { content: '▾'; font-size: 9px; }
+.llc-jl.is-collapsed > .llc-jl-body > .llc-jc::before { content: '▸'; }
+/* placeholder (캐럿 없는 라인에 자리만 차지하게) */
+.llc-jc-pad {
+  display: inline-block;
+  width: 14px;
+}
+/* 접힘 시 children 라인 + closing 라인 숨김 */
+.llc-jl.is-hidden { display: none; }
+
+/* 접혔을 때 같은 라인 끝에 표시되는 요약: { … 3 keys } */
+.llc-jl-summary {
+  display: none;
+  color: #57606a;
+  font-style: italic;
+  margin-left: 4px;
+}
+.llc-jl.is-collapsed .llc-jl-summary { display: inline; }
+/* 접혔을 때 닫는 괄호도 같은 라인에 보이게 */
+.llc-jl-tail {
+  display: none;
+  color: #1f2328;
+}
+.llc-jl.is-collapsed .llc-jl-tail { display: inline; }
+
+/* 토큰 색상 (GitHub light 계열) */
+.llc-jt-key      { color: #0550ae; }
+.llc-jt-string   { color: #0a7d49; }
+.llc-jt-number   { color: #b45309; }
+.llc-jt-bool     { color: #8250df; font-weight: 600; }
+.llc-jt-null     { color: #8250df; font-style: italic; }
+.llc-jt-punct    { color: #57606a; }
+.llc-jt-comma    { color: #57606a; }
 </style>
 
 <script>
@@ -489,10 +605,19 @@
   var $userSearch = $filterBar.querySelector('[data-role="user-search"]');
   var $filterMeta = $filterBar.querySelector('[data-role="filter-meta"]');
 
-  // 모달
+  // Detail 모달 (JSON 트리 + raw fallback)
   var $modal    = document.getElementById('llc-modal');
-  var $mBody    = $modal.querySelector('[data-role="modal-body"]');
+  var $mBody    = $modal.querySelector('[data-role="modal-body"]');       // <pre> (raw)
+  var $mTree    = $modal.querySelector('[data-role="json-tree"]');         // <div> (트리)
   var $mSub     = $modal.querySelector('[data-role="modal-sub"]');
+  var $mToolbar = $modal.querySelector('[data-role="modal-toolbar"]');
+  var $mBtnRaw  = $modal.querySelector('[data-role="json-toggle-raw"]');
+  var $mBtnCopy = $modal.querySelector('[data-role="json-copy"]');
+
+  // 현재 모달이 보여주는 JSON 의 raw 텍스트 (복사/raw 토글에 사용)
+  var _modalJsonText = '';
+  // 현재 raw 토글 상태 (true = raw <pre>, false = 트리)
+  var _modalShowRaw  = false;
 
   // 마지막 페이로드 (모달이 trace 인덱스로 참조)
   var _payload  = null;
@@ -887,7 +1012,7 @@
       +     '<button type="button" class="llc-trace-btn"'
       +     ' data-role="open-trace" data-msg-id="' + esc(m.id || '') + '"'
       +     (traceHas ? '' : ' disabled')
-      +     ' title="trace 보기">trace</button>'
+      +     ' title="Detail 보기">Detail</button>'
       +   '</div>'
       + '</li>';
   }
@@ -1038,29 +1163,68 @@
   $panelTL.addEventListener('click', onTraceClick);
   $panelBU.addEventListener('click', onTraceClick);
 
+  // ─── Detail 모달 열기 ───
+  //  - trace 가 JSON parse 성공 → 트리 (syntax highlighting + 라인넘버 + 접기)
+  //  - parse 실패 또는 비어있음 → raw <pre> 로 그대로 표시 (Q3=A)
   function openTraceModal(msg) {
     var raw = msg.trace;
-    var body;
-    if (raw === null || raw === undefined || raw === '') {
-      body = '(trace 가 없습니다)';
-    } else {
-      // 사용자 결정 Q4: trace 는 JSON 임 → pretty-print 시도. 실패하면 raw.
-      try {
-        var parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
-        body = JSON.stringify(parsed, null, 2);
-      } catch (e) {
-        body = String(raw);
-      }
-    }
-    $mBody.textContent = body;
     $mSub.textContent =
       '[' + (msg.role || '') + '] ' +
       (msg.user_id || '') + ' · ' +
       (msg.created_at || '') + ' · ' +
       'id=' + (msg.id || '');
+
+    if (raw === null || raw === undefined || raw === '') {
+      // 빈 trace — raw 모드, 안내문
+      _modalJsonText = '';
+      showModalAsRaw('(Detail 데이터가 없습니다)', /*hideToolbar=*/true);
+    } else {
+      // JSON parse 시도
+      var parsed;
+      var parseOk = true;
+      try {
+        parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+      } catch (e) {
+        parseOk = false;
+      }
+      if (parseOk) {
+        // 트리 모드. raw 텍스트는 toggle / copy 용으로 보관.
+        _modalJsonText = JSON.stringify(parsed, null, 2);
+        _modalShowRaw  = false;
+        renderJsonTree(parsed);
+        $mTree.hidden = false;
+        $mBody.hidden = true;
+        $mToolbar.hidden = false;
+        $mBtnRaw.classList.remove('is-active');
+        $mBtnRaw.setAttribute('aria-pressed', 'false');
+      } else {
+        // JSON 아님 → raw fallback (Q3=A)
+        _modalJsonText = String(raw);
+        showModalAsRaw(_modalJsonText, /*hideToolbar=*/true);
+      }
+    }
+
     $modal.hidden = false;
     $modal.setAttribute('aria-hidden', 'false');
+    // 모달 body 스크롤 위치 초기화
+    var bodyWrap = $modal.querySelector('[data-role="modal-body-wrap"]');
+    if (bodyWrap) bodyWrap.scrollTop = 0;
   }
+
+  // raw <pre> 모드로 표시 (JSON 아닌 경우 또는 raw 토글)
+  function showModalAsRaw(text, hideToolbar) {
+    $mBody.textContent = text;
+    $mBody.hidden = false;
+    $mTree.hidden = true;
+    if (hideToolbar) {
+      $mToolbar.hidden = true;
+    } else {
+      $mToolbar.hidden = false;
+      $mBtnRaw.classList.add('is-active');
+      $mBtnRaw.setAttribute('aria-pressed', 'true');
+    }
+  }
+
   function closeModal() {
     $modal.hidden = true;
     $modal.setAttribute('aria-hidden', 'true');
@@ -1068,9 +1232,34 @@
   $modal.addEventListener('click', function (ev) {
     var t = ev.target;
     while (t && t !== $modal) {
-      if (t.getAttribute && t.getAttribute('data-role') === 'close') {
-        closeModal();
-        return;
+      if (t.getAttribute) {
+        var role = t.getAttribute('data-role');
+        if (role === 'close') {
+          closeModal();
+          return;
+        }
+        if (role === 'json-expand-all') {
+          setAllJsonCollapsed(false);
+          return;
+        }
+        if (role === 'json-collapse-all') {
+          // '모두 접기' = 루트 직속 + 중첩 모든 객체/배열 접기
+          setAllJsonCollapsed(true);
+          return;
+        }
+        if (role === 'json-copy') {
+          copyJsonText();
+          return;
+        }
+        if (role === 'json-toggle-raw') {
+          toggleRaw();
+          return;
+        }
+        if (role === 'json-caret') {
+          // 개별 줄 접기/펼치기
+          toggleJsonLine(t);
+          return;
+        }
       }
       t = t.parentNode;
     }
@@ -1078,6 +1267,252 @@
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape' && !$modal.hidden) closeModal();
   });
+
+  // ─────────────────────────────────────────────────────
+  // JSON 트리 렌더러
+  //  - 한 줄 = 하나의 .llc-jl (line). gutter (.llc-jl-num) + 본문 (.llc-jl-body)
+  //  - 객체/배열의 여는 라인에는 .llc-jc (캐럿) 부착. data-line-id 로 매칭.
+  //  - 같은 부모(=같은 여는 라인)에 속하는 children/closing 라인은 동일한
+  //    data-parent="<line-id>" 를 가진다. 접힘 시 .is-hidden 일괄 적용.
+  //  - 여는 라인에는 .llc-jl-summary (접혔을 때만 보임) + .llc-jl-tail (닫는 괄호)
+  //    가 함께 들어가 있어 접힘 상태에서 "{ … 3 keys }" 형태로 한 줄에 요약된다.
+  // ─────────────────────────────────────────────────────
+  var _jsonLineSeq = 0;
+
+  function renderJsonTree(value) {
+    _jsonLineSeq = 0;
+    var lines = [];                   // [{text, parents:[lineId,...], openId:lineId|null}, ...]
+    var stack = [];                   // 현재 라인의 조상 line-id (openId) 들
+    buildJsonLines(value, '', 0, /*isLast=*/true, lines, stack, /*isRoot=*/true);
+
+    // HTML 합치기
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+      var L = lines[i];
+      var parentsAttr = L.parents.length
+        ? ' data-parent="' + L.parents.join(',') + '"' : '';
+      var openIdAttr = (L.openId != null)
+        ? ' data-line-id="' + L.openId + '"' : '';
+      var lineNo = i + 1;
+      html += '<div class="llc-jl"' + parentsAttr + openIdAttr + '>' +
+                '<span class="llc-jl-num">' + lineNo + '</span>' +
+                '<span class="llc-jl-body">' + L.text + '</span>' +
+              '</div>';
+    }
+    $mTree.innerHTML = html;
+  }
+
+  // 한 값을 받아 한 줄(또는 여러 줄)로 lines 배열에 누적.
+  //  - prefix: 같은 줄 앞에 붙는 문자열 (들여쓰기 + 키 + ":")
+  //  - depth:  현재 들여쓰기 깊이 (스페이스 2칸)
+  //  - isLast: 형제 중 마지막인지 (콤마 생략 결정)
+  //  - stack:  현재 조상 line-id 들 (자식 라인의 data-parent 에 들어감)
+  function buildJsonLines(value, prefix, depth, isLast, lines, stack, isRoot) {
+    var indent = repeatSpaces(depth);
+    var comma = isLast ? '' : '<span class="llc-jt-comma">,</span>';
+
+    if (value === null) {
+      lines.push({
+        text: indent + prefix + '<span class="llc-jt-null">null</span>' + comma,
+        parents: stack.slice(), openId: null
+      });
+      return;
+    }
+    var t = typeof value;
+    if (t === 'string') {
+      lines.push({
+        text: indent + prefix +
+              '<span class="llc-jt-string">' + esc(JSON.stringify(value)) + '</span>' + comma,
+        parents: stack.slice(), openId: null
+      });
+      return;
+    }
+    if (t === 'number' || t === 'bigint') {
+      lines.push({
+        text: indent + prefix +
+              '<span class="llc-jt-number">' + esc(String(value)) + '</span>' + comma,
+        parents: stack.slice(), openId: null
+      });
+      return;
+    }
+    if (t === 'boolean') {
+      lines.push({
+        text: indent + prefix +
+              '<span class="llc-jt-bool">' + (value ? 'true' : 'false') + '</span>' + comma,
+        parents: stack.slice(), openId: null
+      });
+      return;
+    }
+    // 객체 / 배열
+    var isArr = Array.isArray(value);
+    var keys  = isArr ? null : Object.keys(value);
+    var len   = isArr ? value.length : keys.length;
+
+    var open  = isArr ? '[' : '{';
+    var close = isArr ? ']' : '}';
+
+    // 빈 경우 한 줄로
+    if (len === 0) {
+      lines.push({
+        text: indent + prefix +
+              '<span class="llc-jt-punct">' + open + close + '</span>' + comma,
+        parents: stack.slice(), openId: null
+      });
+      return;
+    }
+
+    var lineId = ++_jsonLineSeq;
+    var summaryText = isArr
+      ? (len + ' item' + (len > 1 ? 's' : ''))
+      : (len + ' key' + (len > 1 ? 's' : ''));
+    var caret = '<span class="llc-jc" data-role="json-caret" data-target="' +
+                lineId + '"></span>';
+    // 여는 라인: [indent][caret][prefix][open] + (접혔을 때 보이는) … summary + close + comma
+    var openLineText =
+      indent +
+      caret +
+      prefix +
+      '<span class="llc-jt-punct">' + open + '</span>' +
+      '<span class="llc-jl-summary"> … ' + esc(summaryText) + ' </span>' +
+      '<span class="llc-jl-tail"><span class="llc-jt-punct">' + close + '</span>' + comma + '</span>';
+    lines.push({
+      text: openLineText,
+      parents: stack.slice(),
+      openId: lineId
+    });
+
+    // children
+    stack.push(lineId);
+    if (isArr) {
+      for (var i = 0; i < len; i++) {
+        buildJsonLines(value[i], '', depth + 1, (i === len - 1), lines, stack, false);
+      }
+    } else {
+      for (var j = 0; j < len; j++) {
+        var k = keys[j];
+        var keyPrefix =
+          '<span class="llc-jt-key">' + esc(JSON.stringify(k)) + '</span>' +
+          '<span class="llc-jt-punct">:</span> ';
+        buildJsonLines(value[k], keyPrefix, depth + 1, (j === len - 1), lines, stack, false);
+      }
+    }
+    stack.pop();
+
+    // 닫는 라인 — 이 라인은 부모로 lineId 를 포함시켜야 접힘 시 함께 사라짐
+    var childParents = stack.slice();
+    childParents.push(lineId);
+    lines.push({
+      text: indent + '<span class="llc-jc-pad"></span>' +
+            '<span class="llc-jt-punct">' + close + '</span>' + comma,
+      parents: childParents,
+      openId: null
+    });
+  }
+
+  function repeatSpaces(depth) {
+    var s = '';
+    for (var i = 0; i < depth; i++) s += '  ';
+    return s;
+  }
+
+  // 개별 라인 접기/펼치기 (캐럿 클릭)
+  function toggleJsonLine(caretEl) {
+    var lineId = caretEl.getAttribute('data-target');
+    if (!lineId) return;
+    var openLine = $mTree.querySelector('.llc-jl[data-line-id="' + lineId + '"]');
+    if (!openLine) return;
+    var collapsed = openLine.classList.toggle('is-collapsed');
+    applyCollapseTo(lineId, collapsed);
+  }
+
+  // 특정 line-id 의 자식 라인 모두를 is-hidden 토글
+  function applyCollapseTo(lineId, hide) {
+    var children = $mTree.querySelectorAll('.llc-jl[data-parent]');
+    for (var i = 0; i < children.length; i++) {
+      var ch = children[i];
+      var parents = (ch.getAttribute('data-parent') || '').split(',');
+      if (parents.indexOf(String(lineId)) === -1) continue;
+      // hide=true → 닫힘 적용. 단, 이 자식이 자기 자신도 닫힌 부모를 가지면
+      // 이미 is-hidden 이므로 중복 작업이지만 부작용 없음.
+      if (hide) {
+        ch.classList.add('is-hidden');
+      } else {
+        // 펼침: 단, 이 자식의 다른 조상 중 하나라도 여전히 collapsed 이면
+        // 그대로 hidden 유지해야 한다.
+        var stillHidden = false;
+        for (var p = 0; p < parents.length; p++) {
+          if (!parents[p]) continue;
+          if (parents[p] === String(lineId)) continue;
+          var anc = $mTree.querySelector('.llc-jl[data-line-id="' + parents[p] + '"]');
+          if (anc && anc.classList.contains('is-collapsed')) {
+            stillHidden = true; break;
+          }
+        }
+        ch.classList.toggle('is-hidden', stillHidden);
+      }
+    }
+  }
+
+  // 모두 펼치기/접기
+  function setAllJsonCollapsed(collapse) {
+    var openLines = $mTree.querySelectorAll('.llc-jl[data-line-id]');
+    for (var i = 0; i < openLines.length; i++) {
+      openLines[i].classList.toggle('is-collapsed', collapse);
+    }
+    // 자식 라인들: collapse=true 면 루트 외 모두 숨김, false 면 모두 노출
+    var children = $mTree.querySelectorAll('.llc-jl[data-parent]');
+    for (var j = 0; j < children.length; j++) {
+      children[j].classList.toggle('is-hidden', collapse);
+    }
+  }
+
+  // 클립보드 복사 (raw JSON 텍스트)
+  function copyJsonText() {
+    var text = _modalJsonText || '';
+    if (!text) return;
+    var done = function (ok) {
+      if (!ok) return;
+      $mBtnCopy.classList.add('is-flash');
+      var orig = $mBtnCopy.textContent;
+      $mBtnCopy.textContent = '✓ 복사됨';
+      setTimeout(function () {
+        $mBtnCopy.classList.remove('is-flash');
+        $mBtnCopy.textContent = orig;
+      }, 1100);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else {
+      // fallback
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done(true);
+      } catch (e) { done(false); }
+    }
+  }
+
+  // raw 토글: 트리 ↔ raw <pre>
+  function toggleRaw() {
+    _modalShowRaw = !_modalShowRaw;
+    if (_modalShowRaw) {
+      $mBody.textContent = _modalJsonText;
+      $mBody.hidden = false;
+      $mTree.hidden  = true;
+      $mBtnRaw.classList.add('is-active');
+      $mBtnRaw.setAttribute('aria-pressed', 'true');
+    } else {
+      $mBody.hidden = true;
+      $mTree.hidden  = false;
+      $mBtnRaw.classList.remove('is-active');
+      $mBtnRaw.setAttribute('aria-pressed', 'false');
+    }
+  }
 
   // ─────────────────────────────────────────────────────
   // 최초 자동 조회
