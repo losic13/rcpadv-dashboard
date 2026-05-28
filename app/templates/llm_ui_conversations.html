@@ -578,6 +578,19 @@
 .llc-jt-null     { color: #8250df; font-style: italic; }
 .llc-jt-punct    { color: #57606a; }
 .llc-jt-comma    { color: #57606a; }
+
+/* ── 멀티라인 문자열 (값에 \n 포함) ──
+ *  trace 안에 줄바꿈을 포함한 긴 문자열(예: SQL/Prompt 본문, 결과 텍스트)을
+ *  """ … """ 트리플 따옴표 블록으로 풀어 보여준다.
+ *  - .llc-jt-string-q   : 여는/닫는 """ 마커 (문자열 색상과 동일)
+ *  - .llc-jt-string-line: 한 줄짜리 본문. 공백/탭 보존 + 줄 단위 줄바꿈 안 함.
+ *    (긴 줄은 모달 가로 스크롤로 처리 — 기존 .llc-json-tree 가 overflow:auto 보유)
+ */
+.llc-jt-string-q    { color: #0a7d49; font-weight: 600; }
+.llc-jt-string-line {
+  color: #0a7d49;
+  white-space: pre;     /* 원본 공백/탭 보존 */
+}
 </style>
 
 <script>
@@ -1320,6 +1333,36 @@
     }
     var t = typeof value;
     if (t === 'string') {
+      // 멀티라인 문자열 (\n 포함) — 여러 줄로 풀어서 표시.
+      //  - 여는 라인: [prefix]"""        (트리플 따옴표 — 한 줄 문자열과 구분)
+      //  - 본문 라인들: 각 줄을 indent+2 만큼 들여쓰기, 원문 그대로 (escape 풀린 상태)
+      //  - 닫는 라인: """[,]              (콤마는 부모의 isLast 따라)
+      // 한 줄 문자열은 기존대로 JSON.stringify 결과 ("...") 로 표시.
+      if (value.indexOf('\n') !== -1) {
+        var bodyIndent = repeatSpaces(depth + 1);
+        // 여는 라인 — caret 없이 단순 prefix + """
+        lines.push({
+          text: indent + prefix +
+                '<span class="llc-jt-string-q">"""</span>',
+          parents: stack.slice(), openId: null
+        });
+        // 본문 — value 를 \n 기준으로 split, 각 줄을 esc 후 멀티라인 라인으로
+        var parts = value.split('\n');
+        for (var li = 0; li < parts.length; li++) {
+          lines.push({
+            text: bodyIndent +
+                  '<span class="llc-jt-string-line">' + esc(parts[li]) + '</span>',
+            parents: stack.slice(), openId: null
+          });
+        }
+        // 닫는 라인
+        lines.push({
+          text: indent +
+                '<span class="llc-jt-string-q">"""</span>' + comma,
+          parents: stack.slice(), openId: null
+        });
+        return;
+      }
       lines.push({
         text: indent + prefix +
               '<span class="llc-jt-string">' + esc(JSON.stringify(value)) + '</span>' + comma,
