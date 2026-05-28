@@ -509,15 +509,16 @@
   font-size: 12.5px; line-height: 1.55;
   color: #1f2328;
   background: #fff;
-  /* gutter 와 본문이 어긋나지 않도록 */
-  white-space: nowrap;
 }
 .llc-json-tree[hidden] { display: none; }
 
-/* 각 줄: [gutter 번호] [들여쓰기/접기 캐럿] [content] */
+/* 각 줄: [gutter 번호] [들여쓰기/접기 캐럿] [content]
+ *  - 본문이 길어 wrap 되면 여러 시각 줄로 표시되지만 라인 번호는 한 번만 (첫 시각 줄에 정렬).
+ *  - align-items: flex-start → gutter 가 본문의 첫 줄 윗변에 정렬되어 자연스러움.
+ */
 .llc-jl {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   min-height: 1.55em;
 }
 .llc-jl:hover { background: #f6f8fa; }
@@ -529,12 +530,19 @@
   border-right: 1px solid #eef0f4;
   user-select: none;
   font-variant-numeric: tabular-nums;
+  /* gutter 폰트가 본문보다 작아서 baseline 정렬을 잃었을 때를 대비해
+   * 본문 line-height 와 동일하게 잡아준다. */
+  line-height: 1.55;
 }
 .llc-jl-body {
   flex: 1 1 auto;
+  min-width: 0;                 /* flex item 이 부모 너비를 넘지 못하도록 — wrap 활성화에 필수 */
   padding: 0 10px 0 8px;
-  white-space: pre;
-  overflow-x: auto;
+  /* 들여쓰기 공백/탭은 보존하면서, 한 줄이 컨테이너 폭을 넘으면 wrap.
+   * 긴 토큰(공백 없는 문자열, URL 등) 도 강제로 줄바꿈. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 /* 접기 캐럿 — 객체/배열 시작 라인에만 부착. 기본 ▾ (펼침), 접히면 ▸ */
 .llc-jc {
