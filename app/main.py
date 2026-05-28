@@ -147,7 +147,7 @@ app.include_router(disk_usage.router)  # /disk-usage
 app.include_router(vnand.router)
 app.include_router(dram.router)
 app.include_router(amat.router)         # /amat (AMAT 설비관리, DRAM DB 엔진 재사용)
-app.include_router(es.router)          # /es + /es/overview + /es/targets 등 전용 페이지 포함
+app.include_router(es.router)          # /es 전용 페이지들 (document / document-state / eqp-status / pending-delay / history / anomaly)
 app.include_router(eqp_if.router)
 app.include_router(logs.router)
 
