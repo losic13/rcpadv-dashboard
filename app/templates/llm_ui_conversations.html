@@ -469,9 +469,9 @@
   font-size: 16px; color: #555; padding: 4px 8px;
 }
 .llc-modal-close:hover { color: #000; }
-/* Detail 모달 본문 — 세로 스크롤만 허용. 가로 스크롤을 켜두면 자식의 wrap
- * (.llc-jl-body pre-wrap) 이 무력화되어 긴 줄이 한 줄로 길게 늘어진다. */
-.llc-modal-body { overflow-y: auto; overflow-x: hidden; flex: 1; min-width: 0; }
+/* Detail 모달 본문 — 가로/세로 스크롤 모두 허용 (긴 줄은 JSON 트리 내부 .llc-jl-body 가
+ * overflow-x:auto 로 가로 스크롤바를 표시) */
+.llc-modal-body { overflow: auto; flex: 1; }
 .llc-modal-pre {
   margin: 0; padding: 14px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -511,16 +511,16 @@
   font-size: 12.5px; line-height: 1.55;
   color: #1f2328;
   background: #fff;
+  white-space: nowrap;
 }
 .llc-json-tree[hidden] { display: none; }
 
 /* 각 줄: [gutter 번호] [들여쓰기/접기 캐럿] [content]
- *  - 본문이 길어 wrap 되면 여러 시각 줄로 표시되지만 라인 번호는 한 번만 (첫 시각 줄에 정렬).
- *  - align-items: flex-start → gutter 가 본문의 첫 줄 윗변에 정렬되어 자연스러움.
+ *  - 한 줄은 한 시각 줄로만 표시 (긴 줄은 모달 가로 스크롤로 확인)
  */
 .llc-jl {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   min-height: 1.55em;
 }
 .llc-jl:hover { background: #f6f8fa; }
@@ -532,19 +532,12 @@
   border-right: 1px solid #eef0f4;
   user-select: none;
   font-variant-numeric: tabular-nums;
-  /* gutter 폰트가 본문보다 작아서 baseline 정렬을 잃었을 때를 대비해
-   * 본문 line-height 와 동일하게 잡아준다. */
-  line-height: 1.55;
 }
 .llc-jl-body {
   flex: 1 1 auto;
-  min-width: 0;                 /* flex item 이 부모 너비를 넘지 못하도록 — wrap 활성화에 필수 */
   padding: 0 10px 0 8px;
-  /* 들여쓰기 공백/탭은 보존하면서, 한 줄이 컨테이너 폭을 넘으면 wrap.
-   * 긴 토큰(공백 없는 문자열, URL 등) 도 강제로 줄바꿈. */
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  white-space: pre;
+  overflow-x: auto;
 }
 /* 접기 캐럿 — 객체/배열 시작 라인에만 부착. 기본 ▾ (펼침), 접히면 ▸ */
 .llc-jc {
